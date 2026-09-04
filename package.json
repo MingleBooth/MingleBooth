@@ -1,0 +1,33 @@
+{
+  "name": "minglebooth-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MINGLEBOOTH — Professional Photobooth Operating Platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail -n \"web,desktop\" -c \"cyan,magenta\" \"npm --workspace=@minglebooth/web run dev\" \"npm --workspace=@minglebooth/desktop run dev\"",
+    "dev:desktop": "npm --workspace=@minglebooth/desktop run dev",
+    "dev:web": "npm --workspace=@minglebooth/web run dev",
+    "desktop:electron": "npm --workspace=@minglebooth/desktop run electron:dev",
+    "desktop:build:mac": "npm --workspace=@minglebooth/desktop run electron:build:mac",
+    "desktop:build:win": "npm --workspace=@minglebooth/desktop run electron:build:win",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "keywords": [
+    "photobooth",
+    "electron",
+    "nextjs",
+    "supabase",
+    "roaming-booth"
+  ],
+  "author": "MingleBooth Team",
+  "license": "UNLICENSED"
+}

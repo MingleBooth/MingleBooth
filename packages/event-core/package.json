@@ -1,0 +1,28 @@
+{
+  "name": "@minglebooth/event-core",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Event management, local database schema definitions, and offline event package bundler for MingleBooth",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@minglebooth/shared": "*",
+    "@minglebooth/template-engine": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

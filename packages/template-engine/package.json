@@ -1,0 +1,27 @@
+{
+  "name": "@minglebooth/template-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Template layout calculations, JSON specifications, and validation for MingleBooth",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@minglebooth/shared": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

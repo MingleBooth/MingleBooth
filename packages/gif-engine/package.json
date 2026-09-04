@@ -1,0 +1,28 @@
+{
+  "name": "@minglebooth/gif-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Multi-frame burst capture, loop/boomerang sequencing, and GIF generation for MingleBooth",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@minglebooth/shared": "*",
+    "gifenc": "^1.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

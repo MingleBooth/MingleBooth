@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#0C0D0F] text-[#E2E8F0] antialiased;
+    font-family: -apple-system, 'Inter', system-ui, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+
+/* Panels */
+.studio-card {
+  background: #13151A;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* Shutter button */
+.shutter-btn {
+  transition: all 0.14s ease;
+}
+.shutter-btn:hover  { transform: scale(1.02); }
+.shutter-btn:active { transform: scale(0.97); }
+
+/* Scrollbar */
+::-webkit-scrollbar        { width: 3px; height: 3px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+/* Fade */
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+.animate-fadeIn { animation: fadeIn 0.3s ease forwards; }
+
+@keyframes flash { 0% { opacity: 0.9 } 100% { opacity: 0 } }
+.animate-flash { animation: flash 0.22s ease-out forwards; }
