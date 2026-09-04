@@ -10,6 +10,7 @@ export default function VendorRegisterPage() {
   const [studioName, setStudioName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
   const [selectedPlan, setSelectedPlan] = useState<'starter' | 'pro' | 'business'>('pro');
   const [loading, setLoading] = useState(false);
 
@@ -17,10 +18,21 @@ export default function VendorRegisterPage() {
     e.preventDefault();
     setLoading(true);
 
-    // Save info and redirect to Billing with Lynk.id checkout
+    // Save registration context and session to localStorage
+    const cleanEmail = email.trim().toLowerCase();
+    const vendorData = {
+      studioName: studioName.trim(),
+      email: cleanEmail,
+      selectedPlan,
+      billingCycle,
+    };
+    localStorage.setItem('mb_registered_vendor', JSON.stringify(vendorData));
+    localStorage.setItem('mb_web_user', JSON.stringify({ email: cleanEmail, name: studioName.trim() }));
+
+    // Redirect to Billing page with selected cycle & plan
     setTimeout(() => {
-      router.push('/billing');
-    }, 500);
+      router.push(`/billing?cycle=${billingCycle}&plan=${selectedPlan}&email=${encodeURIComponent(cleanEmail)}`);
+    }, 400);
   };
 
   return (
@@ -104,30 +116,117 @@ export default function VendorRegisterPage() {
           </div>
 
           {/* Plan Choice Selector */}
-          <div className="flex flex-col gap-1.5 pt-2">
-            <label className="text-xs text-neutral-400 font-medium">Pilihan Paket Lisensi</label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: 'starter', label: 'Starter', price: 'Mulai 549rb', quota: '1 Device' },
-                { id: 'pro', label: 'Pro', price: 'Mulai 1.099jt', quota: '3 Devices' },
-                { id: 'business', label: 'Business', price: 'Mulai 2.199jt', quota: '10 Devices' },
-              ].map((p) => (
+          <div className="flex flex-col gap-2 pt-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-neutral-400 font-medium">Pilihan Paket Lisensi</label>
+              
+              {/* Billing Cycle Switch */}
+              <div className="inline-flex items-center p-0.5 rounded-lg bg-[#181A1F] border border-white/[0.08]">
                 <button
-                  key={p.id}
                   type="button"
-                  onClick={() => setSelectedPlan(p.id as any)}
-                  className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-colors ${
-                    selectedPlan === p.id
-                      ? 'bg-white text-black border-white shadow-sm'
-                      : 'bg-[#181A1F] border-white/[0.06] text-neutral-300 hover:text-white'
+                  onClick={() => setBillingCycle('monthly')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    billingCycle === 'monthly'
+                      ? 'bg-white text-black font-bold shadow-sm'
+                      : 'text-neutral-400 hover:text-white'
                   }`}
                 >
-                  <span className="text-xs font-bold">{p.label}</span>
-                  <span className="text-[10px] font-mono mt-0.5">{p.price}</span>
-                  <span className={`text-[9px] mt-1 ${selectedPlan === p.id ? 'text-neutral-700' : 'text-neutral-500'}`}>{p.quota}</span>
+                  Bulanan
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => setBillingCycle('yearly')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-all ${
+                    billingCycle === 'yearly'
+                      ? 'bg-white text-black font-bold shadow-sm'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <span>Tahunan</span>
+                  <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${
+                    billingCycle === 'yearly' ? 'bg-emerald-600 text-white' : 'text-emerald-400'
+                  }`}>
+                    -77%
+                  </span>
+                </button>
+              </div>
             </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                {
+                  id: 'starter',
+                  label: 'Starter',
+                  price: billingCycle === 'monthly' ? 'Rp 549rb' : 'Rp 1.499jt',
+                  period: billingCycle === 'monthly' ? '/bln' : '/thn',
+                  quota: '1 Device',
+                  badge: billingCycle === 'monthly' ? '30 Hari' : '365 Hari',
+                },
+                {
+                  id: 'pro',
+                  label: 'Pro',
+                  price: billingCycle === 'monthly' ? 'Rp 1.099jt' : 'Rp 2.999jt',
+                  period: billingCycle === 'monthly' ? '/bln' : '/thn',
+                  quota: '3 Devices',
+                  badge: billingCycle === 'monthly' ? '30 Hari' : '365 Hari',
+                  isPopular: true,
+                },
+                {
+                  id: 'business',
+                  label: 'Business',
+                  price: billingCycle === 'monthly' ? 'Rp 2.199jt' : 'Rp 5.999jt',
+                  period: billingCycle === 'monthly' ? '/bln' : '/thn',
+                  quota: '10 Devices',
+                  badge: billingCycle === 'monthly' ? '30 Hari' : '365 Hari',
+                },
+              ].map((p) => {
+                const isSelected = selectedPlan === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setSelectedPlan(p.id as any)}
+                    className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all relative ${
+                      isSelected
+                        ? 'bg-white text-black border-white shadow-md'
+                        : 'bg-[#181A1F] border-white/[0.06] text-neutral-300 hover:border-white/20'
+                    }`}
+                  >
+                    {p.isPopular && (
+                      <span className={`absolute -top-2 right-2 px-1.5 py-0.2 rounded text-[8px] font-extrabold uppercase tracking-wide ${
+                        isSelected ? 'bg-neutral-900 text-white' : 'bg-white text-black'
+                      }`}>
+                        Populer
+                      </span>
+                    )}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold">{p.label}</span>
+                      </div>
+                      <div className="flex items-baseline gap-0.5 mt-0.5">
+                        <span className="text-xs font-bold font-mono">{p.price}</span>
+                        <span className={`text-[10px] ${isSelected ? 'text-neutral-600' : 'text-neutral-400'}`}>
+                          {p.period}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-current/10">
+                      <span className={`text-[9px] font-medium ${isSelected ? 'text-neutral-700' : 'text-neutral-400'}`}>
+                        {p.quota}
+                      </span>
+                      <span className={`text-[8px] font-semibold px-1 py-0.2 rounded ${
+                        isSelected ? 'bg-black/10 text-neutral-800' : 'bg-white/10 text-neutral-300'
+                      }`}>
+                        {p.badge}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-neutral-500 text-center mt-0.5">
+              {billingCycle === 'yearly' ? '✨ Hemat s.d. 77% dengan paket tahunan (Lisensi 365 Hari)' : '⚡ Akses fleksibel per 30 hari, perpanjang kapan saja.'}
+            </p>
           </div>
 
           <button

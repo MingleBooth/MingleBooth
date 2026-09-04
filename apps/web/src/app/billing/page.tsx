@@ -21,6 +21,19 @@ export default function BillingPage() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
 
   useEffect(() => {
+    // Check URL search params for cycle or email passed from registration
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const cycleParam = params.get('cycle');
+      if (cycleParam === 'monthly' || cycleParam === 'yearly') {
+        setBillingCycle(cycleParam);
+      }
+      const emailParam = params.get('email');
+      if (emailParam) {
+        setCurrentUser((prev: any) => prev || { email: decodeURIComponent(emailParam) });
+      }
+    }
+
     // Check if user is logged in
     const session = localStorage.getItem('mb_web_user');
     if (session) {
