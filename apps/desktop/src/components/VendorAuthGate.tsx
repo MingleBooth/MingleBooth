@@ -91,15 +91,6 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
     }
   };
 
-  const handleDevBypass = () => {
-    localStorage.setItem('mb_license_token', 'DEV_MOCK_TOKEN');
-    localStorage.setItem(
-      'mb_vendor_org',
-      JSON.stringify({ name: 'ABC Photobooth Studio', planTier: 'pro', maxDevicesQuota: 3 })
-    );
-    setIsAuthenticated(true);
-  };
-
   if (loading) {
     return (
       <div className="h-screen w-screen bg-[#090A0C] flex items-center justify-center text-neutral-500 text-xs font-mono">
@@ -192,19 +183,7 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
             </button>
           </form>
 
-          {/* Quick Demo Bypass for Testing */}
-          <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs">
-            <span className="text-[11px] text-neutral-500 font-mono">Testing Mode:</span>
-            <button
-              type="button"
-              onClick={handleDevBypass}
-              className="text-neutral-400 hover:text-white text-[11px] font-mono underline"
-            >
-              Masuk Instan (Demo Bypass)
-            </button>
-          </div>
-
-          <div className="flex flex-col items-center gap-2 pt-2">
+          <div className="flex flex-col items-center gap-2 pt-2 border-t border-white/[0.06]">
             <a
               href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"
               target="_blank"

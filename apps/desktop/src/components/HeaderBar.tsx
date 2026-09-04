@@ -115,7 +115,7 @@ export const HeaderBar: React.FC = () => {
               ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
               : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/40'
           }`}
-          title="Klik untuk simulasi status online / offline"
+          title="Status koneksi jaringan dan cloud sync"
         >
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
           {isOnline ? (
@@ -167,7 +167,7 @@ export const HeaderBar: React.FC = () => {
 
         <button
           onClick={toggleAdminTesting}
-          title="Buka Panel Diagnostik / Testing"
+          title="Buka Panel Diagnostik Sistem"
           className="flex items-center gap-1 px-2 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] text-neutral-300 hover:text-white text-[11px] font-medium border border-white/[0.06] transition-colors"
         >
           <SlidersHorizontal className="w-3.5 h-3.5 text-neutral-400" />

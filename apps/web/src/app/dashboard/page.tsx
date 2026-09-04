@@ -199,45 +199,45 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-[#090A0C] text-[#EDEDED] flex flex-col font-sans select-none antialiased">
       {/* Top Minimal Navbar */}
-      <header className="h-14 px-6 sm:px-12 border-b border-white/[0.07] flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2.5 group">
+      <header className="h-14 px-4 sm:px-12 border-b border-white/[0.07] flex items-center justify-between">
+        <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
+          <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
             <img
               src="/logo-minglebooth-header.png"
               alt="MingleBooth"
               className="h-7 sm:h-8 w-auto object-contain"
             />
           </Link>
-          <span className="text-xs text-neutral-500">/</span>
-          <span className="text-xs text-neutral-400 font-medium">Vendor Console</span>
-          <span className="hidden sm:inline-block text-[11px] text-neutral-500 font-mono">
+          <span className="text-xs text-neutral-500 hidden sm:inline">/</span>
+          <span className="text-xs text-neutral-400 font-medium truncate hidden sm:inline">Vendor Console</span>
+          <span className="hidden md:inline-block text-[11px] text-neutral-500 font-mono truncate">
             ({currentUser.email})
           </span>
         </div>
 
-        <div className="flex items-center gap-4 text-xs">
+        <div className="flex items-center gap-2 sm:gap-4 text-xs flex-shrink-0">
           <Link
             href="/billing"
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-neutral-200 hover:text-white transition-colors"
           >
             <CreditCard className="w-3.5 h-3.5 text-neutral-400" />
             <span className="capitalize">{org?.plan_tier || 'Pro'} Tier</span>
-            <span className="text-neutral-500">•</span>
-            <span className="text-emerald-400">Billing & Lisensi</span>
+            <span className="text-neutral-500 hidden sm:inline">•</span>
+            <span className="text-emerald-400 hidden sm:inline">Billing & Lisensi</span>
           </Link>
 
           <button
             onClick={handleLogout}
-            className="text-neutral-400 hover:text-rose-400 flex items-center gap-1 transition-colors"
+            className="text-neutral-400 hover:text-rose-400 flex items-center gap-1 transition-colors px-1 py-1"
           >
             <LogOut className="w-3.5 h-3.5" />
-            <span>Keluar</span>
+            <span className="hidden sm:inline">Keluar</span>
           </button>
         </div>
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-10 flex flex-col gap-10">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10 flex flex-col gap-8 sm:gap-10">
         {/* Banner: Download Software Studio */}
         <section className="p-6 rounded-2xl bg-gradient-to-r from-[#14161A] to-[#121316] border border-white/[0.08] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-xl">
           <div className="flex items-start gap-4">
@@ -336,7 +336,7 @@ export default function DashboardPage() {
                     </button>
 
                     <Link
-                      href="/p/photo_demo_1"
+                      href={`/p/${evt.id}`}
                       className="h-8 px-3 rounded-lg bg-[#1A1C20] hover:bg-[#22252B] border border-white/[0.06] text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
                     >
                       <span>Lihat Galeri</span>

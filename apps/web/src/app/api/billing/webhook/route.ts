@@ -63,23 +63,43 @@ export async function POST(req: NextRequest) {
 
     const client = getServiceSupabase();
 
-    // 1. Determine plan tier based on catatan.md Section 15
+    const itemTitle = (items?.[0]?.title || '').toLowerCase();
+
+    // 1. Determine billing duration (Bulanan: 30 hari, Tahunan: 365 hari)
+    const isMonthly =
+      itemTitle.includes('bulan') ||
+      itemTitle.includes('month') ||
+      grandTotal === 549000 ||
+      grandTotal === 1099000 ||
+      grandTotal === 2199000;
+    const durationDays = isMonthly ? 30 : 365;
+
+    // 2. Determine plan tier & device quota
     let planTier = 'pro';
     let maxDevices = 3;
 
-    const itemTitle = (items?.[0]?.title || '').toLowerCase();
-    if (itemTitle.includes('business') || grandTotal >= 5000000) {
+    if (
+      itemTitle.includes('business') ||
+      grandTotal === 2199000 ||
+      grandTotal >= 5000000
+    ) {
       planTier = 'business';
       maxDevices = 10;
-    } else if (itemTitle.includes('starter') || (grandTotal <= 2000000 && !itemTitle.includes('pro'))) {
+    } else if (
+      itemTitle.includes('starter') ||
+      grandTotal === 549000 ||
+      grandTotal === 1499000 ||
+      (grandTotal < 1000000 && !itemTitle.includes('pro'))
+    ) {
       planTier = 'starter';
       maxDevices = 1;
     } else {
+      // Pro tier: Rp 1.099.000 (bulanan) or Rp 2.999.000 (tahunan)
       planTier = 'pro';
       maxDevices = 3;
     }
 
-    // 2. Find Organization (by customer email or auto-provision / fallback)
+    // 3. Find Organization (by customer email or auto-provision / fallback)
     let orgId: string | null = null;
 
     if (customer?.email) {
@@ -109,7 +129,7 @@ export async function POST(req: NextRequest) {
           slug: orgSlug,
           plan_tier: planTier,
           subscription_status: 'active',
-          subscription_expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          subscription_expires_at: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString(),
           max_devices_quota: maxDevices,
         })
         .select('id')
@@ -117,7 +137,7 @@ export async function POST(req: NextRequest) {
 
       if (!createOrgErr && createdOrg) {
         orgId = createdOrg.id;
-        console.log(`[Lynk Webhook] Auto-provisioned organization ${orgId} for customer ${cleanEmail}`);
+        console.log(`[Lynk Webhook] Auto-provisioned organization ${orgId} for customer ${cleanEmail} (${durationDays} days)`);
       }
     }
 
@@ -135,7 +155,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No organization found to assign license' }, { status: 400 });
     }
 
-    // 3. Extend Subscription Expiry Date by +365 Days (preserve remaining days if still active)
+    // 4. Extend Subscription Expiry Date by +30 or +365 Days (preserve remaining days if still active)
     const { data: orgData } = await client
       .from('organizations')
       .select('id, subscription_expires_at')
@@ -144,7 +164,7 @@ export async function POST(req: NextRequest) {
 
     const currentExpiryMs = orgData?.subscription_expires_at ? new Date(orgData.subscription_expires_at).getTime() : 0;
     const baseTimeMs = currentExpiryMs > Date.now() ? currentExpiryMs : Date.now();
-    const expiresAt = new Date(baseTimeMs + 365 * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(baseTimeMs + durationDays * 24 * 60 * 60 * 1000).toISOString();
 
     const { error: orgUpdateError } = await client
       .from('organizations')

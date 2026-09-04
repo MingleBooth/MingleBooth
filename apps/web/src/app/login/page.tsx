@@ -12,9 +12,8 @@ export default function VendorLoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !password) {
+  const executeLogin = async (targetEmail: string, targetPass: string) => {
+    if (!targetEmail || !targetPass) {
       setErrorMsg('Masukkan email dan password Anda.');
       return;
     }
@@ -26,7 +25,7 @@ export default function VendorLoginPage() {
       const res = await fetch('/api/auth/web-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: targetEmail, password: targetPass }),
       });
 
       const data = await res.json();
@@ -42,6 +41,11 @@ export default function VendorLoginPage() {
       setErrorMsg(err.message || 'Gagal terhubung ke server');
       setLoading(false);
     }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    executeLogin(email, password);
   };
 
   return (
@@ -65,7 +69,7 @@ export default function VendorLoginPage() {
       </header>
 
       {/* Center Login Box */}
-      <main className="max-w-sm w-full mx-auto flex flex-col gap-6 animate-fadeIn my-12">
+      <main className="max-w-sm w-full mx-auto flex flex-col gap-6 animate-fadeIn my-10">
         <div className="flex flex-col items-center text-center gap-2">
           <div className="w-12 h-12 rounded-2xl bg-[#14161A] border border-white/[0.08] flex items-center justify-center text-white shadow-md">
             <Camera className="w-6 h-6 text-white" />
@@ -74,7 +78,7 @@ export default function VendorLoginPage() {
             Masuk ke Portal
           </h1>
           <p className="text-xs text-neutral-400">
-            Masuk dengan akun vendor atau superadmin Anda untuk melanjutkan.
+            Satu pintu masuk akun vendor dan manajemen MingleBooth.
           </p>
         </div>
 

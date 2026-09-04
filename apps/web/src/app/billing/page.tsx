@@ -11,14 +11,14 @@ import {
   ChevronLeft,
   LogIn,
   UserPlus,
+  ArrowRight,
 } from 'lucide-react';
 
 export default function BillingPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [org, setOrg] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [simulating, setSimulating] = useState(false);
-  const [simSuccessMsg, setSimSuccessMsg] = useState<string | null>(null);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
 
   useEffect(() => {
     // Check if user is logged in
@@ -47,76 +47,21 @@ export default function BillingPage() {
     }
   };
 
-  const handleSimulateLynkWebhook = async (plan: 'starter' | 'pro' | 'business', amount: number) => {
-    setSimulating(true);
-    setSimSuccessMsg(null);
-    try {
-      const refId = 'LYNK_TEST_' + Math.random().toString(36).substring(2, 8).toUpperCase();
-      const payload = {
-        event: 'payment.received',
-        data: {
-          message_action: 'SUCCESS',
-          message_code: '0',
-          message_data: {
-            createdAt: new Date().toISOString(),
-            customer: {
-              email: currentUser?.email || 'vendor@minglebooth.app',
-              name: org?.name || 'ABC Photobooth Studio',
-              phone: '08123456789',
-            },
-            items: [
-              {
-                title: `MingleBooth ${plan.toUpperCase()} Annual Subscription`,
-                price: amount,
-                qty: 1,
-                uuid: 'plan_' + plan,
-              },
-            ],
-            refId: refId,
-            totals: {
-              grandTotal: amount,
-              totalPrice: amount,
-            },
-          },
-          message_id: 'API_CALL_' + Date.now(),
-          message_title: 'Payment Received',
-        },
-      };
-
-      const res = await fetch('/api/billing/webhook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        setSimSuccessMsg(`Pembayaran Berhasil (${refId}): Lisensi diperpanjang +365 Hari ke tier ${plan.toUpperCase()}!`);
-        fetchOrg();
-      } else {
-        const err = await res.json();
-        alert('Simulation error: ' + (err.error || 'Failed'));
-      }
-    } catch (e: any) {
-      alert('Error calling webhook: ' + e.message);
-    } finally {
-      setSimulating(false);
-    }
-  };
-
   const calculateDaysRemaining = (dateStr?: string) => {
     if (!dateStr) return 365;
     const diff = new Date(dateStr).getTime() - Date.now();
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
   };
 
-  // Exact pricing & tier specifications from catatan.md Section 15
+  // Pricing & tier specifications (Bulanan & Tahunan)
   const plans = [
     {
       id: 'starter',
       name: 'Starter',
-      price: 'Rp 1.499.000',
-      period: '/ tahun',
-      amount: 1499000,
+      monthlyPrice: 'Rp 549.000',
+      yearlyPrice: 'Rp 1.499.000',
+      monthlyAmount: 549000,
+      yearlyAmount: 1499000,
       description: 'Solusi lengkap untuk solo vendor photobooth atau roaming booth.',
       quota: '1 Perangkat Booth',
       features: [
@@ -134,14 +79,16 @@ export default function BillingPage() {
         'Standard Support',
       ],
       isPopular: false,
-      lynkUrl: process.env.NEXT_PUBLIC_LYNK_URL_STARTER || 'https://lynk.id/minglebooth/r6k3kdyxj7vw',
+      lynkUrlYearly: process.env.NEXT_PUBLIC_LYNK_URL_STARTER || 'https://lynk.id/minglebooth/r6k3kdyxj7vw',
+      lynkUrlMonthly: process.env.NEXT_PUBLIC_LYNK_URL_STARTER_MONTHLY || 'https://lynk.id/minglebooth',
     },
     {
       id: 'pro',
       name: 'Pro',
-      price: 'Rp 2.999.000',
-      period: '/ tahun',
-      amount: 2999000,
+      monthlyPrice: 'Rp 1.099.000',
+      yearlyPrice: 'Rp 2.999.000',
+      monthlyAmount: 1099000,
+      yearlyAmount: 2999000,
       description: 'Pilihan paling populer untuk vendor photobooth aktif & wedding studio.',
       quota: '3 Perangkat Booth',
       features: [
@@ -157,14 +104,16 @@ export default function BillingPage() {
         'Priority Technical Support & Early Access',
       ],
       isPopular: true,
-      lynkUrl: process.env.NEXT_PUBLIC_LYNK_URL_PRO || 'https://lynk.id',
+      lynkUrlYearly: process.env.NEXT_PUBLIC_LYNK_URL_PRO || 'https://lynk.id',
+      lynkUrlMonthly: process.env.NEXT_PUBLIC_LYNK_URL_PRO_MONTHLY || 'https://lynk.id',
     },
     {
       id: 'business',
       name: 'Business',
-      price: 'Rp 5.999.000',
-      period: '/ tahun',
-      amount: 5999000,
+      monthlyPrice: 'Rp 2.199.000',
+      yearlyPrice: 'Rp 5.999.000',
+      monthlyAmount: 2199000,
+      yearlyAmount: 5999000,
       description: 'Untuk agensi besar dan enterprise dengan armada photobooth multi-event.',
       quota: '10 Perangkat Booth',
       features: [
@@ -180,50 +129,53 @@ export default function BillingPage() {
         'Dedicated 24/7 SLA Engineering Support',
       ],
       isPopular: false,
-      lynkUrl: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS || 'https://lynk.id',
+      lynkUrlYearly: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS || 'https://lynk.id',
+      lynkUrlMonthly: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS_MONTHLY || 'https://lynk.id',
     },
   ];
 
   return (
     <div className="min-h-screen bg-[#090A0C] text-[#EDEDED] flex flex-col font-sans select-none antialiased">
       {/* Navbar */}
-      <header className="h-14 px-6 sm:px-12 border-b border-white/[0.07] flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2.5">
+      <header className="h-14 px-4 sm:px-12 border-b border-white/[0.07] flex items-center justify-between">
+        <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
+          <Link href="/" className="flex items-center gap-2.5 flex-shrink-0">
             <img
               src="/logo-minglebooth-header.png"
               alt="MingleBooth"
               className="h-7 sm:h-8 w-auto object-contain"
             />
           </Link>
-          <span className="text-xs text-neutral-500">/</span>
-          <span className="text-xs text-neutral-400 font-medium">Billing & Lisensi</span>
+          <span className="text-xs text-neutral-500 hidden sm:inline">/</span>
+          <span className="text-xs text-neutral-400 font-medium truncate hidden sm:inline">Billing & Lisensi</span>
         </div>
 
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex items-center gap-2 sm:gap-3 text-xs">
           {currentUser ? (
             <Link
               href="/dashboard"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-neutral-200 hover:text-white transition-colors border border-white/[0.08]"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
-              <span>Kembali ke Dashboard</span>
+              <span className="hidden sm:inline">Kembali ke Dashboard</span>
+              <span className="sm:hidden">Dashboard</span>
             </Link>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <Link
                 href="/login"
-                className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors flex items-center gap-1.5"
+                className="px-2.5 sm:px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors flex items-center gap-1.5 whitespace-nowrap"
               >
                 <LogIn className="w-3.5 h-3.5" />
                 <span>Masuk</span>
               </Link>
               <Link
                 href="/register"
-                className="px-3 py-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+                className="px-3 sm:px-3.5 py-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Daftar Vendor</span>
+                <span className="hidden sm:inline">Daftar Vendor</span>
+                <span className="sm:hidden">Daftar</span>
               </Link>
             </div>
           )}
@@ -231,7 +183,7 @@ export default function BillingPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-10 flex flex-col gap-10">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10 flex flex-col gap-8 sm:gap-10">
         {/* Active License Status Banner (Only when logged in) */}
         {currentUser && org ? (
           <section className="p-6 rounded-2xl bg-[#121316] border border-white/[0.08] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-xl">
@@ -269,41 +221,72 @@ export default function BillingPage() {
             </button>
           </section>
         ) : !currentUser ? (
-          <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-between text-xs text-neutral-300">
-            <span>Sudah memiliki akun vendor? Masuk untuk mengelola lisensi aktif Anda.</span>
-            <Link href="/login" className="font-semibold text-white underline ml-2">
-              Masuk Sekarang →
+          <div className="p-3.5 sm:p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-neutral-300">
+            <div className="flex items-center gap-2.5">
+              <LogIn className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+              <span>Sudah memiliki akun vendor? Masuk untuk mengelola lisensi aktif Anda.</span>
+            </div>
+            <Link
+              href="/login"
+              className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-white font-medium text-xs whitespace-nowrap flex-shrink-0 transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+            >
+              <span>Masuk Sekarang</span>
+              <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
             </Link>
           </div>
         ) : null}
 
-        {/* Success Notice from Webhook */}
-        {simSuccessMsg && (
-          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center justify-between animate-fadeIn">
-            <span>{simSuccessMsg}</span>
-            <button
-              onClick={() => setSimSuccessMsg(null)}
-              className="text-emerald-400 hover:text-emerald-200 text-xs font-semibold ml-4"
-            >
-              Tutup
-            </button>
-          </div>
-        )}
-
         {/* Pricing Cards */}
-        <section className="flex flex-col gap-6">
-          <div className="text-center max-w-xl mx-auto">
+        <section className="flex flex-col gap-8">
+          <div className="text-center max-w-xl mx-auto flex flex-col items-center">
             <h1 className="text-2xl font-bold tracking-tight text-white">
-              Pilihan Paket Lisensi Tahunan
+              Pilihan Paket Lisensi MingleBooth
             </h1>
             <p className="text-xs text-neutral-400 mt-1.5">
               Bayar mudah via <strong>Lynk.id</strong> (QRIS, Virtual Account BCA/Mandiri/BRI, GoPay, OVO). Lisensi aktif seketika setelah pembayaran.
             </p>
+
+            {/* Billing Cycle Toggle */}
+            <div className="mt-6 inline-flex items-center p-1 rounded-xl bg-[#14161A] border border-white/[0.08] shadow-inner">
+              <button
+                type="button"
+                onClick={() => setBillingCycle('monthly')}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  billingCycle === 'monthly'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Bayar Bulanan
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingCycle('yearly')}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                  billingCycle === 'yearly'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <span>Bayar Tahunan</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                  billingCycle === 'yearly'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-emerald-400/20 text-emerald-300'
+                }`}>
+                  Hemat 77%
+                </span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {plans.map((p) => {
               const isCurrent = org?.plan_tier === p.id;
+              const price = billingCycle === 'monthly' ? p.monthlyPrice : p.yearlyPrice;
+              const period = billingCycle === 'monthly' ? '/ bulan' : '/ tahun';
+              const targetLynkUrl = billingCycle === 'monthly' ? p.lynkUrlMonthly : p.lynkUrlYearly;
+
               return (
                 <div
                   key={p.id}
@@ -328,13 +311,19 @@ export default function BillingPage() {
                     <div className="pt-2">
                       <div className="flex items-baseline gap-1">
                         <span className="text-2xl font-bold tracking-tight text-white">
-                          {p.price}
+                          {price}
                         </span>
-                        <span className="text-xs text-neutral-400">{p.period}</span>
+                        <span className="text-xs text-neutral-400">{period}</span>
                       </div>
-                      <span className="text-[11px] text-neutral-500 font-mono block mt-0.5">
-                        {p.quota}
-                      </span>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[11px] text-neutral-300 font-mono">
+                          {p.quota}
+                        </span>
+                        <span className="text-neutral-600">•</span>
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-white/[0.06] text-neutral-300 border border-white/[0.08]">
+                          {billingCycle === 'monthly' ? 'Lisensi 30 Hari' : 'Lisensi 365 Hari'}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Features List */}
@@ -353,8 +342,8 @@ export default function BillingPage() {
                     <a
                       href={
                         currentUser?.email
-                          ? `${p.lynkUrl}${p.lynkUrl.includes('?') ? '&' : '?'}email=${encodeURIComponent(currentUser.email)}`
-                          : p.lynkUrl
+                          ? `${targetLynkUrl}${targetLynkUrl.includes('?') ? '&' : '?'}email=${encodeURIComponent(currentUser.email)}`
+                          : targetLynkUrl
                       }
                       target="_blank"
                       rel="noreferrer"

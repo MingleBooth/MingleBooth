@@ -105,12 +105,12 @@ export default function VendorRegisterPage() {
 
           {/* Plan Choice Selector */}
           <div className="flex flex-col gap-1.5 pt-2">
-            <label className="text-xs text-neutral-400 font-medium">Pilihan Paket Awal (Sesuai catatan.md)</label>
+            <label className="text-xs text-neutral-400 font-medium">Pilihan Paket Lisensi</label>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { id: 'starter', label: 'Starter', price: 'Rp 1.499k/th', quota: '1 Device' },
-                { id: 'pro', label: 'Pro', price: 'Rp 2.999k/th', quota: '3 Devices' },
-                { id: 'business', label: 'Business', price: 'Rp 5.999k/th', quota: '10 Devices' },
+                { id: 'starter', label: 'Starter', price: 'Mulai 549rb', quota: '1 Device' },
+                { id: 'pro', label: 'Pro', price: 'Mulai 1.099jt', quota: '3 Devices' },
+                { id: 'business', label: 'Business', price: 'Mulai 2.199jt', quota: '10 Devices' },
               ].map((p) => (
                 <button
                   key={p.id}
