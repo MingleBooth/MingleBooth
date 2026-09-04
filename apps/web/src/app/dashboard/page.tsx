@@ -404,7 +404,7 @@ export default function DashboardPage() {
                     )}
                     {tpl.is_preset && (
                       <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">
-                        ✨ Siap Pakai
+                        Siap Pakai
                       </span>
                     )}
                   </div>

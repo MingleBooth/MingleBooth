@@ -225,7 +225,7 @@ export default function VendorRegisterPage() {
               })}
             </div>
             <p className="text-[10px] text-neutral-500 text-center mt-0.5">
-              {billingCycle === 'yearly' ? '✨ Hemat s.d. 77% dengan paket tahunan (Lisensi 365 Hari)' : '⚡ Akses fleksibel per 30 hari, perpanjang kapan saja.'}
+              {billingCycle === 'yearly' ? 'Hemat s.d. 77% dengan paket tahunan (Lisensi 365 Hari)' : 'Akses fleksibel per 30 hari, perpanjang kapan saja.'}
             </p>
           </div>
 
