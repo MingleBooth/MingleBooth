@@ -20,7 +20,14 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@minglebooth/shared": ["../../packages/shared/src/index.ts"],
+      "@minglebooth/template-engine": ["../../packages/template-engine/src/index.ts"],
+      "@minglebooth/gif-engine": ["../../packages/gif-engine/src/index.ts"],
+      "@minglebooth/photo-engine": ["../../packages/photo-engine/src/index.ts"],
+      "@minglebooth/license": ["../../packages/license/src/index.ts"],
+      "@minglebooth/event-core": ["../../packages/event-core/src/index.ts"],
+      "@minglebooth/sync-engine": ["../../packages/sync-engine/src/index.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

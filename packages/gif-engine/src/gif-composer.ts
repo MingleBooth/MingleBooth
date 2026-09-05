@@ -1,3 +1,4 @@
+// @ts-ignore
 import * as gifencPkg from 'gifenc';
 const { GIFEncoder, quantize, applyPalette } = (gifencPkg as any).default || gifencPkg;
 
