@@ -83,12 +83,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Save media to disk so gallery endpoint can immediately serve it
-    await fs.writeFile(filePath, finalBuffer);
-
-    // Also mirror to data/events directory for local serving redundancy
-    const localEventDir = path.join(dataRoot, 'events', eventId);
+    // Optional: Mirror to local filesystem in local dev mode (fail silently on Vercel serverless)
     try {
+      const dataRoot = getDataDirectory();
+      const cloudGalleryDir = path.join(dataRoot, 'cloud-storage/public-gallery/events', eventId);
+      await fs.mkdir(cloudGalleryDir, { recursive: true });
+      const filePath = path.join(cloudGalleryDir, `${photoId}.${ext}`);
+      await fs.writeFile(filePath, finalBuffer);
+
+      const localEventDir = path.join(dataRoot, 'events', eventId);
       await fs.mkdir(localEventDir, { recursive: true });
       if (type === 'gif') {
         const gifDir = path.join(localEventDir, 'gifs');
@@ -100,35 +103,40 @@ export async function POST(req: NextRequest) {
         await fs.mkdir(thumbDir, { recursive: true });
         await fs.writeFile(path.join(thumbDir, `${photoId}_thumb.jpg`), finalBuffer);
       }
-    } catch (e) {
-      console.warn('Local event mirror warning:', e);
+    } catch {
+      // In serverless environments (e.g. Vercel), disk writes are read-only; proceed with cloud storage
     }
 
-    // ── Save Raw Camera Shots if provided ──
+    // ── Save Raw Camera Shots locally if writable ──
     const rawShotsList: string[] = Array.isArray(body.rawShots) ? body.rawShots : [];
     if (rawShotsList.length > 0) {
-      const cloudRawDir = path.join(cloudGalleryDir, 'raw');
-      const localRawDir = path.join(localEventDir, 'raw');
-      await fs.mkdir(cloudRawDir, { recursive: true });
-      await fs.mkdir(localRawDir, { recursive: true });
+      try {
+        const dataRoot = getDataDirectory();
+        const cloudRawDir = path.join(dataRoot, 'cloud-storage/public-gallery/events', eventId, 'raw');
+        const localRawDir = path.join(dataRoot, 'events', eventId, 'raw');
+        await fs.mkdir(cloudRawDir, { recursive: true });
+        await fs.mkdir(localRawDir, { recursive: true });
 
-      for (let i = 0; i < rawShotsList.length; i++) {
-        const rawData = rawShotsList[i];
-        if (!rawData) continue;
-        let buf: Buffer;
-        if (rawData.includes(';base64,')) {
-          buf = Buffer.from(rawData.split(';base64,')[1], 'base64');
-        } else {
-          buf = Buffer.from(rawData, 'utf-8');
+        for (let i = 0; i < rawShotsList.length; i++) {
+          const rawData = rawShotsList[i];
+          if (!rawData) continue;
+          let buf: Buffer;
+          if (rawData.includes(';base64,')) {
+            buf = Buffer.from(rawData.split(';base64,')[1], 'base64');
+          } else {
+            buf = Buffer.from(rawData, 'utf-8');
+          }
+          try {
+            const jpgBuf = await sharp(buf).jpeg({ quality: 92 }).toBuffer();
+            await fs.writeFile(path.join(cloudRawDir, `${photoId}_raw_${i + 1}.jpg`), jpgBuf);
+            await fs.writeFile(path.join(localRawDir, `${photoId}_raw_${i + 1}.jpg`), jpgBuf);
+          } catch {
+            await fs.writeFile(path.join(cloudRawDir, `${photoId}_raw_${i + 1}.jpg`), buf);
+            await fs.writeFile(path.join(localRawDir, `${photoId}_raw_${i + 1}.jpg`), buf);
+          }
         }
-        try {
-          const jpgBuf = await sharp(buf).jpeg({ quality: 92 }).toBuffer();
-          await fs.writeFile(path.join(cloudRawDir, `${photoId}_raw_${i + 1}.jpg`), jpgBuf);
-          await fs.writeFile(path.join(localRawDir, `${photoId}_raw_${i + 1}.jpg`), jpgBuf);
-        } catch {
-          await fs.writeFile(path.join(cloudRawDir, `${photoId}_raw_${i + 1}.jpg`), buf);
-          await fs.writeFile(path.join(localRawDir, `${photoId}_raw_${i + 1}.jpg`), buf);
-        }
+      } catch {
+        // Safe ignore on serverless
       }
     }
 
@@ -136,6 +144,56 @@ export async function POST(req: NextRequest) {
     const cloudUrl = `${baseUrl}/p/${photoId}`;
     const syncedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const storagePath = `events/${eventId}/${photoId}.${ext}`;
+
+    // ── Upload to Supabase Storage Bucket (minglebooth-storage) ──
+    const client = getServiceSupabase();
+    if (client) {
+      try {
+        const { error: storageErr } = await client.storage
+          .from('minglebooth-storage')
+          .upload(storagePath, finalBuffer, {
+            contentType: type === 'gif' ? 'image/gif' : 'image/jpeg',
+            upsert: true,
+          });
+
+        if (storageErr) {
+          console.warn('[Supabase Storage Upload Warning]:', storageErr.message);
+        }
+
+        // Upload raw shots to Supabase storage
+        if (rawShotsList.length > 0) {
+          for (let i = 0; i < rawShotsList.length; i++) {
+            const rawData = rawShotsList[i];
+            if (!rawData) continue;
+            let buf: Buffer;
+            if (rawData.includes(';base64,')) {
+              buf = Buffer.from(rawData.split(';base64,')[1], 'base64');
+            } else {
+              buf = Buffer.from(rawData, 'utf-8');
+            }
+            try {
+              const jpgBuf = await sharp(buf).jpeg({ quality: 92 }).toBuffer();
+              await client.storage
+                .from('minglebooth-storage')
+                .upload(`events/${eventId}/raw/${photoId}_raw_${i + 1}.jpg`, jpgBuf, {
+                  contentType: 'image/jpeg',
+                  upsert: true,
+                });
+            } catch {
+              await client.storage
+                .from('minglebooth-storage')
+                .upload(`events/${eventId}/raw/${photoId}_raw_${i + 1}.jpg`, buf, {
+                  contentType: 'image/jpeg',
+                  upsert: true,
+                });
+            }
+          }
+        }
+      } catch (stErr: any) {
+        console.warn('[Supabase Storage Exception]:', stErr.message);
+      }
+    }
 
     // ── Insert Record into Supabase Cloud Database ──
     let supabaseRecordId: string | null = null;
@@ -182,7 +240,7 @@ export async function POST(req: NextRequest) {
               .insert({
                 event_id: validEventId,
                 organization_id: validOrgId,
-                cloud_storage_path: `public-gallery/events/${validEventId}/${photoId}.${ext}`,
+                cloud_storage_path: storagePath,
                 frames_count: 4,
                 duration_ms: 1000,
                 captured_at: syncedAt,
@@ -202,7 +260,7 @@ export async function POST(req: NextRequest) {
               .insert({
                 event_id: validEventId,
                 organization_id: validOrgId,
-                cloud_storage_path: `public-gallery/events/${validEventId}/${photoId}.${ext}`,
+                cloud_storage_path: storagePath,
                 file_size_bytes: finalBuffer.length,
                 width: 1200,
                 height: 1800,

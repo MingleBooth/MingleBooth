@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
+import { getServiceSupabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
@@ -221,6 +222,30 @@ export async function GET(
           'Cache-Control': 'public, max-age=31536000, immutable',
         },
       });
+    }
+
+    // ── Supabase Storage Fallback (for Vercel Serverless Hosting) ──
+    try {
+      const client = getServiceSupabase();
+      if (client) {
+        const table = type === 'gif' ? 'gifs' : 'photos';
+        const { data: records } = await client
+          .from(table)
+          .select('cloud_storage_path')
+          .ilike('cloud_storage_path', `%${photoId}%`)
+          .limit(1);
+
+        if (records && records.length > 0 && records[0].cloud_storage_path) {
+          const { data: pubData } = client.storage
+            .from('minglebooth-storage')
+            .getPublicUrl(records[0].cloud_storage_path);
+          if (pubData?.publicUrl) {
+            return NextResponse.redirect(pubData.publicUrl);
+          }
+        }
+      }
+    } catch (sbErr) {
+      console.warn('Supabase storage redirection notice:', sbErr);
     }
   } catch (err) {
     console.warn('Gallery serving warning:', err);

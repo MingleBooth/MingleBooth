@@ -147,57 +147,90 @@ export async function GET(
     // 3. Scan Supabase photos & gifs table if connected
     if (client && matchedEventId) {
       try {
-        const { data: dbPhotos } = await client
+        const { data: dbPhotos, error: photoErr } = await client
           .from('photos')
-          .select('id, cloud_storage_path, created_at')
+          .select('id, cloud_storage_path, captured_at, qr_url')
           .eq('event_id', matchedEventId)
-          .order('created_at', { ascending: false });
+          .order('captured_at', { ascending: false });
 
-        if (dbPhotos) {
+        if (photoErr) {
+          console.warn('Supabase fetch photos notice:', photoErr.message);
+        } else if (dbPhotos) {
           for (const p of dbPhotos) {
-            const pid = p.id;
+            const pathParts = (p.cloud_storage_path || '').split('/');
+            const fileName = pathParts[pathParts.length - 1] || p.id;
+            const pid = fileName.replace(/\.[^/.]+$/, '') || p.id;
+
+            let fileUrl = `/api/gallery/${pid}?type=photo`;
+            if (p.cloud_storage_path) {
+              const { data: pubData } = client.storage
+                .from('minglebooth-storage')
+                .getPublicUrl(p.cloud_storage_path);
+              if (pubData?.publicUrl) {
+                fileUrl = pubData.publicUrl;
+              }
+            }
+
             if (!photoMap.has(pid)) {
               photoMap.set(pid, {
                 photoId: pid,
-                thumbUrl: `/api/gallery/${pid}?type=photo`,
-                fullUrl: `/api/gallery/${pid}?type=photo`,
+                thumbUrl: fileUrl,
+                fullUrl: fileUrl,
                 gifUrl: null,
                 hasGif: false,
                 rawShots: [],
                 url: `/p/${pid}`,
-                createdAt: p.created_at || new Date().toISOString(),
+                createdAt: p.captured_at || new Date().toISOString(),
               });
             }
           }
         }
 
-        const { data: dbGifs } = await client
+        const { data: dbGifs, error: gifErr } = await client
           .from('gifs')
-          .select('id, cloud_storage_path, created_at')
-          .eq('event_id', matchedEventId);
+          .select('id, cloud_storage_path, captured_at')
+          .eq('event_id', matchedEventId)
+          .order('captured_at', { ascending: false });
 
-        if (dbGifs) {
+        if (gifErr) {
+          console.warn('Supabase fetch gifs notice:', gifErr.message);
+        } else if (dbGifs) {
           for (const g of dbGifs) {
-            const pid = g.id;
+            const pathParts = (g.cloud_storage_path || '').split('/');
+            const fileName = pathParts[pathParts.length - 1] || g.id;
+            const pid = fileName.replace(/\.[^/.]+$/, '') || g.id;
+
+            let gifUrl = `/api/gallery/${pid}?type=gif`;
+            if (g.cloud_storage_path) {
+              const { data: pubData } = client.storage
+                .from('minglebooth-storage')
+                .getPublicUrl(g.cloud_storage_path);
+              if (pubData?.publicUrl) {
+                gifUrl = pubData.publicUrl;
+              }
+            }
+
             if (photoMap.has(pid)) {
               const item = photoMap.get(pid)!;
               item.hasGif = true;
-              item.gifUrl = `/api/gallery/${pid}?type=gif`;
+              item.gifUrl = gifUrl;
             } else {
               photoMap.set(pid, {
                 photoId: pid,
-                thumbUrl: `/api/gallery/${pid}?type=gif`,
-                fullUrl: `/api/gallery/${pid}?type=gif`,
-                gifUrl: `/api/gallery/${pid}?type=gif`,
+                thumbUrl: gifUrl,
+                fullUrl: gifUrl,
+                gifUrl: gifUrl,
                 hasGif: true,
                 rawShots: [],
                 url: `/p/${pid}`,
-                createdAt: g.created_at || new Date().toISOString(),
+                createdAt: g.captured_at || new Date().toISOString(),
               });
             }
           }
         }
-      } catch {}
+      } catch (err: any) {
+        console.warn('Supabase gallery scan exception:', err?.message);
+      }
     }
 
     const photos = Array.from(photoMap.values()).sort(

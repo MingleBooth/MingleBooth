@@ -280,24 +280,70 @@ export default function TabletStudioPage() {
   }, []);
 
 
-  // Fetch Event Gallery for In-Kiosk Viewing
+  // Fetch Event Gallery for In-Kiosk Viewing (Merges Local Tablet IndexedDB + Cloud API)
   const loadEventGallery = useCallback(async () => {
     setIsEventGalleryLoading(true);
     try {
+      // 1. Instantly fetch from local tablet IndexedDB (0ms instant response)
+      let localItems = await getOfflineCaptures(selectedEventId);
+      if (localItems.length === 0) {
+        const allItems = await getOfflineCaptures('all');
+        localItems = allItems.filter(
+          (c) => c.eventId === selectedEventId || (selectedEventName && c.eventName === selectedEventName)
+        );
+        if (localItems.length === 0 && allItems.length > 0) {
+          localItems = allItems;
+        }
+      }
+
+      const localFormatted = localItems.map((item) => ({
+        photoId: item.photoId,
+        thumbUrl: item.photoDataUrl,
+        fullUrl: item.photoDataUrl,
+        gifUrl: item.gifDataUrl || null,
+        hasGif: !!item.hasGif,
+        rawShots: (item.rawShots || []).map((s, idx) => ({ index: s.index ?? idx + 1, url: s.dataUrl })),
+        url: `/p/${item.photoId}`,
+        createdAt: item.createdAt,
+      }));
+
+      // Immediately display local captures so gallery is never blank
+      if (localFormatted.length > 0) {
+        setEventGalleryPhotos(localFormatted);
+      }
+
+      // 2. Fetch from Cloud API and merge seamlessly
       const res = await fetch(`/api/gallery/event/${selectedEventId}`);
-      const json = await res.json();
-      if (json.success && json.photos) {
-        setEventGalleryPhotos(json.photos);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.photos)) {
+          const map = new Map<string, any>();
+          json.photos.forEach((p: any) => map.set(p.photoId, p));
+          localFormatted.forEach((p: any) => {
+            const existing = map.get(p.photoId);
+            if (existing) {
+              map.set(p.photoId, { ...existing, ...p });
+            } else {
+              map.set(p.photoId, p);
+            }
+          });
+
+          const merged = Array.from(map.values()).sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+          setEventGalleryPhotos(merged);
+        }
       }
     } catch (e) {
       console.warn('Failed to load event gallery in tablet:', e);
     } finally {
       setIsEventGalleryLoading(false);
     }
-  }, [selectedEventId]);
+  }, [selectedEventId, selectedEventName]);
 
   useEffect(() => {
     if (showEventGalleryModal) {
+      setGalleryFilter('all');
       loadEventGallery();
     }
   }, [showEventGalleryModal, loadEventGallery]);
@@ -2572,7 +2618,7 @@ export default function TabletStudioPage() {
                       : 'text-neutral-400 hover:text-white'
                   }`}
                 >
-                  Foto Cetak
+                  Foto Cetak ({eventGalleryPhotos.filter((p) => p.thumbUrl || p.fullUrl).length})
                 </button>
                 <button
                   onClick={() => setGalleryFilter('gif')}
@@ -2629,7 +2675,8 @@ export default function TabletStudioPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {eventGalleryPhotos
                     .filter((p) => {
-                      if (galleryFilter === 'gif') return p.hasGif;
+                      if (galleryFilter === 'photo') return !!(p.thumbUrl || p.fullUrl);
+                      if (galleryFilter === 'gif') return !!p.hasGif;
                       if (galleryFilter === 'raw') return p.rawShots && p.rawShots.length > 0;
                       return true;
                     })
