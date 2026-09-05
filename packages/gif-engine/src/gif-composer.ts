@@ -1,6 +1,20 @@
 // @ts-ignore
 import * as gifencPkg from 'gifenc';
-const { GIFEncoder, quantize, applyPalette } = (gifencPkg as any).default || gifencPkg;
+
+// Safely extract encoder utilities across CJS and ESM module wrappers
+const GIFEncoder =
+  (gifencPkg as any)?.GIFEncoder ||
+  (gifencPkg as any)?.default?.GIFEncoder ||
+  (typeof (gifencPkg as any)?.default === 'function' ? (gifencPkg as any).default : null) ||
+  (gifencPkg as any)?.default;
+
+const quantize =
+  (gifencPkg as any)?.quantize ||
+  (gifencPkg as any)?.default?.quantize;
+
+const applyPalette =
+  (gifencPkg as any)?.applyPalette ||
+  (gifencPkg as any)?.default?.applyPalette;
 
 export interface GifCompositionOptions {
   frameDelayMs?: number; // default 320ms

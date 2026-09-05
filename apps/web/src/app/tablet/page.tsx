@@ -1011,18 +1011,34 @@ export default function TabletStudioPage() {
         try {
           setIsGeneratingGif(true);
           const overlayToUse = isGifOverlayEnabled ? gifOverlayPath : null;
-          const gifResult = await GifComposer.composeGif(photos, {
-            playbackMode: 'boomerang',
-            frameDelayMs: gifSpeedMs || 750,
-            frameOverlayBase64: overlayToUse,
-            width: gifDimensions.width,
-            height: gifDimensions.height,
-            cutoutSlot: isGifOverlayEnabled ? gifCutout : null,
-          });
-          gifDataUrl = gifResult.dataUrl;
-          setFinalGifDataUrl(gifResult.dataUrl);
+          try {
+            const gifResult = await GifComposer.composeGif(photos, {
+              playbackMode: 'boomerang',
+              frameDelayMs: gifSpeedMs || 750,
+              frameOverlayBase64: overlayToUse,
+              width: gifDimensions.width,
+              height: gifDimensions.height,
+              cutoutSlot: isGifOverlayEnabled ? gifCutout : null,
+            });
+            gifDataUrl = gifResult.dataUrl;
+          } catch (overlayErr) {
+            console.warn('[GIF with overlay failed, retrying clean Boomerang]:', overlayErr);
+            const fallbackResult = await GifComposer.composeGif(photos, {
+              playbackMode: 'boomerang',
+              frameDelayMs: gifSpeedMs || 750,
+              frameOverlayBase64: null,
+              width: 720,
+              height: 900,
+              cutoutSlot: null,
+            });
+            gifDataUrl = fallbackResult.dataUrl;
+          }
+
+          if (gifDataUrl) {
+            setFinalGifDataUrl(gifDataUrl);
+          }
         } catch (gifErr) {
-          console.warn('[GIF Generation Failed]:', gifErr);
+          console.error('[GIF Generation Total Failure]:', gifErr);
         } finally {
           setIsGeneratingGif(false);
         }
