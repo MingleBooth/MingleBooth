@@ -22,16 +22,35 @@ export async function GET(
 
     if (client) {
       try {
-        const { data: dbEvent } = await client
-          .from('events')
-          .select('*')
-          .or(`id.eq.${eventId},slug.eq.${eventId}`)
-          .limit(1)
-          .single();
+        const isUuid = (str: string) =>
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+        let dbEvent = null;
+        if (isUuid(eventId)) {
+          const res = await client.from('events').select('*').eq('id', eventId).maybeSingle();
+          dbEvent = res.data;
+        } else if (eventId && eventId !== 'default_event' && eventId !== 'all') {
+          const res = await client.from('events').select('*').eq('slug', eventId).maybeSingle();
+          dbEvent = res.data;
+          if (!dbEvent) {
+            const resByName = await client.from('events').select('*').ilike('name', eventId).maybeSingle();
+            dbEvent = resByName.data;
+          }
+        }
+
+        if (!dbEvent) {
+          const resLatest = await client
+            .from('events')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          dbEvent = resLatest.data;
+        }
 
         if (dbEvent) {
           eventName = dbEvent.name || eventName;
-          eventDate = dbEvent.date || eventDate;
+          eventDate = dbEvent.branding_json?.dateFormatted || dbEvent.date || eventDate;
           matchedEventId = dbEvent.id;
         }
       } catch {
@@ -155,6 +174,72 @@ Layanan Photobooth Profesional: https://minglebooth.id
         for (const item of filesToArchive) {
           archive.file(item.sourcePath, { name: item.archivePath });
         }
+
+        // If filesToArchive is empty (e.g. on Vercel), download directly from Supabase Storage
+        if (filesToArchive.length === 0 && client && matchedEventId) {
+          const isUuid = (str: string) =>
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+          if (isUuid(matchedEventId)) {
+            // 1. Photos
+            const { data: dbPhotos } = await client
+              .from('photos')
+              .select('cloud_storage_path')
+              .eq('event_id', matchedEventId);
+
+            if (dbPhotos) {
+              for (const p of dbPhotos) {
+                if (!p.cloud_storage_path) continue;
+                const { data: blob } = await client.storage
+                  .from('minglebooth-storage')
+                  .download(p.cloud_storage_path);
+                if (blob) {
+                  const buf = Buffer.from(await blob.arrayBuffer());
+                  const fName = path.basename(p.cloud_storage_path);
+                  archive.append(buf, { name: `Foto_Berbingkai/${fName}` });
+                }
+              }
+            }
+
+            // 2. GIFs
+            const { data: dbGifs } = await client
+              .from('gifs')
+              .select('cloud_storage_path')
+              .eq('event_id', matchedEventId);
+
+            if (dbGifs) {
+              for (const g of dbGifs) {
+                if (!g.cloud_storage_path) continue;
+                const { data: blob } = await client.storage
+                  .from('minglebooth-storage')
+                  .download(g.cloud_storage_path);
+                if (blob) {
+                  const buf = Buffer.from(await blob.arrayBuffer());
+                  const fName = path.basename(g.cloud_storage_path);
+                  archive.append(buf, { name: `Animasi_GIF/${fName}` });
+                }
+              }
+            }
+
+            // 3. Raw shots
+            const { data: rawList } = await client.storage
+              .from('minglebooth-storage')
+              .list(`events/${matchedEventId}/raw`);
+
+            if (rawList && rawList.length > 0) {
+              for (const rf of rawList) {
+                const { data: blob } = await client.storage
+                  .from('minglebooth-storage')
+                  .download(`events/${matchedEventId}/raw/${rf.name}`);
+                if (blob) {
+                  const buf = Buffer.from(await blob.arrayBuffer());
+                  archive.append(buf, { name: `Foto_Mentahan/${rf.name}` });
+                }
+              }
+            }
+          }
+        }
+
         await archive.finalize();
       } catch (e) {
         console.error('[Archiver Finalize Error]:', e);
