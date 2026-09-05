@@ -151,36 +151,23 @@ export default function LandingPage() {
           Jepret instan tanpa jeda, simpan otomatis ke harddisk lokal, galeri QR digital kilat, serta sinkronisasi cloud cerdas.
         </p>
 
-        {/* CTA Buttons - 1 Pintu Masuk Akun: Masuk */}
-        <div className="mt-8 sm:mt-10 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 w-full max-w-sm sm:max-w-none">
+        {/* CTA Buttons */}
+        <div className="mt-8 sm:mt-10 flex flex-col sm:flex-row items-center justify-center gap-3 w-full max-w-md sm:max-w-none">
           <Link
-            href="/register"
-            className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 shadow-md"
+            href="/billing"
+            className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 shadow-md w-full sm:w-auto"
           >
-            <span>Daftar & Mulai Langganan</span>
+            <span>Daftar &amp; Mulai Langganan</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
 
-          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
-            <Link
-              href="/login"
-              className="h-11 px-3 sm:px-6 rounded-xl bg-[#14161A] hover:bg-[#1C1F24] border border-white/[0.08] text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-98 text-center"
-            >
-              <LogIn className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-neutral-400 flex-shrink-0" />
-              <span>Masuk Akun</span>
-            </Link>
-
-            <a
-              href="http://localhost:5173"
-              target="_blank"
-              rel="noreferrer"
-              className="h-11 px-3 sm:px-5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-neutral-300 hover:text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-98 text-center"
-            >
-              <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 flex-shrink-0" />
-              <span>Studio App</span>
-              <ExternalLink className="w-3 h-3 opacity-60 flex-shrink-0 hidden xs:inline-block" />
-            </a>
-          </div>
+          <Link
+            href="/login"
+            className="h-11 px-6 rounded-xl bg-[#14161A] hover:bg-[#1C1F24] border border-white/[0.08] text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
+          >
+            <LogIn className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+            <span>Masuk ke Portal Vendor</span>
+          </Link>
         </div>
 
         {/* Key Feature Stats Cards */}
@@ -240,15 +227,13 @@ export default function LandingPage() {
                 </p>
               </div>
 
-              <a
-                href="http://localhost:5173"
-                target="_blank"
-                rel="noreferrer"
+              <Link
+                href="/dashboard"
                 className="text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 pt-4 border-t border-white/[0.04] whitespace-nowrap"
               >
-                <span>Buka MingleBooth Studio</span>
+                <span>Unduh di Dashboard Vendor</span>
                 <ChevronRight className="w-3.5 h-3.5 text-neutral-500" />
-              </a>
+              </Link>
             </div>
 
             {/* Card 2: Vendor Console */}

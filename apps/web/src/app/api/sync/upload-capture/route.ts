@@ -83,9 +83,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await fs.writeFile(filePath, finalBuffer);
-
-    const cloudUrl = `http://localhost:3000/p/${photoId}`;
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://minglebooth.id';
+    const cloudUrl = `${baseUrl}/p/${photoId}`;
     const syncedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 

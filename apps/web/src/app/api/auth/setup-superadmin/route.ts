@@ -81,8 +81,8 @@ export async function POST(req: NextRequest) {
         password: password,
         role: 'SUPER_ADMIN',
         organization: 'MingleBooth Headquarters',
-        loginUrl: 'http://localhost:3000/login',
-        portalUrl: 'http://localhost:3000/admin',
+        loginUrl: 'https://minglebooth.id/login',
+        portalUrl: 'https://minglebooth.id/admin',
       },
     });
   } catch (err: any) {

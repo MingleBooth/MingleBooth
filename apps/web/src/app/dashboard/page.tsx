@@ -260,22 +260,12 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto flex-shrink-0">
-            <a
-              href="http://localhost:5173"
-              target="_blank"
-              rel="noreferrer"
-              className="h-10 px-4 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 whitespace-nowrap flex-shrink-0"
-            >
-              <Camera className="w-4 h-4 text-black" />
-              <span>Buka Studio Booth</span>
-            </a>
-
             <button
               onClick={() => setIsDownloadModalOpen(true)}
-              className="h-10 px-3.5 rounded-xl bg-[#1A1D23] hover:bg-[#22262E] border border-white/[0.08] text-neutral-200 hover:text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-all whitespace-nowrap flex-shrink-0"
+              className="h-10 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 whitespace-nowrap flex-shrink-0"
             >
-              <Download className="w-3.5 h-3.5 text-neutral-400" />
-              <span>Unduh Installer</span>
+              <Download className="w-4 h-4 text-black" />
+              <span>Unduh MingleBooth Studio</span>
             </button>
           </div>
         </section>
@@ -343,15 +333,14 @@ export default function DashboardPage() {
                       <ExternalLink className="w-3 h-3 text-neutral-400" />
                     </Link>
 
-                    <a
-                      href="http://localhost:5173"
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      onClick={() => setIsDownloadModalOpen(true)}
                       className="h-8 px-3 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
+                      title="Unduh software MingleBooth Studio untuk menjalankan event ini di laptop booth"
                     >
-                      <Camera className="w-3.5 h-3.5" />
-                      <span>Buka Studio</span>
-                    </a>
+                      <Download className="w-3.5 h-3.5 text-neutral-300" />
+                      <span>Software Booth</span>
+                    </button>
                   </div>
                 </div>
               ))
@@ -520,14 +509,12 @@ export default function DashboardPage() {
           <Link href="/billing" className="hover:text-white transition-colors">
             Billing & Lisensi
           </Link>
-          <a
-            href="http://localhost:5173"
-            target="_blank"
-            rel="noreferrer"
+          <button
+            onClick={() => setIsDownloadModalOpen(true)}
             className="hover:text-white transition-colors"
           >
-            Buka Studio Booth
-          </a>
+            Unduh Software Studio
+          </button>
         </div>
         <div className="pt-4 border-t border-white/[0.06] w-full max-w-4xl flex flex-col sm:flex-row items-center justify-between gap-2 text-neutral-500 text-[11px]">
           <span>
@@ -969,25 +956,6 @@ export default function DashboardPage() {
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Unduh .exe</span>
-                </a>
-              </div>
-
-              {/* Option 3: Web App Instant Access */}
-              <div className="p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-transparent border border-purple-500/20 flex items-center justify-between gap-4">
-                <div>
-                  <span className="text-xs font-semibold text-purple-300 block">Uji Coba Langsung di Browser (Web Studio)</span>
-                  <p className="text-[11px] text-neutral-400 mt-0.5">
-                    Bisa langsung digunakan di browser laptop saat ini tanpa perlu install.
-                  </p>
-                </div>
-                <a
-                  href="http://localhost:5173"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="h-8 px-3.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors flex-shrink-0"
-                >
-                  <span>Buka Studio</span>
-                  <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
             </div>
