@@ -80,7 +80,7 @@ export async function GET(
     // ── Handle Metadata Request (?type=meta) ──
     if (type === 'meta') {
       let hasGif = false;
-      let rawCount = 2;
+      let rawCount = 0;
 
       if (matchedEventDir) {
         const gifPossibles = [
@@ -99,6 +99,65 @@ export async function GET(
             rawCount = rawFiles.length;
           }
         }
+      }
+
+      // Check Supabase Cloud Database & Storage if available
+      try {
+        const client = getServiceSupabase();
+        if (client) {
+          // Check gifs table
+          const { data: gRec } = await client
+            .from('gifs')
+            .select('cloud_storage_path, event_id')
+            .ilike('cloud_storage_path', `%${photoId}%`)
+            .limit(1)
+            .maybeSingle();
+
+          if (gRec) {
+            hasGif = true;
+          }
+
+          // Check photos table for event details
+          const { data: pRec } = await client
+            .from('photos')
+            .select('cloud_storage_path, event_id')
+            .ilike('cloud_storage_path', `%${photoId}%`)
+            .limit(1)
+            .maybeSingle();
+
+          const resolvedEventId = pRec?.event_id || gRec?.event_id;
+          if (resolvedEventId) {
+            const { data: evRec } = await client
+              .from('events')
+              .select('name, date, branding_json')
+              .eq('id', resolvedEventId)
+              .limit(1)
+              .maybeSingle();
+
+            if (evRec) {
+              eventName = evRec.name || eventName;
+              dateFormatted = evRec.branding_json?.dateFormatted || evRec.date || dateFormatted;
+            }
+
+            // Check raw shots in storage
+            const { data: rawList } = await client.storage
+              .from('minglebooth-storage')
+              .list(`events/${resolvedEventId}/raw`);
+
+            if (rawList && rawList.length > 0) {
+              const matchedRaws = rawList.filter((f) => f.name.startsWith(`${photoId}_raw_`));
+              if (matchedRaws.length > 0) {
+                rawCount = Math.max(rawCount, matchedRaws.length);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase metadata check warning:', err);
+      }
+
+      if (rawCount === 0 && !matchedEventDir) {
+        rawCount = 2; // Graceful default for offline/fallback
       }
 
       const slides: Array<{
@@ -228,19 +287,40 @@ export async function GET(
     try {
       const client = getServiceSupabase();
       if (client) {
-        const table = type === 'gif' ? 'gifs' : 'photos';
-        const { data: records } = await client
-          .from(table)
-          .select('cloud_storage_path')
-          .ilike('cloud_storage_path', `%${photoId}%`)
-          .limit(1);
+        if (type === 'raw') {
+          // Resolve event folder from photos or gifs
+          const { data: pRec } = await client
+            .from('photos')
+            .select('event_id')
+            .ilike('cloud_storage_path', `%${photoId}%`)
+            .limit(1)
+            .maybeSingle();
 
-        if (records && records.length > 0 && records[0].cloud_storage_path) {
-          const { data: pubData } = client.storage
-            .from('minglebooth-storage')
-            .getPublicUrl(records[0].cloud_storage_path);
-          if (pubData?.publicUrl) {
-            return NextResponse.redirect(pubData.publicUrl);
+          const evtId = pRec?.event_id;
+          if (evtId) {
+            const rawStoragePath = `events/${evtId}/raw/${photoId}_raw_${rawIndex}.jpg`;
+            const { data: pubData } = client.storage
+              .from('minglebooth-storage')
+              .getPublicUrl(rawStoragePath);
+            if (pubData?.publicUrl) {
+              return NextResponse.redirect(pubData.publicUrl);
+            }
+          }
+        } else {
+          const table = type === 'gif' ? 'gifs' : 'photos';
+          const { data: records } = await client
+            .from(table)
+            .select('cloud_storage_path')
+            .ilike('cloud_storage_path', `%${photoId}%`)
+            .limit(1);
+
+          if (records && records.length > 0 && records[0].cloud_storage_path) {
+            const { data: pubData } = client.storage
+              .from('minglebooth-storage')
+              .getPublicUrl(records[0].cloud_storage_path);
+            if (pubData?.publicUrl) {
+              return NextResponse.redirect(pubData.publicUrl);
+            }
           }
         }
       }

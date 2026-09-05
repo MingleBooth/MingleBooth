@@ -678,8 +678,13 @@ export default function TabletStudioPage() {
     if (!activeTemplate?.path) return;
 
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (activeTemplate.path.startsWith('http://') || activeTemplate.path.startsWith('https://')) {
+      img.crossOrigin = 'anonymous';
+    }
+    let isLoaded = false;
     img.onload = async () => {
+      if (isLoaded) return;
+      isLoaded = true;
       frameImageRef.current = img;
       const w = img.naturalWidth || 682;
       const h = img.naturalHeight || 1024;
@@ -705,7 +710,7 @@ export default function TabletStudioPage() {
       }
     };
     img.src = activeTemplate.path;
-    if (img.complete && img.naturalWidth > 0) {
+    if (img.complete && img.naturalWidth > 0 && !isLoaded) {
       img.onload(new Event('load'));
     }
   }, [activeTemplate]);
@@ -718,8 +723,13 @@ export default function TabletStudioPage() {
     }
 
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (gifOverlayPath.startsWith('http://') || gifOverlayPath.startsWith('https://')) {
+      img.crossOrigin = 'anonymous';
+    }
+    let isLoaded = false;
     img.onload = async () => {
+      if (isLoaded) return;
+      isLoaded = true;
       const w = img.naturalWidth || 720;
       const h = img.naturalHeight || 960;
       setGifDimensions({ width: w, height: h });
@@ -739,7 +749,7 @@ export default function TabletStudioPage() {
       }
     };
     img.src = gifOverlayPath;
-    if (img.complete && img.naturalWidth > 0) {
+    if (img.complete && img.naturalWidth > 0 && !isLoaded) {
       img.onload(new Event('load'));
     }
   }, [gifOverlayPath]);
@@ -948,9 +958,24 @@ export default function TabletStudioPage() {
           (src) =>
             new Promise<HTMLImageElement>((resolve, reject) => {
               const img = new Image();
-              img.onload = () => resolve(img);
-              img.onerror = reject;
+              let done = false;
+              img.onload = () => {
+                if (!done) {
+                  done = true;
+                  resolve(img);
+                }
+              };
+              img.onerror = (e) => {
+                if (!done) {
+                  done = true;
+                  reject(e);
+                }
+              };
               img.src = src;
+              if (img.complete && img.naturalWidth > 0 && !done) {
+                done = true;
+                resolve(img);
+              }
             })
         )
       );
@@ -1165,7 +1190,10 @@ export default function TabletStudioPage() {
             type: 'photo',
             rawShots: photos,
           }),
-        }).catch(() => {});
+        })
+          .then((r) => r.json())
+          .then((d) => console.log('[Cloud Sync Photo Success]:', d?.photoId, d?.supabaseRecordId))
+          .catch((e) => console.warn('[Cloud Sync Photo Notice]:', e));
 
         // Upload Animated GIF if created
         if (gifDataUrl) {
@@ -1178,7 +1206,10 @@ export default function TabletStudioPage() {
               fileDataUrl: gifDataUrl,
               type: 'gif',
             }),
-          }).catch(() => {});
+          })
+            .then((r) => r.json())
+            .then((d) => console.log('[Cloud Sync GIF Success]:', d?.photoId, d?.supabaseRecordId))
+            .catch((e) => console.warn('[Cloud Sync GIF Notice]:', e));
         }
       }
 

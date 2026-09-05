@@ -31,20 +31,40 @@ export async function GET(
     // 1. Resolve Event details from Supabase if possible
     if (client) {
       try {
-        const { data: dbEvent } = await client
-          .from('events')
-          .select('*')
-          .or(`id.eq.${eventId},slug.eq.${eventId}`)
-          .limit(1)
-          .single();
+        const isUuid = (str: string) =>
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+        let dbEvent = null;
+        if (isUuid(eventId)) {
+          const res = await client.from('events').select('*').eq('id', eventId).maybeSingle();
+          dbEvent = res.data;
+        } else if (eventId && eventId !== 'default_event' && eventId !== 'all') {
+          const res = await client.from('events').select('*').eq('slug', eventId).maybeSingle();
+          dbEvent = res.data;
+          if (!dbEvent) {
+            const resByName = await client.from('events').select('*').ilike('name', eventId).maybeSingle();
+            dbEvent = resByName.data;
+          }
+        }
+
+        // If no event matched by id or slug, or if eventId is 'default_event', fallback to latest active event
+        if (!dbEvent) {
+          const resLatest = await client
+            .from('events')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          dbEvent = resLatest.data;
+        }
 
         if (dbEvent) {
           eventName = dbEvent.name || eventName;
-          eventDate = dbEvent.date || eventDate;
+          eventDate = dbEvent.branding_json?.dateFormatted || dbEvent.date || eventDate;
           matchedEventId = dbEvent.id;
         }
-      } catch {
-        // Continue with local resolution
+      } catch (err: any) {
+        console.warn('Supabase event resolution notice:', err?.message);
       }
     }
 
@@ -227,6 +247,37 @@ export async function GET(
               });
             }
           }
+        }
+
+        // 3c. Scan Raw Camera Shots in Supabase Storage
+        try {
+          const { data: rawStorageFiles } = await client.storage
+            .from('minglebooth-storage')
+            .list(`events/${matchedEventId}/raw`);
+
+          if (rawStorageFiles && rawStorageFiles.length > 0) {
+            for (const rf of rawStorageFiles) {
+              const rawMatch = rf.name.match(/^(.*?)_raw_(\d+)\.(jpg|png)$/);
+              if (rawMatch) {
+                const pid = rawMatch[1];
+                const rawIdx = parseInt(rawMatch[2], 10);
+                const { data: pubData } = client.storage
+                  .from('minglebooth-storage')
+                  .getPublicUrl(`events/${matchedEventId}/raw/${rf.name}`);
+                const rawUrl = pubData?.publicUrl || `/api/gallery/${pid}?type=raw&index=${rawIdx}`;
+
+                const existing = photoMap.get(pid);
+                if (existing) {
+                  if (!existing.rawShots.some((r) => r.index === rawIdx)) {
+                    existing.rawShots.push({ index: rawIdx, url: rawUrl });
+                    existing.rawShots.sort((a, b) => a.index - b.index);
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          // Safe ignore raw scan failure
         }
       } catch (err: any) {
         console.warn('Supabase gallery scan exception:', err?.message);

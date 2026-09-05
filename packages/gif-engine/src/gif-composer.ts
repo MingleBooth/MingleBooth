@@ -212,10 +212,28 @@ export class GifComposer {
   private static loadImage(src: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => resolve(img);
-      img.onerror = (e) => reject(e);
+      // Only set crossOrigin for real http(s) URLs — NOT for data URIs or relative paths
+      if (src.startsWith('http://') || src.startsWith('https://')) {
+        img.crossOrigin = 'anonymous';
+      }
+      let settled = false;
+      img.onload = () => {
+        if (!settled) {
+          settled = true;
+          resolve(img);
+        }
+      };
+      img.onerror = (e) => {
+        if (!settled) {
+          settled = true;
+          reject(e);
+        }
+      };
       img.src = src;
+      if (img.complete && img.naturalWidth > 0 && !settled) {
+        settled = true;
+        resolve(img);
+      }
     });
   }
 

@@ -55,12 +55,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const dataRoot = getDataDirectory();
-    const cloudGalleryDir = path.join(dataRoot, 'cloud-storage/public-gallery/events', eventId);
-    await fs.mkdir(cloudGalleryDir, { recursive: true });
-
     const ext = type === 'gif' ? 'gif' : 'jpg';
-    const filePath = path.join(cloudGalleryDir, `${photoId}.${ext}`);
 
     let rawBuffer: Buffer;
     if (fileDataUrl.includes(';base64,')) {
@@ -144,10 +139,74 @@ export async function POST(req: NextRequest) {
     const cloudUrl = `${baseUrl}/p/${photoId}`;
     const syncedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    const storagePath = `events/${eventId}/${photoId}.${ext}`;
+
+    // ── Resolve Event and Organization from Supabase ──
+    const client = getServiceSupabase();
+    let validOrgId: string | null = null;
+    let validEventId: string | null = null;
+
+    if (client) {
+      try {
+        const isUuid = (str: string) =>
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+        if (eventId && isUuid(eventId)) {
+          const { data: matchedEvt } = await client
+            .from('events')
+            .select('id, organization_id')
+            .eq('id', eventId)
+            .limit(1)
+            .maybeSingle();
+          if (matchedEvt) {
+            validEventId = matchedEvt.id;
+            validOrgId = matchedEvt.organization_id;
+          }
+        } else if (eventId && eventId !== 'default_event' && eventId !== 'all') {
+          const { data: matchedBySlug } = await client
+            .from('events')
+            .select('id, organization_id')
+            .eq('slug', eventId)
+            .limit(1)
+            .maybeSingle();
+          if (matchedBySlug) {
+            validEventId = matchedBySlug.id;
+            validOrgId = matchedBySlug.organization_id;
+          } else {
+            const { data: matchedByName } = await client
+              .from('events')
+              .select('id, organization_id')
+              .ilike('name', eventId)
+              .limit(1)
+              .maybeSingle();
+            if (matchedByName) {
+              validEventId = matchedByName.id;
+              validOrgId = matchedByName.organization_id;
+            }
+          }
+        }
+
+        // Fallback to active event in database if not matched
+        if (!validEventId) {
+          const { data: firstEvt } = await client
+            .from('events')
+            .select('id, organization_id')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (firstEvt) {
+            validEventId = firstEvt.id;
+            validOrgId = firstEvt.organization_id;
+          }
+        }
+      } catch (evtErr: any) {
+        console.warn('[Supabase Event Resolution Notice]:', evtErr.message);
+      }
+    }
+
+    const targetEventFolder = validEventId || eventId;
+    const storagePath = `events/${targetEventFolder}/${photoId}.${ext}`;
 
     // ── Upload to Supabase Storage Bucket (minglebooth-storage) ──
-    const client = getServiceSupabase();
     if (client) {
       try {
         const { error: storageErr } = await client.storage
@@ -176,14 +235,14 @@ export async function POST(req: NextRequest) {
               const jpgBuf = await sharp(buf).jpeg({ quality: 92 }).toBuffer();
               await client.storage
                 .from('minglebooth-storage')
-                .upload(`events/${eventId}/raw/${photoId}_raw_${i + 1}.jpg`, jpgBuf, {
+                .upload(`events/${targetEventFolder}/raw/${photoId}_raw_${i + 1}.jpg`, jpgBuf, {
                   contentType: 'image/jpeg',
                   upsert: true,
                 });
             } catch {
               await client.storage
                 .from('minglebooth-storage')
-                .upload(`events/${eventId}/raw/${photoId}_raw_${i + 1}.jpg`, buf, {
+                .upload(`events/${targetEventFolder}/raw/${photoId}_raw_${i + 1}.jpg`, buf, {
                   contentType: 'image/jpeg',
                   upsert: true,
                 });
@@ -197,99 +256,63 @@ export async function POST(req: NextRequest) {
 
     // ── Insert Record into Supabase Cloud Database ──
     let supabaseRecordId: string | null = null;
-    try {
-      const client = getServiceSupabase();
-      if (client) {
-        let validOrgId: string | null = null;
-        let validEventId: string | null = null;
-
-        const isUuid = (str: string) =>
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-
-        if (eventId && isUuid(eventId)) {
-          const { data: matchedEvt } = await client
-            .from('events')
-            .select('id, organization_id')
-            .eq('id', eventId)
-            .limit(1)
+    if (client && validEventId && validOrgId) {
+      try {
+        if (type === 'gif') {
+          const { data: gData, error: gErr } = await client
+            .from('gifs')
+            .insert({
+              event_id: validEventId,
+              organization_id: validOrgId,
+              cloud_storage_path: storagePath,
+              frames_count: 4,
+              duration_ms: 1000,
+              captured_at: syncedAt,
+              expires_at: expiresAt,
+            })
+            .select('id')
             .single();
-          if (matchedEvt) {
-            validEventId = matchedEvt.id;
-            validOrgId = matchedEvt.organization_id;
-          }
-        }
 
-        // Fallback to active event in database if not matched
-        if (!validEventId) {
-          const { data: firstEvt } = await client
-            .from('events')
-            .select('id, organization_id')
-            .order('created_at', { ascending: false })
-            .limit(1)
+          if (gErr) {
+            console.warn('[Supabase GIF Sync Notice]:', gErr.message);
+          } else if (gData) {
+            supabaseRecordId = gData.id;
+          }
+        } else {
+          const { data: pData, error: pErr } = await client
+            .from('photos')
+            .insert({
+              event_id: validEventId,
+              organization_id: validOrgId,
+              cloud_storage_path: storagePath,
+              file_size_bytes: finalBuffer.length,
+              width: 1200,
+              height: 1800,
+              qr_url: cloudUrl,
+              captured_at: syncedAt,
+              expires_at: expiresAt,
+            })
+            .select('id')
             .single();
-          if (firstEvt) {
-            validEventId = firstEvt.id;
-            validOrgId = firstEvt.organization_id;
+
+          if (pErr) {
+            console.warn('[Supabase Photo Sync Notice]:', pErr.message);
+          } else if (pData) {
+            supabaseRecordId = pData.id;
           }
         }
 
-        if (validEventId && validOrgId) {
-          if (type === 'gif') {
-            const { data: gData, error: gErr } = await client
-              .from('gifs')
-              .insert({
-                event_id: validEventId,
-                organization_id: validOrgId,
-                cloud_storage_path: storagePath,
-                frames_count: 4,
-                duration_ms: 1000,
-                captured_at: syncedAt,
-                expires_at: expiresAt,
-              })
-              .select('id')
-              .single();
-
-            if (gErr) {
-              console.warn('[Supabase GIF Sync Notice]:', gErr.message);
-            } else if (gData) {
-              supabaseRecordId = gData.id;
-            }
-          } else {
-            const { data: pData, error: pErr } = await client
-              .from('photos')
-              .insert({
-                event_id: validEventId,
-                organization_id: validOrgId,
-                cloud_storage_path: storagePath,
-                file_size_bytes: finalBuffer.length,
-                width: 1200,
-                height: 1800,
-                qr_url: cloudUrl,
-                captured_at: syncedAt,
-                expires_at: expiresAt,
-              })
-              .select('id')
-              .single();
-
-            if (pErr) {
-              console.warn('[Supabase Photo Sync Notice]:', pErr.message);
-            } else if (pData) {
-              supabaseRecordId = pData.id;
-            }
-          }
-
-          // Record sync log
-          await client.from('cloud_sync_logs').insert({
-            organization_id: validOrgId,
-            event_id: validEventId,
-            entity_id: validEventId,
-            entity_type: type,
-            synced_at: syncedAt,
-          });
-        }
+        // Record sync log
+        await client.from('cloud_sync_logs').insert({
+          organization_id: validOrgId,
+          event_id: validEventId,
+          entity_id: validEventId,
+          entity_type: type,
+          synced_at: syncedAt,
+        });
+      } catch (supErr: any) {
+        console.warn('[Supabase Sync Exception]:', supErr.message);
       }
-    } catch (supErr: any) {
-      console.warn('[Supabase Sync Exception]:', supErr.message);
     }
 
     return NextResponse.json(
