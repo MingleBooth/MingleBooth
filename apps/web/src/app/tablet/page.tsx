@@ -35,6 +35,7 @@ import {
   Info,
   ChevronLeft,
   ArrowLeft,
+  CameraOff,
 } from 'lucide-react';
 import { FrameHoleDetector, DetectedCutout } from '@minglebooth/template-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
@@ -481,6 +482,47 @@ export default function TabletStudioPage() {
     refreshCameraList();
   }, [refreshCameraList]);
 
+  // Dedicated callback refs to ensure instant, reliable video stream binding across phase changes
+  const attachVideoRef = useCallback(
+    (el: HTMLVideoElement | null) => {
+      videoRef.current = el;
+      if (el) {
+        el.muted = true;
+        el.defaultMuted = true;
+        el.playsInline = true;
+        el.setAttribute('playsinline', 'true');
+        el.setAttribute('webkit-playsinline', 'true');
+        if (cameraStream && el.srcObject !== cameraStream) {
+          el.srcObject = cameraStream;
+        }
+        el.play().catch((err) => {
+          console.warn('Kiosk video playback prevented:', err);
+        });
+      }
+    },
+    [cameraStream]
+  );
+
+  const attachMiniVideoRef = useCallback(
+    (el: HTMLVideoElement | null) => {
+      miniVideoRef.current = el;
+      if (el) {
+        el.muted = true;
+        el.defaultMuted = true;
+        el.playsInline = true;
+        el.setAttribute('playsinline', 'true');
+        el.setAttribute('webkit-playsinline', 'true');
+        if (cameraStream && el.srcObject !== cameraStream) {
+          el.srcObject = cameraStream;
+        }
+        el.play().catch((err) => {
+          console.warn('Mini video playback prevented:', err);
+        });
+      }
+    },
+    [cameraStream]
+  );
+
   // Connect Camera Stream
   useEffect(() => {
     if (!selectedCameraId) return;
@@ -498,7 +540,7 @@ export default function TabletStudioPage() {
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            deviceId: { exact: selectedCameraId },
+            deviceId: selectedCameraId ? { ideal: selectedCameraId } : undefined,
             width: { ideal: 1920 },
             height: { ideal: 1080 },
           },
@@ -508,10 +550,18 @@ export default function TabletStudioPage() {
         activeStream = stream;
         setCameraStream(stream);
 
-        if (videoRef.current) videoRef.current.srcObject = stream;
-        if (miniVideoRef.current) miniVideoRef.current.srcObject = stream;
+        if (videoRef.current) {
+          videoRef.current.muted = true;
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+        if (miniVideoRef.current) {
+          miniVideoRef.current.muted = true;
+          miniVideoRef.current.srcObject = stream;
+          miniVideoRef.current.play().catch(() => {});
+        }
       } catch (err: any) {
-        console.warn('Exact deviceId constraint error, falling back:', err);
+        console.warn('Ideal deviceId constraint error, falling back to any camera:', err);
         try {
           const fallbackStream = await navigator.mediaDevices.getUserMedia({
             video: true,
@@ -519,8 +569,16 @@ export default function TabletStudioPage() {
           });
           activeStream = fallbackStream;
           setCameraStream(fallbackStream);
-          if (videoRef.current) videoRef.current.srcObject = fallbackStream;
-          if (miniVideoRef.current) miniVideoRef.current.srcObject = fallbackStream;
+          if (videoRef.current) {
+            videoRef.current.muted = true;
+            videoRef.current.srcObject = fallbackStream;
+            videoRef.current.play().catch(() => {});
+          }
+          if (miniVideoRef.current) {
+            miniVideoRef.current.muted = true;
+            miniVideoRef.current.srcObject = fallbackStream;
+            miniVideoRef.current.play().catch(() => {});
+          }
         } catch (e2: any) {
           setCameraError('Gagal menghubungkan kamera: ' + e2.message);
         }
@@ -538,15 +596,20 @@ export default function TabletStudioPage() {
     };
   }, [selectedCameraId]);
 
-  // Re-attach Stream on Phase Change
+  // Re-attach Stream on Phase Change or when stream updates
   useEffect(() => {
     if (cameraStream) {
-      if (phase === 'kiosk' && videoRef.current) {
-        videoRef.current.srcObject = cameraStream;
-        videoRef.current.play().catch(() => {});
-      } else if (phase === 'setup' && miniVideoRef.current) {
-        miniVideoRef.current.srcObject = cameraStream;
-        miniVideoRef.current.play().catch(() => {});
+      const el = phase === 'kiosk' ? videoRef.current : miniVideoRef.current;
+      if (el) {
+        el.muted = true;
+        el.defaultMuted = true;
+        el.playsInline = true;
+        if (el.srcObject !== cameraStream) {
+          el.srcObject = cameraStream;
+        }
+        el.play().catch((err) => {
+          console.warn('Phase change play error:', err);
+        });
       }
     }
   }, [phase, cameraStream]);
@@ -674,24 +737,29 @@ export default function TabletStudioPage() {
   // Grab High-Resolution Frame from Camera
   const grabVideoFrame = (): string | null => {
     const video = videoRef.current;
-    if (!video || video.videoWidth === 0) return null;
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) return null;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
 
-    const currentCam = cameras.find((c) => c.deviceId === selectedCameraId);
-    const isFront = currentCam?.type === 'front';
+      const currentCam = cameras.find((c) => c.deviceId === selectedCameraId);
+      const isFront = currentCam?.type === 'front';
 
-    if (isFront) {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
+      if (isFront) {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.95);
+    } catch (e) {
+      console.error('Failed to capture frame from video canvas:', e);
+      return null;
     }
-
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.95);
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -700,6 +768,20 @@ export default function TabletStudioPage() {
 
   const triggerPoseShot = (shotIdx: number) => {
     if (sessionStep === 'countdown' || sessionStep === 'processing') return;
+
+    // Wake up video element if paused on mobile/desktop
+    const video = videoRef.current;
+    if (video) {
+      video.muted = true;
+      if (video.paused) {
+        video.play().catch(() => {});
+      }
+    }
+
+    if (!cameraStream || !video || video.videoWidth === 0) {
+      alert('Kamera belum aktif atau belum siap. Silakan periksa izin kamera di browser Anda atau klik tombol Hubungkan Kamera.');
+      return;
+    }
 
     if (countdownSeconds === 0) {
       executeShot(shotIdx);
@@ -729,8 +811,20 @@ export default function TabletStudioPage() {
 
     setTimeout(() => {
       setIsFlashing(false);
-      const frameData = grabVideoFrame();
+      let frameData = grabVideoFrame();
+
+      // Retry once if readyState is sufficient
+      if (!frameData && videoRef.current) {
+        try {
+          videoRef.current.play().catch(() => {});
+          frameData = grabVideoFrame();
+        } catch (e) {
+          console.error('Retry grab failed:', e);
+        }
+      }
+
       if (!frameData) {
+        alert('Gagal mengambil foto dari kamera. Pastikan kamera menyala dan izin kamera telah diberikan di browser.');
         setSessionStep('idle');
         return;
       }
@@ -1180,7 +1274,7 @@ export default function TabletStudioPage() {
               {/* Video Viewport */}
               <div className="w-full aspect-[4/3] rounded-xl bg-black relative overflow-hidden border border-white/[0.06] flex items-center justify-center">
                 <video
-                  ref={miniVideoRef}
+                  ref={attachMiniVideoRef}
                   autoPlay
                   playsInline
                   muted
@@ -2033,7 +2127,7 @@ export default function TabletStudioPage() {
 
         {/* ── 100% FULL SCREEN CAMERA FEED (EDGE-TO-EDGE 1 TAB) ── */}
         <video
-          ref={videoRef}
+          ref={attachVideoRef}
           autoPlay
           playsInline
           muted
@@ -2041,6 +2135,40 @@ export default function TabletStudioPage() {
             currentCam?.type === 'front' ? 'scale-x-[-1]' : ''
           }`}
         />
+
+        {/* ── CAMERA INACTIVE / PERMISSION OVERLAY ── */}
+        {(!cameraStream || cameraError) && (
+          <div className="absolute inset-0 z-40 bg-neutral-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4">
+              <CameraOff className="w-8 h-8" />
+            </div>
+            <h2 className="text-xl font-bold text-white mb-2">Kamera Belum Terhubung / Aktif</h2>
+            <p className="text-xs sm:text-sm text-neutral-400 max-w-md mb-6 leading-relaxed">
+              {cameraError ||
+                'Browser Chrome belum mendapatkan izin akses kamera atau kamera eksternal belum tersambung. Klik tombol di bawah atau izinkan akses kamera di ikon gembok/setelan browser (kiri URL minglebooth.id).'}
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => refreshCameraList()}
+                className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Hubungkan Ulang Kamera</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleResetKiosk();
+                  setPhase('setup');
+                }}
+                className="h-11 px-5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white font-semibold text-xs transition-colors"
+              >
+                Kembali ke Pengaturan
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Subtle Event Watermark (Floating Elegantly in Top-Center like Reference Photo) */}
         <div className="absolute top-6 inset-x-0 z-20 flex flex-col items-center justify-center pointer-events-none text-center">

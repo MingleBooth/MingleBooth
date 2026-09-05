@@ -330,7 +330,6 @@ export default function DashboardPage() {
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto flex-shrink-0">
             <Link
               href="/tablet"
-              target="_blank"
               className="h-10 px-4 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-98 whitespace-nowrap"
             >
               <Smartphone className="w-3.5 h-3.5" />
@@ -1126,7 +1125,6 @@ export default function DashboardPage() {
                     <div className="mt-3 flex items-center gap-2">
                       <Link
                         href="/tablet"
-                        target="_blank"
                         className="h-8 px-4 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />

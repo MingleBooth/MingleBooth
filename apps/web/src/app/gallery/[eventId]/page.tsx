@@ -198,7 +198,6 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
 
           <Link
             href="/tablet"
-            target="_blank"
             className="h-8 px-3.5 rounded-lg bg-white hover:bg-neutral-200 text-black text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
           >
             <Camera className="w-3.5 h-3.5" />
@@ -364,7 +363,6 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
             </p>
             <Link
               href="/tablet"
-              target="_blank"
               className="mt-2 h-8 px-4 rounded-lg bg-white hover:bg-neutral-200 text-black text-xs font-semibold flex items-center gap-1.5 transition-colors"
             >
               <Camera className="w-3.5 h-3.5" />
