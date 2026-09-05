@@ -52,6 +52,9 @@ export async function GET(
             fsSync.existsSync(path.join(checkDir, 'processed', `${photoId}.jpg`)) ||
             fsSync.existsSync(path.join(checkDir, 'processed', `${photoId}.png`)) ||
             fsSync.existsSync(path.join(checkDir, 'gifs', `${photoId}.gif`)) ||
+            fsSync.existsSync(path.join(checkDir, 'thumbnails', `${photoId}_thumb.jpg`)) ||
+            fsSync.existsSync(path.join(checkDir, 'raw', `${photoId}_raw_1.jpg`)) ||
+            fsSync.existsSync(path.join(checkDir, 'raw', `${photoId}.jpg`)) ||
             fsSync.existsSync(path.join(checkDir, `${photoId}.jpg`));
           if (hasPhoto) {
             matchedEventDir = checkDir;
@@ -79,8 +82,12 @@ export async function GET(
       let rawCount = 2;
 
       if (matchedEventDir) {
-        const gifPath = path.join(matchedEventDir, 'gifs', `${photoId}.gif`);
-        hasGif = fsSync.existsSync(gifPath);
+        const gifPossibles = [
+          path.join(matchedEventDir, 'gifs', `${photoId}.gif`),
+          path.join(matchedEventDir, 'processed', `${photoId}.gif`),
+          path.join(matchedEventDir, `${photoId}.gif`),
+        ];
+        hasGif = gifPossibles.some((p) => fsSync.existsSync(p));
 
         const rawDir = path.join(matchedEventDir, 'raw');
         if (fsSync.existsSync(rawDir)) {
@@ -113,16 +120,18 @@ export async function GET(
         },
       ];
 
-      // Slide 2: GIF Boomerang
-      slides.push({
-        id: 'slide_gif',
-        type: 'gif',
-        title: 'Animasi GIF',
-        subtitle: 'Boomerang dengan Bingkai Khusus',
-        badge: 'ANIMASI GIF',
-        url: `/api/gallery/${photoId}?type=gif`,
-        downloadName: `MingleBooth_Animasi_${photoId}.gif`,
-      });
+      // Slide 2: GIF Boomerang (Only when session has multi-shot GIF)
+      if (hasGif) {
+        slides.push({
+          id: 'slide_gif',
+          type: 'gif',
+          title: 'Animasi GIF',
+          subtitle: 'Boomerang Bergerak',
+          badge: 'ANIMASI GIF',
+          url: `/api/gallery/${photoId}?type=gif`,
+          downloadName: `MingleBooth_Animasi_${photoId}.gif`,
+        });
+      }
 
       // Slide 3..N: Raw Shots
       for (let i = 1; i <= Math.max(1, rawCount); i++) {
@@ -189,6 +198,9 @@ export async function GET(
           path.join(matchedEventDir, 'processed', `${photoId}.png`),
           path.join(matchedEventDir, `${photoId}.jpg`),
           path.join(matchedEventDir, `${photoId}.png`),
+          path.join(matchedEventDir, 'thumbnails', `${photoId}_thumb.jpg`),
+          path.join(matchedEventDir, 'thumbnails', `${photoId}.jpg`),
+          path.join(matchedEventDir, 'raw', `${photoId}_raw_1.jpg`),
         ];
         for (const p of photoPossibles) {
           if (fsSync.existsSync(p)) {

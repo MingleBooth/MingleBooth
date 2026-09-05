@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Download,
   Share2,
@@ -66,7 +67,16 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
 
+  const router = useRouter();
+
   useEffect(() => {
+    // If photoId is an event ID, redirect to full event album gallery
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(photoId);
+    if (isUuid || photoId.startsWith('evt_') || photoId === 'bayu-irma-wedding') {
+      router.replace(`/gallery/${photoId}`);
+      return;
+    }
+
     // 1. Fetch Slides Metadata
     fetch(`/api/gallery/${photoId}?type=meta`)
       .then((res) => res.json())

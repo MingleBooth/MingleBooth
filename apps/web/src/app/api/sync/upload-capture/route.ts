@@ -83,6 +83,55 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Save media to disk so gallery endpoint can immediately serve it
+    await fs.writeFile(filePath, finalBuffer);
+
+    // Also mirror to data/events directory for local serving redundancy
+    const localEventDir = path.join(dataRoot, 'events', eventId);
+    try {
+      await fs.mkdir(localEventDir, { recursive: true });
+      if (type === 'gif') {
+        const gifDir = path.join(localEventDir, 'gifs');
+        await fs.mkdir(gifDir, { recursive: true });
+        await fs.writeFile(path.join(gifDir, `${photoId}.gif`), finalBuffer);
+      } else {
+        await fs.writeFile(path.join(localEventDir, `${photoId}.jpg`), finalBuffer);
+        const thumbDir = path.join(localEventDir, 'thumbnails');
+        await fs.mkdir(thumbDir, { recursive: true });
+        await fs.writeFile(path.join(thumbDir, `${photoId}_thumb.jpg`), finalBuffer);
+      }
+    } catch (e) {
+      console.warn('Local event mirror warning:', e);
+    }
+
+    // ── Save Raw Camera Shots if provided ──
+    const rawShotsList: string[] = Array.isArray(body.rawShots) ? body.rawShots : [];
+    if (rawShotsList.length > 0) {
+      const cloudRawDir = path.join(cloudGalleryDir, 'raw');
+      const localRawDir = path.join(localEventDir, 'raw');
+      await fs.mkdir(cloudRawDir, { recursive: true });
+      await fs.mkdir(localRawDir, { recursive: true });
+
+      for (let i = 0; i < rawShotsList.length; i++) {
+        const rawData = rawShotsList[i];
+        if (!rawData) continue;
+        let buf: Buffer;
+        if (rawData.includes(';base64,')) {
+          buf = Buffer.from(rawData.split(';base64,')[1], 'base64');
+        } else {
+          buf = Buffer.from(rawData, 'utf-8');
+        }
+        try {
+          const jpgBuf = await sharp(buf).jpeg({ quality: 92 }).toBuffer();
+          await fs.writeFile(path.join(cloudRawDir, `${photoId}_raw_${i + 1}.jpg`), jpgBuf);
+          await fs.writeFile(path.join(localRawDir, `${photoId}_raw_${i + 1}.jpg`), jpgBuf);
+        } catch {
+          await fs.writeFile(path.join(cloudRawDir, `${photoId}_raw_${i + 1}.jpg`), buf);
+          await fs.writeFile(path.join(localRawDir, `${photoId}_raw_${i + 1}.jpg`), buf);
+        }
+      }
+    }
+
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://minglebooth.id';
     const cloudUrl = `${baseUrl}/p/${photoId}`;
     const syncedAt = new Date().toISOString();

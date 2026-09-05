@@ -1,1 +1,1 @@
-export * from './gif-composer';
+export * from './gif-composer.js';

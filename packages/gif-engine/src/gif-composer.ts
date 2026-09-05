@@ -1,4 +1,5 @@
-import { GIFEncoder, quantize, applyPalette } from 'gifenc';
+import * as gifencPkg from 'gifenc';
+const { GIFEncoder, quantize, applyPalette } = (gifencPkg as any).default || gifencPkg;
 
 export interface GifCompositionOptions {
   frameDelayMs?: number; // default 320ms
@@ -7,6 +8,7 @@ export interface GifCompositionOptions {
   width?: number;
   height?: number;
   frameOverlayBase64?: string | null;
+  cutoutSlot?: { x: number; y: number; width: number; height: number } | null;
 }
 
 export interface GifCompositionResult {
@@ -50,7 +52,7 @@ export class GifComposer {
     }
 
     const {
-      frameDelayMs = 320,
+      frameDelayMs = 750,
       playbackMode = 'boomerang',
       frameOverlayBase64 = null,
     } = options;
@@ -108,41 +110,62 @@ export class GifComposer {
       throw new Error('Canvas 2D context not available');
     }
 
-    // 3. Initialize GIFEncoder
+    // 3. Detect or use explicit transparent cutout hole from PNG
+    const slot = options.cutoutSlot
+      ? {
+          x: Math.round((options.cutoutSlot.x * targetWidth) / (options.width || targetWidth)),
+          y: Math.round((options.cutoutSlot.y * targetHeight) / (options.height || targetHeight)),
+          width: Math.round((options.cutoutSlot.width * targetWidth) / (options.width || targetWidth)),
+          height: Math.round((options.cutoutSlot.height * targetHeight) / (options.height || targetHeight)),
+        }
+      : overlayImg
+      ? this.detectCutoutArea(overlayImg, targetWidth, targetHeight)
+      : { x: 0, y: 0, width: targetWidth, height: targetHeight };
+
+    // 4. Initialize GIFEncoder
     const gif = GIFEncoder();
 
-    // 4. Render and encode each frame
+    // 5. Render and encode each frame inside cutout aperture
     for (const frameSrc of sequence) {
       ctx.clearRect(0, 0, targetWidth, targetHeight);
+
+      // Fill clean white background (matches real photo paper and prevents dark dirty bleed)
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
 
       try {
         const img = await this.loadImage(frameSrc);
 
-        // Aspect Fill / Center Crop the photo inside the canvas
+        // Aspect Fill / Center Crop the photo precisely inside the cutout hole
         const imgAspect = img.width / img.height;
-        const canvasAspect = targetWidth / targetHeight;
+        const slotAspect = slot.width / slot.height;
 
-        let drawW = targetWidth;
-        let drawH = targetHeight;
-        let drawX = 0;
-        let drawY = 0;
+        let drawW = slot.width;
+        let drawH = slot.height;
+        let drawX = slot.x;
+        let drawY = slot.y;
 
-        if (imgAspect > canvasAspect) {
-          drawW = targetHeight * imgAspect;
-          drawX = (targetWidth - drawW) / 2;
+        if (imgAspect > slotAspect) {
+          drawW = slot.height * imgAspect;
+          drawX = slot.x + (slot.width - drawW) / 2;
         } else {
-          drawH = targetWidth / imgAspect;
-          drawY = (targetHeight - drawH) / 2;
+          drawH = slot.width / imgAspect;
+          drawY = slot.y + (slot.height - drawH) / 2;
         }
 
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(slot.x, slot.y, slot.width, slot.height);
+        ctx.clip();
         ctx.drawImage(img, drawX, drawY, drawW, drawH);
+        ctx.restore();
       } catch (err) {
         console.warn('[GifComposer] Error loading frame image, drawing placeholder', err);
         ctx.fillStyle = '#181B20';
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
+        ctx.fillRect(slot.x, slot.y, slot.width, slot.height);
       }
 
-      // Draw custom GIF frame overlay on top
+      // Draw custom GIF PNG frame overlay on top
       if (overlayImg) {
         ctx.drawImage(overlayImg, 0, 0, targetWidth, targetHeight);
       }
@@ -193,5 +216,123 @@ export class GifComposer {
       img.onerror = (e) => reject(e);
       img.src = src;
     });
+  }
+
+  /**
+   * Reads PNG frame transparency channel to extract the exact cutout shape & coordinates
+   */
+  public static detectCutoutArea(
+    overlayImg: HTMLImageElement,
+    width: number,
+    height: number
+  ): { x: number; y: number; width: number; height: number } {
+    try {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = 160;
+      offscreen.height = Math.round(160 * (height / width));
+      const ctx = offscreen.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return { x: 0, y: 0, width, height };
+
+      ctx.drawImage(overlayImg, 0, 0, offscreen.width, offscreen.height);
+      const imgData = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
+      const data = imgData.data;
+
+      const scaleW = offscreen.width;
+      const scaleH = offscreen.height;
+
+      // 1. Grid of transparent pixels (alpha < 75)
+      const isTrans: boolean[][] = Array.from({ length: scaleH }, () => new Array(scaleW).fill(false));
+      let totalTransparent = 0;
+      for (let y = 0; y < scaleH; y++) {
+        for (let x = 0; x < scaleW; x++) {
+          const idx = (y * scaleW + x) * 4;
+          if (data[idx + 3] < 75) {
+            isTrans[y][x] = true;
+            totalTransparent++;
+          }
+        }
+      }
+
+      if (totalTransparent < (scaleW * scaleH) * 0.05) {
+        return { x: 0, y: 0, width, height };
+      }
+
+      // 2. Find starting seed point near the center of the aperture
+      let startX = -1, startY = -1;
+      const midX = Math.floor(scaleW / 2);
+      const midY = Math.floor(scaleH * 0.45);
+
+      if (isTrans[midY][midX]) {
+        startX = midX;
+        startY = midY;
+      } else {
+        // Spiral scan outward from center to find first transparent window pixel
+        let found = false;
+        for (let r = 1; r < scaleW / 2 && !found; r++) {
+          for (let dy = -r; dy <= r && !found; dy++) {
+            for (let dx = -r; dx <= r && !found; dx++) {
+              const cy = midY + dy;
+              const cx = midX + dx;
+              if (cy >= 0 && cy < scaleH && cx >= 0 && cx < scaleW) {
+                if (isTrans[cy][cx]) {
+                  startX = cx;
+                  startY = cy;
+                  found = true;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (startX === -1) {
+        return { x: 0, y: 0, width, height };
+      }
+
+      // 3. Flood fill connected transparent aperture from center seed
+      const visited: boolean[][] = Array.from({ length: scaleH }, () => new Array(scaleW).fill(false));
+      const queue: [number, number][] = [[startX, startY]];
+      visited[startY][startX] = true;
+
+      let minX = startX, maxX = startX, minY = startY, maxY = startY;
+      let count = 0;
+
+      while (queue.length > 0) {
+        const [cx, cy] = queue.pop()!;
+        count++;
+        if (cx < minX) minX = cx;
+        if (cx > maxX) maxX = cx;
+        if (cy < minY) minY = cy;
+        if (cy > maxY) maxY = cy;
+
+        const neighbors: [number, number][] = [
+          [cx + 1, cy],
+          [cx - 1, cy],
+          [cx, cy + 1],
+          [cx, cy - 1],
+        ];
+        for (const [nx, ny] of neighbors) {
+          if (nx >= 0 && nx < scaleW && ny >= 0 && ny < scaleH) {
+            if (isTrans[ny][nx] && !visited[ny][nx]) {
+              visited[ny][nx] = true;
+              queue.push([nx, ny]);
+            }
+          }
+        }
+      }
+
+      const scaleX = width / scaleW;
+      const scaleY = height / scaleH;
+      const bleed = 2; // subtle 2px bleed so no blank seams show, but never bleeding behind frame
+      const x = Math.max(0, Math.round(minX * scaleX) - bleed);
+      const y = Math.max(0, Math.round(minY * scaleY) - bleed);
+      const w = Math.min(width - x, Math.round((maxX - minX + 1) * scaleX) + bleed * 2);
+      const h = Math.min(height - y, Math.round((maxY - minY + 1) * scaleY) + bleed * 2);
+
+      return { x, y, width: w, height: h };
+    } catch (e) {
+      console.warn('[GifComposer] Error detecting cutout area from PNG:', e);
+    }
+    return { x: 0, y: 0, width, height };
   }
 }

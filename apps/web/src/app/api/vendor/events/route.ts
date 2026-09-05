@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-org-id, x-vendor-email',
 };
 
@@ -147,6 +147,33 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, event: newEvent }, { headers: corsHeaders });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message }, { status: 500, headers: corsHeaders });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const client = getServiceSupabase();
+    const eventId = req.nextUrl.searchParams.get('id');
+
+    if (!eventId) {
+      return NextResponse.json({ error: 'Event ID is required' }, { status: 400, headers: corsHeaders });
+    }
+
+    // Delete related photos first
+    await client.from('photos').delete().eq('event_id', eventId);
+
+    const { error } = await client
+      .from('events')
+      .delete()
+      .eq('id', eventId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
+    }
+
+    return NextResponse.json({ success: true }, { headers: corsHeaders });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message }, { status: 500, headers: corsHeaders });
   }

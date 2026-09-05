@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
-import { PRESET_TEMPLATE_LIBRARY, encodeSvgToBase64 } from '@/lib/preset-templates';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,43 +53,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
     }
 
-    // Built-in starter preset templates for all vendors
-    const defaultPresets = PRESET_TEMPLATE_LIBRARY.map((p) => ({
-      id: p.id,
-      name: p.name,
-      aspect_ratio: p.ratio,
-      slots: p.slots,
-      overlay_storage_path: `presets/${p.id}.svg`,
-      overlay_base64: encodeSvgToBase64(p.svgOverlay),
-      is_preset: true,
-      category: p.category,
-      config_json: {
-        slotsCount: p.slots,
-        width: p.width,
-        height: p.height,
-        formatLabel: p.formatLabel,
-        description: p.description,
-        badgeColor: p.badgeColor,
-        previewGradient: p.previewGradient,
-      },
-      created_at: new Date('2026-01-01').toISOString(),
-    }));
-
-    // Normalize DB templates
+    // Normalize DB templates (only vendor-uploaded custom templates)
     const mappedDbTemplates = (templates || []).map((t: any) => ({
       ...t,
       slots: t.slots || t.config_json?.slotsCount || 1,
       overlay_base64: t.overlay_base64 || t.config_json?.overlayBase64 || null,
     }));
 
-    // Put vendor custom templates first, followed by ready-to-use presets
-    const existingIds = new Set(mappedDbTemplates.map((t: any) => t.id));
-    const merged = [
-      ...mappedDbTemplates,
-      ...defaultPresets.filter((p) => !existingIds.has(p.id)),
-    ];
-
-    return NextResponse.json({ templates: merged }, { headers: corsHeaders });
+    return NextResponse.json({ templates: mappedDbTemplates }, { headers: corsHeaders });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message }, { status: 500, headers: corsHeaders });
   }

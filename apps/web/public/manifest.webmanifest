@@ -1,0 +1,25 @@
+{
+  "name": "MingleBooth Tablet Studio",
+  "short_name": "MingleBooth",
+  "description": "Professional Photobooth Operating System for iPad & Android Tablet",
+  "start_url": "/tablet",
+  "scope": "/tablet",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#090A0C",
+  "theme_color": "#090A0C",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
