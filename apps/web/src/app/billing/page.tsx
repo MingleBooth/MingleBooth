@@ -19,9 +19,11 @@ export default function BillingPage() {
   const [org, setOrg] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
+  const [justRegistered, setJustRegistered] = useState(false);
+  const [registeredPlan, setRegisteredPlan] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check URL search params for cycle or email passed from registration
+    // Check URL search params for cycle, email, or registered flag passed from registration
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const cycleParam = params.get('cycle');
@@ -31,6 +33,14 @@ export default function BillingPage() {
       const emailParam = params.get('email');
       if (emailParam) {
         setCurrentUser((prev: any) => prev || { email: decodeURIComponent(emailParam) });
+      }
+      const regParam = params.get('registered');
+      if (regParam === '1' || regParam === 'true') {
+        setJustRegistered(true);
+      }
+      const planParam = params.get('plan');
+      if (planParam) {
+        setRegisteredPlan(planParam);
       }
     }
 
@@ -197,6 +207,37 @@ export default function BillingPage() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10 flex flex-col gap-8 sm:gap-10">
+        {/* Registration Success Banner */}
+        {justRegistered && (
+          <div className="p-4 sm:p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl animate-fadeIn">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mt-0.5 flex-shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-semibold text-white">Akun Studio Berhasil Didaftarkan!</h3>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Langkah 2: Selesaikan Pembayaran
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-300 mt-1">
+                  Akun Anda telah tersimpan dengan email{' '}
+                  <span className="text-white font-mono bg-white/[0.08] px-1.5 py-0.5 rounded">{currentUser?.email}</span>.
+                  Silakan klik tombol <strong className="text-white">&quot;Bayar via Lynk.id&quot;</strong> pada paket pilihan Anda untuk mengaktifkan lisensi software.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/dashboard"
+              className="h-8 px-3.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-xs font-medium text-white flex items-center gap-1.5 transition-colors whitespace-nowrap self-start sm:self-auto flex-shrink-0"
+            >
+              <span>Lihat Dashboard</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        )}
+
         {/* Active License Status Banner (Only when logged in) */}
         {currentUser && org ? (
           <section className="p-6 rounded-2xl bg-[#121316] border border-white/[0.08] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-xl">
@@ -304,16 +345,23 @@ export default function BillingPage() {
                 <div
                   key={p.id}
                   className={`p-6 rounded-2xl flex flex-col justify-between transition-all ${
-                    p.isPopular
+                    justRegistered && registeredPlan === p.id
+                      ? 'bg-[#14161A] border-2 border-emerald-400/60 shadow-2xl relative ring-2 ring-emerald-400/20'
+                      : p.isPopular
                       ? 'bg-[#14161A] border-2 border-white/30 shadow-2xl relative'
                       : 'bg-[#121316] border border-white/[0.07]'
                   }`}
                 >
-                  {p.isPopular && (
+                  {justRegistered && registeredPlan === p.id ? (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-emerald-400 text-black text-[10px] font-bold tracking-wider uppercase shadow-md flex items-center gap-1">
+                      <Check className="w-3 h-3" />
+                      <span>Paket Pilihan Anda</span>
+                    </span>
+                  ) : p.isPopular ? (
                     <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-white text-black text-[10px] font-bold tracking-wider uppercase shadow-md">
                       Paling Populer
                     </span>
-                  )}
+                  ) : null}
 
                   <div className="flex flex-col gap-4">
                     <div>
@@ -352,28 +400,50 @@ export default function BillingPage() {
 
                   {/* Actions */}
                   <div className="pt-6 flex flex-col gap-2">
-                    <a
-                      href={
-                        currentUser?.email
-                          ? `${targetLynkUrl}${targetLynkUrl.includes('?') ? '&' : '?'}email=${encodeURIComponent(currentUser.email)}`
-                          : targetLynkUrl
-                      }
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`w-full py-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all ${
-                        p.isPopular
-                          ? 'bg-white hover:bg-neutral-200 text-black shadow-md'
-                          : 'bg-[#1A1D23] hover:bg-[#22262E] text-white border border-white/[0.08]'
-                      }`}
-                    >
-                      <CreditCard className="w-3.5 h-3.5" />
-                      <span>Bayar via Lynk.id</span>
-                      <ExternalLink className="w-3 h-3 opacity-60" />
-                    </a>
-                    {currentUser?.email && (
-                      <p className="text-[10px] text-neutral-500 text-center">
-                        Gunakan email <span className="text-neutral-300 font-mono">{currentUser.email}</span> saat checkout
-                      </p>
+                    {currentUser ? (
+                      <>
+                        <a
+                          href={
+                            currentUser?.email
+                              ? `${targetLynkUrl}${targetLynkUrl.includes('?') ? '&' : '?'}email=${encodeURIComponent(currentUser.email)}`
+                              : targetLynkUrl
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`w-full py-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all ${
+                            p.isPopular
+                              ? 'bg-white hover:bg-neutral-200 text-black shadow-md'
+                              : 'bg-[#1A1D23] hover:bg-[#22262E] text-white border border-white/[0.08]'
+                          }`}
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>Bayar via Lynk.id</span>
+                          <ExternalLink className="w-3 h-3 opacity-60" />
+                        </a>
+                        {currentUser?.email && (
+                          <p className="text-[10px] text-neutral-500 text-center">
+                            Gunakan email <span className="text-neutral-300 font-mono">{currentUser.email}</span> saat checkout
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Link
+                          href={`/register?plan=${p.id}&cycle=${billingCycle}`}
+                          className={`w-full py-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all ${
+                            p.isPopular
+                              ? 'bg-white hover:bg-neutral-200 text-black shadow-md'
+                              : 'bg-[#1A1D23] hover:bg-[#22262E] text-white border border-white/[0.08]'
+                          }`}
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>Pilih Paket &amp; Daftar</span>
+                          <ArrowRight className="w-3 h-3 opacity-60" />
+                        </Link>
+                        <p className="text-[10px] text-neutral-500 text-center">
+                          Isi data studio &amp; password sebelum bayar
+                        </p>
+                      </>
                     )}
                   </div>
                 </div>

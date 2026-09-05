@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, Mail, Key, Building, ArrowRight, Camera, Check } from 'lucide-react';
+import { ShieldCheck, Mail, Key, Building, ArrowRight, Camera, Check, AlertCircle } from 'lucide-react';
 
 export default function VendorRegisterPage() {
   const router = useRouter();
@@ -13,26 +13,69 @@ export default function VendorRegisterPage() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
   const [selectedPlan, setSelectedPlan] = useState<'starter' | 'pro' | 'business'>('pro');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Read preselected plan & cycle from URL params (from /billing)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const planParam = params.get('plan');
+      if (planParam === 'starter' || planParam === 'pro' || planParam === 'business') {
+        setSelectedPlan(planParam);
+      }
+      const cycleParam = params.get('cycle');
+      if (cycleParam === 'monthly' || cycleParam === 'yearly') {
+        setBillingCycle(cycleParam);
+      }
+    }
+  }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setErrorMsg(null);
 
-    // Save registration context and session to localStorage
     const cleanEmail = email.trim().toLowerCase();
-    const vendorData = {
-      studioName: studioName.trim(),
-      email: cleanEmail,
-      selectedPlan,
-      billingCycle,
-    };
-    localStorage.setItem('mb_registered_vendor', JSON.stringify(vendorData));
-    localStorage.setItem('mb_web_user', JSON.stringify({ email: cleanEmail, name: studioName.trim() }));
 
-    // Redirect to Billing page with selected cycle & plan
-    setTimeout(() => {
-      router.push(`/billing?cycle=${billingCycle}&plan=${selectedPlan}&email=${encodeURIComponent(cleanEmail)}`);
-    }, 400);
+    try {
+      const res = await fetch('/api/auth/web-register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studioName: studioName.trim(),
+          email: cleanEmail,
+          password,
+          plan: selectedPlan,
+          cycle: billingCycle,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        // Save session
+        localStorage.setItem('mb_web_user', JSON.stringify(data.user));
+        localStorage.setItem(
+          'mb_registered_vendor',
+          JSON.stringify({
+            studioName: studioName.trim(),
+            email: cleanEmail,
+            selectedPlan,
+            billingCycle,
+          })
+        );
+
+        // Redirect to Billing page with checkout & registered flag
+        router.push(data.redirectUrl || `/billing?registered=1&plan=${selectedPlan}&cycle=${billingCycle}&email=${encodeURIComponent(cleanEmail)}`);
+      } else {
+        setErrorMsg(data.error || 'Pendaftaran gagal. Silakan coba lagi.');
+        setLoading(false);
+      }
+    } catch (err: any) {
+      console.error('Registration failed:', err);
+      setErrorMsg(err.message || 'Gagal terhubung ke server');
+      setLoading(false);
+    }
   };
 
   return (
@@ -68,6 +111,13 @@ export default function VendorRegisterPage() {
             Mulai kelola armada photobooth studio, event wedding, dan galeri cloud Anda dengan MingleBooth.
           </p>
         </div>
+
+        {errorMsg && (
+          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
 
         <form onSubmit={handleRegister} className="flex flex-col gap-3.5 bg-[#121316] border border-white/[0.08] p-6 rounded-2xl shadow-xl">
           <div className="flex flex-col gap-1.5">
