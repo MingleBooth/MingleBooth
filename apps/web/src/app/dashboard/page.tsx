@@ -911,13 +911,12 @@ export default function DashboardPage() {
                 </div>
 
                 <a
-                  href={process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL || '#'}
-                  onClick={(e) => {
-                    if (!process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL) {
-                      e.preventDefault();
-                      alert('Installer macOS (.dmg) siap di-generate via `npm run electron:build:mac` di terminal server.');
-                    }
-                  }}
+                  href={
+                    process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL ||
+                    'https://drive.google.com/file/d/1Zveihx99200kVqdx9H6w4g1qAw_tzc6B/view?usp=share_link'
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="h-8 px-3.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm flex-shrink-0"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -945,13 +944,12 @@ export default function DashboardPage() {
                 </div>
 
                 <a
-                  href={process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL || '#'}
-                  onClick={(e) => {
-                    if (!process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL) {
-                      e.preventDefault();
-                      alert('Installer Windows (.exe) siap di-generate via `npm run electron:build:win` di terminal server.');
-                    }
-                  }}
+                  href={
+                    process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL ||
+                    'https://drive.google.com/file/d/11yqBITrjKwNi037qXsmNF9hBp8P9uOAN/view?usp=share_link'
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="h-8 px-3.5 rounded-lg bg-[#22262E] hover:bg-[#2C313C] border border-white/[0.1] text-white font-medium text-xs flex items-center gap-1.5 transition-colors flex-shrink-0"
                 >
                   <Download className="w-3.5 h-3.5" />

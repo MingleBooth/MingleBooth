@@ -115,14 +115,14 @@ export async function POST(req: NextRequest) {
     // 5. Determine Lynk.id checkout URL for pre-filling
     const lynkMapYearly: Record<string, string> = {
       starter: process.env.NEXT_PUBLIC_LYNK_URL_STARTER || 'https://lynk.id/minglebooth/r6k3kdyxj7vw',
-      pro: process.env.NEXT_PUBLIC_LYNK_URL_PRO || 'https://lynk.id',
-      business: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS || 'https://lynk.id',
+      pro: process.env.NEXT_PUBLIC_LYNK_URL_PRO || 'https://lynk.id/minglebooth/4gx630xzzq8r',
+      business: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS || 'https://lynk.id/minglebooth/d4jm3v31kypm',
     };
 
     const lynkMapMonthly: Record<string, string> = {
-      starter: process.env.NEXT_PUBLIC_LYNK_URL_STARTER_MONTHLY || 'https://lynk.id/minglebooth',
-      pro: process.env.NEXT_PUBLIC_LYNK_URL_PRO_MONTHLY || 'https://lynk.id',
-      business: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS_MONTHLY || 'https://lynk.id',
+      starter: process.env.NEXT_PUBLIC_LYNK_URL_STARTER_MONTHLY || 'https://lynk.id/minglebooth/llx2p98w1qlp',
+      pro: process.env.NEXT_PUBLIC_LYNK_URL_PRO_MONTHLY || 'https://lynk.id/minglebooth/eqj6xmrjd51r',
+      business: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS_MONTHLY || 'https://lynk.id/minglebooth/zr78ewnemej1',
     };
 
     const baseLynkUrl = cycle === 'monthly' ? lynkMapMonthly[normalizedPlan] : lynkMapYearly[normalizedPlan];

@@ -103,7 +103,7 @@ export default function BillingPage() {
       ],
       isPopular: false,
       lynkUrlYearly: process.env.NEXT_PUBLIC_LYNK_URL_STARTER || 'https://lynk.id/minglebooth/r6k3kdyxj7vw',
-      lynkUrlMonthly: process.env.NEXT_PUBLIC_LYNK_URL_STARTER_MONTHLY || 'https://lynk.id/minglebooth',
+      lynkUrlMonthly: process.env.NEXT_PUBLIC_LYNK_URL_STARTER_MONTHLY || 'https://lynk.id/minglebooth/llx2p98w1qlp',
     },
     {
       id: 'pro',
@@ -127,8 +127,8 @@ export default function BillingPage() {
         'Priority Technical Support & Early Access',
       ],
       isPopular: true,
-      lynkUrlYearly: process.env.NEXT_PUBLIC_LYNK_URL_PRO || 'https://lynk.id',
-      lynkUrlMonthly: process.env.NEXT_PUBLIC_LYNK_URL_PRO_MONTHLY || 'https://lynk.id',
+      lynkUrlYearly: process.env.NEXT_PUBLIC_LYNK_URL_PRO || 'https://lynk.id/minglebooth/4gx630xzzq8r',
+      lynkUrlMonthly: process.env.NEXT_PUBLIC_LYNK_URL_PRO_MONTHLY || 'https://lynk.id/minglebooth/eqj6xmrjd51r',
     },
     {
       id: 'business',
@@ -152,8 +152,8 @@ export default function BillingPage() {
         'Dedicated 24/7 SLA Engineering Support',
       ],
       isPopular: false,
-      lynkUrlYearly: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS || 'https://lynk.id',
-      lynkUrlMonthly: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS_MONTHLY || 'https://lynk.id',
+      lynkUrlYearly: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS || 'https://lynk.id/minglebooth/d4jm3v31kypm',
+      lynkUrlMonthly: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS_MONTHLY || 'https://lynk.id/minglebooth/zr78ewnemej1',
     },
   ];
 
