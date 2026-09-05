@@ -15,6 +15,7 @@ import { PhotoCompositor, QRGenerator } from '@minglebooth/photo-engine';
 import { SyncManager } from '@minglebooth/sync-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
 import { LocalCaptureRepository, LocalStorageManager } from '@minglebooth/event-core';
+import { API_BASE_URL } from '../config';
 
 export type SessionStep = 'idle' | 'countdown' | 'capturing' | 'waiting_next_shot' | 'processing' | 'review';
 export type CaptureMode = 'photo' | 'gif';
@@ -436,7 +437,7 @@ const defaultEvent: EventConfig = {
     primaryColor: '#38bdf8',
     hashtag: '#BayuIrmaForever',
   },
-  qrBaseUrl: 'http://localhost:3000',
+  qrBaseUrl: API_BASE_URL,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 };
@@ -600,7 +601,7 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
       syncManager.setUploadHandler(async (item, onProgress) => {
         onProgress(25);
         try {
-          const resp = await fetch('http://localhost:3000/api/sync/upload-capture', {
+          const resp = await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -616,14 +617,14 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
           if (resp.ok) {
             const data = await resp.json();
             onProgress(100);
-            return { cloudUrl: data.cloudUrl || `http://localhost:3000/p/${item.entityId}` };
+            return { cloudUrl: data.cloudUrl || `${API_BASE_URL}/p/${item.entityId}` };
           }
         } catch (e) {
           console.warn('Real sync worker notice:', e);
         }
 
         onProgress(100);
-        return { cloudUrl: `http://localhost:3000/p/${item.entityId}` };
+        return { cloudUrl: `${API_BASE_URL}/p/${item.entityId}` };
       });
 
       cameraManager.on('statusChange', (status: CameraStatus) => {
@@ -645,7 +646,7 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
 
     fetchEventsFromCloud: async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/vendor/events');
+        const res = await fetch(`${API_BASE_URL}/api/vendor/events`);
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.events) && data.events.length > 0) {
@@ -668,7 +669,7 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
                 primaryColor: '#38bdf8',
                 hashtag: e.branding?.hashtag || `#${e.slug}`,
               },
-              qrBaseUrl: 'http://localhost:3000',
+              qrBaseUrl: API_BASE_URL,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             }));
@@ -686,7 +687,7 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
 
     fetchTemplatesFromCloud: async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/vendor/templates');
+        const res = await fetch(`${API_BASE_URL}/api/vendor/templates`);
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.templates) && data.templates.length > 0) {

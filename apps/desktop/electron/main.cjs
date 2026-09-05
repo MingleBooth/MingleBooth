@@ -61,6 +61,21 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  // Enable DevTools via F12 or Cmd+Alt+I (Mac) / Ctrl+Shift+I (Windows)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (
+      input.key === 'F12' ||
+      ((input.control || input.meta) && input.alt && input.key.toLowerCase() === 'i') ||
+      ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'i')
+    ) {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[Electron] Page failed to load:', errorCode, errorDescription);
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });

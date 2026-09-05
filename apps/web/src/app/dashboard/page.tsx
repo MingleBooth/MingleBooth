@@ -913,7 +913,7 @@ export default function DashboardPage() {
                 <a
                   href={
                     process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL ||
-                    'https://drive.google.com/file/d/1Zveihx99200kVqdx9H6w4g1qAw_tzc6B/view?usp=share_link'
+                    'https://drive.google.com/file/d/1hRJ4X9UGSYql2dsWYYyH5TO2fmZ0PHBk/view?usp=share_link'
                   }
                   target="_blank"
                   rel="noopener noreferrer"
@@ -946,7 +946,7 @@ export default function DashboardPage() {
                 <a
                   href={
                     process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL ||
-                    'https://drive.google.com/file/d/11yqBITrjKwNi037qXsmNF9hBp8P9uOAN/view?usp=share_link'
+                    'https://drive.google.com/file/d/1ybYDGImhyVp1CFBfvXyDoLKI3XW0CLS3/view?usp=share_link'
                   }
                   target="_blank"
                   rel="noopener noreferrer"

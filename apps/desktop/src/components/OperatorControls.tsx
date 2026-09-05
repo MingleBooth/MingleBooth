@@ -23,6 +23,7 @@ import {
 } from '../store/photobooth-store';
 import { CameraBrand } from '@minglebooth/shared';
 import { CustomFormatModal } from './CustomFormatModal';
+import { API_BASE_URL } from '../config';
 
 export const OperatorControls: React.FC = () => {
   const {
@@ -102,7 +103,7 @@ export const OperatorControls: React.FC = () => {
     setIsTemplateModalOpen(true);
     setLoadingTemplates(true);
     try {
-      const res = await fetch('http://localhost:3000/api/vendor/templates');
+      const res = await fetch(`${API_BASE_URL}/api/vendor/templates`);
       const data = await res.json();
       if (data.templates) {
         setCloudTemplates(data.templates);
@@ -164,7 +165,7 @@ export const OperatorControls: React.FC = () => {
           setActiveFrameOverlay(frameObj);
 
           // Also save to Supabase
-          fetch('http://localhost:3000/api/vendor/templates', {
+          fetch(`${API_BASE_URL}/api/vendor/templates`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

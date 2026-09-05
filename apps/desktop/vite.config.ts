@@ -337,6 +337,7 @@ function localDevStoragePlugin(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: './',
   plugins: [react(), localDevStoragePlugin()],
   resolve: {
     alias: {

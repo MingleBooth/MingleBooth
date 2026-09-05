@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Laptop, Lock, Mail, Key, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
 import { usePhotoboothStore } from '../store/photobooth-store';
+import { API_BASE_URL } from '../config';
 
 interface VendorAuthGateProps {
   children: React.ReactNode;
@@ -61,7 +62,7 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
     setErrorMsg(null);
 
     try {
-      const res = await fetch('http://localhost:3000/api/auth/vendor-login', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/vendor-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
