@@ -1,10 +1,22 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, session, systemPreferences } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 const { exec } = require('child_process');
 const { getTetherServer } = require('./tether-server.cjs');
+
+// ── Configure full media (camera/mic/device) permissions for WebContents session ──
+function configureSessionPermissions(ses) {
+  if (!ses) return;
+  ses.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(true);
+  });
+  ses.setPermissionCheckHandler(() => true);
+  if (typeof ses.setDevicePermissionHandler === 'function') {
+    ses.setDevicePermissionHandler(() => true);
+  }
+}
 
 // ── Fix Windows DPI / HiDPI scaling so viewport renders at correct CSS pixel width ──
 app.commandLine.appendSwitch('high-dpi-support', '1');
@@ -154,10 +166,7 @@ function openKioskTabWindow(tabUrl) {
 
   // Auto-grant media/camera permissions for Kiosk window
   if (kioskTabWindow.webContents.session) {
-    kioskTabWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-      callback(true);
-    });
-    kioskTabWindow.webContents.session.setPermissionCheckHandler(() => true);
+    configureSessionPermissions(kioskTabWindow.webContents.session);
   }
 
   kioskTabWindow.maximize();
@@ -445,10 +454,17 @@ app.whenReady().then(() => {
 
   // Auto-grant media (camera / microphone) permissions globally
   if (session && session.defaultSession) {
-    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-      callback(true);
+    configureSessionPermissions(session.defaultSession);
+  }
+
+  // Request native OS camera / microphone permissions on macOS explicitly
+  if (process.platform === 'darwin' && systemPreferences?.askForMediaAccess) {
+    systemPreferences.askForMediaAccess('camera').then((granted) => {
+      console.log('[Electron] macOS Camera access granted:', granted);
+    }).catch((e) => {
+      console.warn('[Electron] macOS Camera access check:', e);
     });
-    session.defaultSession.setPermissionCheckHandler(() => true);
+    systemPreferences.askForMediaAccess('microphone').catch(() => {});
   }
 
   // Auto-launch Mode Tab Kiosk window so vendor gets Mode Tab directly on startup!

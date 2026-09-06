@@ -519,21 +519,28 @@ export default function TabletStudioPage() {
       setIsCameraLoading(true);
       setCameraError(null);
 
-      try {
-        const tempStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-        });
-        tempStream.getTracks().forEach((track) => track.stop());
-      } catch {
-        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-        tempStream.getTracks().forEach((track) => track.stop());
+      // Attempt to prompt/obtain camera permission safely without breaking on laptops (Mac/PC)
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        try {
+          const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          tempStream.getTracks().forEach((track) => track.stop());
+        } catch (err1) {
+          try {
+            const tempStream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: 'user' },
+            });
+            tempStream.getTracks().forEach((track) => track.stop());
+          } catch (err2) {
+            console.warn('Initial camera handshake note:', err2);
+          }
+        }
       }
 
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter((d) => d.kind === 'videoinput');
 
       const classified: DiscoveredCamera[] = videoDevices.map((dev, idx) => {
-        const label = dev.label.toLowerCase();
+        const label = (dev.label || '').toLowerCase();
         let type: DiscoveredCamera['type'] = 'generic';
 
         // Sony Imaging Edge Webcam, Sony Alpha/ZV/RX models, capture cards
@@ -570,33 +577,44 @@ export default function TabletStudioPage() {
           label.includes('front') ||
           label.includes('user') ||
           label.includes('facetime') ||
-          label.includes('depan')
+          label.includes('built-in') ||
+          label.includes('depan') ||
+          label.includes('integrated')
         ) {
           type = 'front';
         }
 
         return {
-          deviceId: dev.deviceId,
-          label: dev.label || `Kamera ${idx + 1}`,
+          deviceId: dev.deviceId || `camera_${idx + 1}`,
+          label: dev.label || `Kamera ${idx + 1} (${dev.deviceId ? 'Tersedia' : 'Webcam'})`,
           type,
         };
       });
+
+      // If no hardware camera returned yet by enumerateDevices (permission pending or system delay),
+      // create a default "Kamera Laptop / Webcam" entry so user can immediately click to activate it
+      if (classified.length === 0) {
+        classified.push({
+          deviceId: 'local_webcam_default',
+          label: 'Kamera Laptop / Webcam Bawaan',
+          type: 'front',
+        });
+      }
 
       setCameras(classified);
 
       if (classified.length > 0) {
         setSelectedCameraId((prev) => {
           const externalCam = classified.find((c) => c.type === 'external');
-          const backCam = classified.find((c) => c.type === 'back');
           const frontCam = classified.find((c) => c.type === 'front');
-          const defaultCam = externalCam || backCam || frontCam || classified[0];
+          const defaultCam = externalCam || frontCam || classified[0];
 
-          // If on desktop (Electron or platform=desktop), auto-prefer physical Sony or local camera
           const isElectron = typeof window !== 'undefined' && Boolean((window as any).electronAPI?.isElectron);
           const isDesktopPlatform = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('platform') === 'desktop';
 
-          if (prev === 'remote_pc' && (isElectron || isDesktopPlatform)) {
-            return externalCam ? externalCam.deviceId : (defaultCam?.deviceId || 'remote_pc');
+          // If on desktop and user hasn't explicitly connected a tethered camera, select local camera
+          if (!prev || ((isElectron || isDesktopPlatform) && prev === 'remote_pc')) {
+            return externalCam ? externalCam.deviceId : defaultCam.deviceId;
           }
 
           if (prev === 'remote_pc') return 'remote_pc';
@@ -605,7 +623,7 @@ export default function TabletStudioPage() {
       }
     } catch (err: any) {
       console.error('Error discovering cameras:', err);
-      setCameraError('Izin kamera belum aktif. Buka Pengaturan > Safari/Chrome > Izinkan Kamera.');
+      setCameraError('Izin kamera belum aktif. Buka Pengaturan browser / sistem dan izinkan kamera.');
     } finally {
       setIsCameraLoading(false);
     }
@@ -681,12 +699,15 @@ export default function TabletStudioPage() {
           cameraStream.getTracks().forEach((t) => t.stop());
         }
 
+        const isDefaultWebcam = !selectedCameraId || selectedCameraId === 'local_webcam_default';
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: selectedCameraId ? { ideal: selectedCameraId } : undefined,
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
+          video: isDefaultWebcam
+            ? { width: { ideal: 1920 }, height: { ideal: 1080 } }
+            : {
+                deviceId: { ideal: selectedCameraId },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+              },
           audio: false,
         });
 
@@ -703,8 +724,18 @@ export default function TabletStudioPage() {
           miniVideoRef.current.srcObject = stream;
           miniVideoRef.current.play().catch(() => {});
         }
+
+        // If permission was just granted with default id, refresh devices to grab real labels
+        if (isDefaultWebcam) {
+          navigator.mediaDevices?.enumerateDevices().then((devs) => {
+            const vDevs = devs.filter((d) => d.kind === 'videoinput');
+            if (vDevs.length > 0 && vDevs[0].deviceId) {
+              refreshCameraList();
+            }
+          }).catch(() => {});
+        }
       } catch (err: any) {
-        console.warn('Ideal deviceId constraint error, falling back to any camera:', err);
+        console.warn('Primary camera constraint error, falling back to any video:', err);
         try {
           const fallbackStream = await navigator.mediaDevices.getUserMedia({
             video: true,
@@ -722,6 +753,7 @@ export default function TabletStudioPage() {
             miniVideoRef.current.srcObject = fallbackStream;
             miniVideoRef.current.play().catch(() => {});
           }
+          refreshCameraList();
         } catch (e2: any) {
           setCameraError('Gagal menghubungkan kamera: ' + e2.message);
         }
@@ -1777,19 +1809,21 @@ export default function TabletStudioPage() {
                       }`}>
                         {remotePcStatus === 'connected' ? '● Siap Memotret (Kualitas Studio + Flash)' : 'Belum Tersambung ke Laptop'}
                       </span>
-                      {cameras.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const ext = cameras.find((c) => c.type === 'external') || cameras[0];
-                            if (ext) setSelectedCameraId(ext.deviceId);
-                          }}
-                          className="mt-2 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[11px] flex items-center gap-1.5 transition-all shadow-md active:scale-95"
-                        >
-                          <Camera className="w-3.5 h-3.5" />
-                          <span>Gunakan Kamera Langsung ({cameras.find((c) => c.type === 'external')?.label || cameras[0]?.label || 'Kamera 1'})</span>
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetCam = cameras.find((c) => c.type === 'external') || cameras[0];
+                          const targetId = targetCam ? targetCam.deviceId : 'local_webcam_default';
+                          setSelectedCameraId(targetId);
+                          if (typeof window !== 'undefined') {
+                            localStorage.setItem('mb_preferred_camera', targetId);
+                          }
+                        }}
+                        className="mt-2 px-3.5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[11px] flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Gunakan Kamera Laptop / Webcam ({cameras.find((c) => c.type === 'external')?.label || cameras[0]?.label || 'Aktifkan Webcam'})</span>
+                      </button>
                     </div>
                   )
                 ) : (
@@ -1877,6 +1911,36 @@ export default function TabletStudioPage() {
                   </button>
 
                   {/* Local Cameras (Webcam, Built-in, Dongle Capture) */}
+                  {cameras.length === 0 && (
+                    <button
+                      key="local_webcam_default"
+                      onClick={() => {
+                        setSelectedCameraId('local_webcam_default');
+                        if (typeof window !== 'undefined') {
+                          localStorage.setItem('mb_preferred_camera', 'local_webcam_default');
+                        }
+                      }}
+                      className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all ${
+                        selectedCameraId !== 'remote_pc'
+                          ? 'bg-white/[0.08] border-white/40 shadow-sm'
+                          : 'bg-[#171820] border-white/[0.04] hover:border-white/15'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-white/[0.06] text-neutral-400">
+                        <Camera className="w-4 h-4 text-violet-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold text-white truncate">Kamera Laptop / Webcam</span>
+                          {selectedCameraId !== 'remote_pc' && <Check className="w-3.5 h-3.5 text-white flex-shrink-0" />}
+                        </div>
+                        <span className="text-[10px] text-violet-400 block mt-0.5">
+                          ● Klik untuk Aktifkan Webcam Laptop
+                        </span>
+                      </div>
+                    </button>
+                  )}
+
                   {cameras.map((cam) => {
                     const isSelected = cam.deviceId === selectedCameraId;
                     return (
@@ -1916,7 +1980,7 @@ export default function TabletStudioPage() {
                               : cam.type === 'back'
                               ? 'Kamera Belakang Tablet'
                               : cam.type === 'front'
-                              ? 'Kamera Depan Tablet'
+                              ? 'Kamera Laptop / Webcam'
                               : 'Kamera Bawaan'}
                           </span>
                         </div>
@@ -2771,19 +2835,21 @@ export default function TabletStudioPage() {
               <div className="px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-medium border border-emerald-500/30">
                 ● Tersambung ke Laptop Booth
               </div>
-              {cameras.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const ext = cameras.find((c) => c.type === 'external') || cameras[0];
-                    if (ext) setSelectedCameraId(ext.deviceId);
-                  }}
-                  className="mt-4 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-xs flex items-center gap-2 transition-all shadow-lg active:scale-95"
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>Gunakan Kamera Langsung ({cameras.find((c) => c.type === 'external')?.label || cameras[0]?.label || 'Kamera 1'})</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const targetCam = cameras.find((c) => c.type === 'external') || cameras[0];
+                  const targetId = targetCam ? targetCam.deviceId : 'local_webcam_default';
+                  setSelectedCameraId(targetId);
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('mb_preferred_camera', targetId);
+                  }
+                }}
+                className="mt-4 px-5 py-2.5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-xl active:scale-95"
+              >
+                <Camera className="w-4 h-4 fill-black" />
+                <span>Gunakan Kamera Laptop / Webcam ({cameras.find((c) => c.type === 'external')?.label || cameras[0]?.label || 'Aktifkan Webcam'})</span>
+              </button>
             </div>
           )
         ) : (
@@ -2798,8 +2864,16 @@ export default function TabletStudioPage() {
           />
         )}
 
+        {/* ── CAMERA STARTING UP INDICATOR ── */}
+        {selectedCameraId !== 'remote_pc' && isCameraLoading && !cameraStream && (
+          <div className="absolute inset-0 z-35 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center text-white gap-3 select-none">
+            <RefreshCw className="w-8 h-8 animate-spin text-white" />
+            <span className="text-xs font-semibold tracking-wide">Menyalakan Kamera...</span>
+          </div>
+        )}
+
         {/* ── CAMERA INACTIVE / PERMISSION OVERLAY ── */}
-        {selectedCameraId !== 'remote_pc' && (!cameraStream || cameraError) && (
+        {selectedCameraId !== 'remote_pc' && !isCameraLoading && (!cameraStream || cameraError) && (
           <div className="absolute inset-0 z-40 bg-neutral-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none">
             <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4">
               <CameraOff className="w-8 h-8" />
