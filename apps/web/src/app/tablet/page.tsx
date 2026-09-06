@@ -2087,15 +2087,15 @@ export default function TabletStudioPage() {
                   </div>
                 )}
 
-                {/* Minimalist Sony Camera Accordion */}
+                {/* Multi-Brand Camera Accordion (Sony, Canon, Nikon, Fujifilm) */}
                 <div className="mt-1 p-3 rounded-xl bg-[#171820] border border-white/[0.06] flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-neutral-300">
-                      Gunakan Kamera Sony / Mirrorless
+                      Gunakan Kamera DSLR / Mirrorless (Sony, Canon, Nikon, Fuji)
                     </span>
                     <button
                       onClick={() => setShowSonyHelp(!showSonyHelp)}
-                      className="text-[11px] text-neutral-400 hover:text-white font-medium flex items-center gap-1 transition-colors"
+                      className="text-[11px] text-neutral-400 hover:text-white font-medium flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <span>{showSonyHelp ? 'Tutup panduan' : 'Lihat cara pasang'}</span>
                       <ChevronRight
@@ -2107,18 +2107,23 @@ export default function TabletStudioPage() {
                   {showSonyHelp && (
                     <div className="pt-2 border-t border-white/[0.06] text-[11px] text-neutral-400 space-y-3 leading-relaxed animate-fadeIn">
 
-                      {/* Method 1: Sony USB Streaming (Plug & Play - No Software Needed) */}
+                      {/* Method 1: HDMI Capture Card - 100% UNIVERSAL FOR ALL CAMERAS */}
                       <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 space-y-1.5">
-                        <p className="font-semibold text-emerald-300 text-xs">⭐ Colok Kabel USB Langsung (Fitur Bawaan Kamera Sony)</p>
-                        <p className="text-[11px] text-neutral-300"><strong>1.</strong> Di kamera Sony, buka menu: <strong>Menu → USB Connection (atau Network) → USB Streaming</strong>.</p>
-                        <p className="text-[11px] text-neutral-300"><strong>2.</strong> Colok kabel USB dari kamera ke laptop.</p>
-                        <p className="text-[11px] text-neutral-300"><strong>3.</strong> Kamera Sony otomatis terbaca langsung sebagai kamera HD di daftar atas! <strong>100% tanpa perlu install aplikasi luar apa pun.</strong> ✅</p>
+                        <p className="font-semibold text-emerald-300 text-xs">⭐ Dongle USB HDMI Capture (Paling Direkomendasikan — Universal Semua Merk)</p>
+                        <p className="text-[11px] text-neutral-300">Hubungkan kabel Mini/Micro-HDMI kamera ke dongle <strong>USB HDMI Video Capture</strong> (Elgato Cam Link atau USB Capture Card Rp 80rb - 200rb) lalu colok ke laptop.</p>
+                        <p className="text-[11px] text-emerald-400/90 font-medium">✅ <strong>Bisa untuk 100% SEMUA Merk &amp; Tipe Kamera:</strong> Canon DSLR (60D, 70D, 80D, 200D, 5D, 1300D, R-series), Nikon (D-series &amp; Z-series), Fujifilm (X-T, X-S, X100), Sony (Alpha, ZV, FX), dan Lumix. Kamera langsung aktif tanpa delay.</p>
                       </div>
 
-                      {/* Method 2: HDMI Capture Card (Zero Latency & 4K Studio Quality) */}
+                      {/* Method 2: Direct USB Cable (Modern Mirrorless) */}
                       <div className="p-3 rounded-lg bg-white/[0.04] border border-white/[0.08] space-y-1.5">
-                        <p className="font-semibold text-neutral-200 text-xs">🔌 Dongle HDMI Video Capture (Kualitas Penuh &amp; Flash Studio)</p>
-                        <p className="text-[11px] text-neutral-400">Hubungkan kabel HDMI kamera ke dongle USB Capture Card (seperti Elgato Cam Link / USB HDMI Capture) → colok ke laptop. Kamera langsung aktif seketika tanpa setting tambahan.</p>
+                        <p className="font-semibold text-neutral-200 text-xs">🔌 Colok Kabel USB Langsung (Fitur Bawaan Kamera Modern)</p>
+                        <p className="text-[11px] text-neutral-300">Kamera rilisan baru bisa langsung colok kabel USB-C ke laptop tanpa alat tambahan:</p>
+                        <ul className="text-[10px] text-neutral-400 space-y-1 list-disc list-inside">
+                          <li><strong className="text-neutral-200">Sony:</strong> Menu → USB Connection → USB Streaming (A7 IV, ZV-E10, A6700, ZV-1).</li>
+                          <li><strong className="text-neutral-200">Canon:</strong> EOS R50, R10, R8, M200 (Mode Video / UVC) atau EOS Webcam Utility.</li>
+                          <li><strong className="text-neutral-200">Fujifilm:</strong> Menu → Connection Setting → USB Tether / Webcam (X-T4, X-T5, X-S10/20).</li>
+                          <li><strong className="text-neutral-200">Nikon:</strong> Menu → USB Streaming / Nikon Webcam Utility (Z30, Z50, Zfc).</li>
+                        </ul>
                       </div>
 
                     </div>
