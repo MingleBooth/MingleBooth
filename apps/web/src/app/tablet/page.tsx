@@ -602,7 +602,7 @@ export default function TabletStudioPage() {
       }
     } catch (err: any) {
       console.error('Error discovering cameras:', err);
-      setCameraError('Izin kamera belum aktif. Buka Pengaturan browser / sistem dan izinkan kamera.');
+      setCameraError('Kamera tidak terdeteksi. Pastikan kabel kamera tercolok ke laptop dan tidak sedang digunakan aplikasi lain.');
     } finally {
       setIsCameraLoading(false);
     }
@@ -1101,7 +1101,7 @@ export default function TabletStudioPage() {
       setIsFlashing(false);
 
       if (!frameData) {
-        alert('Gagal mengambil foto dari kamera. Pastikan kamera menyala dan izin kamera telah diberikan di browser.');
+        alert('Gagal mengambil foto dari kamera. Pastikan kamera menyala dan terhubung dengan baik ke laptop.');
         setSessionStep('idle');
         return;
       }
@@ -2937,12 +2937,15 @@ export default function TabletStudioPage() {
             <h2 className="text-xl font-bold text-white mb-2">Kamera Belum Terhubung / Aktif</h2>
             <p className="text-xs sm:text-sm text-neutral-400 max-w-md mb-6 leading-relaxed">
               {cameraError ||
-                'Browser Chrome belum mendapatkan izin akses kamera atau kamera eksternal belum tersambung. Klik tombol di bawah atau izinkan akses kamera di ikon gembok/setelan browser (kiri URL minglebooth.id).'}
+                'Kamera belum terdeteksi di laptop. Pastikan kabel USB kamera Sony / webcam sudah tercolok ke port laptop, lalu klik tombol Hubungkan Ulang Kamera di bawah.'}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button
                 type="button"
-                onClick={() => refreshCameraList()}
+                onClick={() => {
+                  refreshCameraList();
+                  startCameraStream();
+                }}
                 className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -3759,10 +3762,7 @@ export default function TabletStudioPage() {
                     }
                   } catch (e: any) {
                     setRemotePcStatus('disconnected');
-                    const isMixed = typeof window !== 'undefined' && window.location.protocol === 'https:';
-                    const helpText = isMixed
-                      ? `Gagal terhubung (${e.message}). Browser tablet membatasi sambungan ke laptop karena membuka website internet (HTTPS). Buka browser tablet langsung di alamat: ${remotePcUrl} atau pastikan satu Wi-Fi.`
-                      : `Gagal terhubung (${e.message}). Pastikan aplikasi MingleBooth di laptop sudah menyala dan satu jaringan Wi-Fi.`;
+                    const helpText = `Gagal terhubung (${e.message}). Pastikan aplikasi MingleBooth Studio di laptop sudah menyala dan terhubung ke jaringan Wi-Fi yang sama.`;
                     setRemotePcTestMsg(helpText);
                   } finally {
                     setIsTestingRemotePc(false);
