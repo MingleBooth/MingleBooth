@@ -168,17 +168,24 @@ export default function TabletStudioPage() {
     if (typeof window !== 'undefined') {
       const searchParams = new URLSearchParams(window.location.search);
       const hubParam = searchParams.get('hub') || searchParams.get('remote');
+      const platformParam = searchParams.get('platform');
+      const isElectron = Boolean((window as any).electronAPI?.isElectron);
+
       if (hubParam) {
         const formatted = hubParam.startsWith('http') ? hubParam : `http://${hubParam}`;
         setRemotePcUrl(formatted);
-        setSelectedCameraId('remote_pc');
         localStorage.setItem('mb_remote_pc_url', formatted);
-        localStorage.setItem('mb_preferred_camera', 'remote_pc');
+
+        // Only lock to remote_pc if on an external tablet/browser (not desktop app)
+        if (!isElectron && platformParam !== 'desktop') {
+          setSelectedCameraId('remote_pc');
+          localStorage.setItem('mb_preferred_camera', 'remote_pc');
+        }
       } else {
         const saved = localStorage.getItem('mb_remote_pc_url');
         if (saved) setRemotePcUrl(saved);
         const savedCam = localStorage.getItem('mb_preferred_camera');
-        if (savedCam === 'remote_pc') setSelectedCameraId('remote_pc');
+        if (savedCam) setSelectedCameraId(savedCam);
       }
     }
   }, []);
@@ -579,11 +586,21 @@ export default function TabletStudioPage() {
 
       if (classified.length > 0) {
         setSelectedCameraId((prev) => {
-          if (prev === 'remote_pc') return 'remote_pc';
           const externalCam = classified.find((c) => c.type === 'external');
           const backCam = classified.find((c) => c.type === 'back');
-          const defaultCam = externalCam || backCam || classified[0];
-          return prev || defaultCam.deviceId;
+          const frontCam = classified.find((c) => c.type === 'front');
+          const defaultCam = externalCam || backCam || frontCam || classified[0];
+
+          // If on desktop (Electron or platform=desktop), auto-prefer physical Sony or local camera
+          const isElectron = typeof window !== 'undefined' && Boolean((window as any).electronAPI?.isElectron);
+          const isDesktopPlatform = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('platform') === 'desktop';
+
+          if (prev === 'remote_pc' && (isElectron || isDesktopPlatform)) {
+            return externalCam ? externalCam.deviceId : (defaultCam?.deviceId || 'remote_pc');
+          }
+
+          if (prev === 'remote_pc') return 'remote_pc';
+          return prev || defaultCam?.deviceId || classified[0].deviceId;
         });
       }
     } catch (err: any) {
@@ -1760,6 +1777,19 @@ export default function TabletStudioPage() {
                       }`}>
                         {remotePcStatus === 'connected' ? '● Siap Memotret (Kualitas Studio + Flash)' : 'Belum Tersambung ke Laptop'}
                       </span>
+                      {cameras.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const ext = cameras.find((c) => c.type === 'external') || cameras[0];
+                            if (ext) setSelectedCameraId(ext.deviceId);
+                          }}
+                          className="mt-2 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[11px] flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Gunakan Kamera Langsung ({cameras.find((c) => c.type === 'external')?.label || cameras[0]?.label || 'Kamera 1'})</span>
+                        </button>
+                      )}
                     </div>
                   )
                 ) : (
@@ -2741,6 +2771,19 @@ export default function TabletStudioPage() {
               <div className="px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-medium border border-emerald-500/30">
                 ● Tersambung ke Laptop Booth
               </div>
+              {cameras.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ext = cameras.find((c) => c.type === 'external') || cameras[0];
+                    if (ext) setSelectedCameraId(ext.deviceId);
+                  }}
+                  className="mt-4 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-xs flex items-center gap-2 transition-all shadow-lg active:scale-95"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Gunakan Kamera Langsung ({cameras.find((c) => c.type === 'external')?.label || cameras[0]?.label || 'Kamera 1'})</span>
+                </button>
+              )}
             </div>
           )
         ) : (

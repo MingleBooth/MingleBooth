@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, session } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -152,6 +152,14 @@ function openKioskTabWindow(tabUrl) {
     },
   });
 
+  // Auto-grant media/camera permissions for Kiosk window
+  if (kioskTabWindow.webContents.session) {
+    kioskTabWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+      callback(true);
+    });
+    kioskTabWindow.webContents.session.setPermissionCheckHandler(() => true);
+  }
+
   kioskTabWindow.maximize();
   kioskTabWindow.loadURL(tabUrl);
 
@@ -232,9 +240,8 @@ ipcMain.handle('app:open-kiosk-tab', async (event, options = {}) => {
   const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
   const hubParam = encodeURIComponent(`http://${localIp}:4848`);
 
-  // Always use Vercel production URL — guaranteed full CSS/JS, no local server required
-  // The hub= param auto-connects the tablet to this laptop's tether server
-  const tabletUrl = options.url || `https://minglebooth.id/tablet?hub=${hubParam}`;
+  // Pass platform=desktop so tablet enables local USB / webcam discovery
+  const tabletUrl = options.url || `https://minglebooth.id/tablet?hub=${hubParam}&platform=desktop`;
 
   openKioskTabWindow(tabletUrl);
   return { success: true, url: tabletUrl };
@@ -436,6 +443,14 @@ app.whenReady().then(() => {
 
   createWindow();
 
+  // Auto-grant media (camera / microphone) permissions globally
+  if (session && session.defaultSession) {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      callback(true);
+    });
+    session.defaultSession.setPermissionCheckHandler(() => true);
+  }
+
   // Auto-launch Mode Tab Kiosk window so vendor gets Mode Tab directly on startup!
   setTimeout(() => {
     try {
@@ -443,7 +458,7 @@ app.whenReady().then(() => {
       const ips = tetherServer.getLocalIPs();
       const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
       const hubParam = encodeURIComponent(`http://${localIp}:4848`);
-      const tabletUrl = `https://minglebooth.id/tablet?hub=${hubParam}`;
+      const tabletUrl = `https://minglebooth.id/tablet?hub=${hubParam}&platform=desktop`;
       openKioskTabWindow(tabletUrl);
     } catch (e) {
       console.warn('[Electron] Could not auto-launch Mode Tab:', e);
