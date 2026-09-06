@@ -371,6 +371,10 @@ ipcMain.handle('printer:print-photo', async (event, { filePath, copies = 1, sile
       );
     });
   } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('tether:get-info', () => {
   try {
     const tetherServer = getTetherServer(4848);
@@ -404,6 +408,20 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+
+  // Auto-launch Mode Tab Kiosk window so vendor gets Mode Tab directly on startup!
+  setTimeout(() => {
+    try {
+      const tetherServer = getTetherServer(4848);
+      const ips = tetherServer.getLocalIPs();
+      const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
+      const hubParam = encodeURIComponent(`http://${localIp}:4848`);
+      const tabletUrl = `https://minglebooth.id/tablet?hub=${hubParam}`;
+      openKioskTabWindow(tabletUrl);
+    } catch (e) {
+      console.warn('[Electron] Could not auto-launch Mode Tab:', e);
+    }
+  }, 1200);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

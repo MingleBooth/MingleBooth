@@ -37,6 +37,7 @@ import {
   ArrowLeft,
   CameraOff,
   Monitor,
+  Laptop,
   Wifi,
   WifiOff,
 } from 'lucide-react';
@@ -129,6 +130,23 @@ function playShutterSound() {
 export default function TabletStudioPage() {
   // App Phase: 'setup' | 'kiosk' | 'review'
   const [phase, setPhase] = useState<'setup' | 'kiosk' | 'review'>('setup');
+
+  // Desktop App Environment Check & Download Gate
+  const [isDesktopApp, setIsDesktopApp] = useState<boolean | null>(null);
+  const [bypassDownloadGate, setBypassDownloadGate] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const isElectron = Boolean((window as any).electronAPI?.isElectron);
+      const searchParams = new URLSearchParams(window.location.search);
+      const previewMode = searchParams.get('preview') === '1' || searchParams.get('demo') === '1';
+
+      setIsDesktopApp(isElectron);
+      if (previewMode) {
+        setBypassDownloadGate(true);
+      }
+    }
+  }, []);
 
   // Camera State
   const [cameras, setCameras] = useState<DiscoveredCamera[]>([]);
@@ -1426,6 +1444,223 @@ export default function TabletStudioPage() {
   const currentCam = selectedCameraId === 'remote_pc'
     ? { deviceId: 'remote_pc', label: 'Sony / DSLR Studio (Remote PC)', type: 'remote_pc' as const }
     : cameras.find((c) => c.deviceId === selectedCameraId);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 0. ENVIRONMENT GUARD: DOWNLOAD-ONLY GATE IF OPENED IN REGULAR BROWSER
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (isDesktopApp === null) {
+    return (
+      <div className="flex items-center justify-center h-screen w-screen bg-[#07090E] text-white font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+          <span className="text-xs text-neutral-400 font-medium tracking-wide">
+            Memeriksa lingkungan MingleBooth...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (isDesktopApp === false && !bypassDownloadGate) {
+    const winUrl =
+      process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
+      !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('11yqBITrjKw')
+        ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
+        : 'https://drive.google.com/file/d/1ybYDGImhyVp1CFBfvXyDoLKI3XW0CLS3/view?usp=share_link';
+
+    const macUrl =
+      process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
+      !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('1Zveihx99200')
+        ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
+        : 'https://drive.google.com/file/d/1hRJ4X9UGSYql2dsWYYyH5TO2fmZ0PHBk/view?usp=share_link';
+
+    return (
+      <div className="min-h-screen w-full bg-[#07090E] text-white flex flex-col font-sans selection:bg-violet-500 selection:text-white">
+        {/* Top Navigation */}
+        <header className="h-16 px-6 sm:px-10 border-b border-white/[0.06] flex items-center justify-between bg-[#0A0D14]/80 backdrop-blur-md sticky top-0 z-50">
+          <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo-minglebooth.png"
+              alt="MingleBooth"
+              style={{ height: '24px', width: 'auto', display: 'block', maxWidth: '140px' }}
+              className="h-6 w-auto object-contain"
+            />
+            <div className="h-4 w-[1px] bg-white/10 hidden sm:block" />
+            <span className="text-xs font-semibold text-neutral-400 hidden sm:inline">
+              Mode Tab Kiosk • Unduh Software
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <a
+              href="/dashboard"
+              className="h-8 px-3.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Kembali ke Dashboard</span>
+            </a>
+          </div>
+        </header>
+
+        {/* Hero & Download Content */}
+        <main className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-12 max-w-5xl mx-auto w-full">
+          {/* Badge & Title */}
+          <div className="text-center max-w-2xl mx-auto mb-10">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-500/10 border border-violet-500/20 text-violet-300 text-xs font-semibold mb-5 shadow-inner">
+              <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+              <span>Wajib Gunakan Aplikasi MingleBooth Desktop</span>
+            </div>
+
+            <h1 className="text-2xl sm:text-4xl font-bold tracking-tight text-white mb-3 leading-tight">
+              Mode Tab Photobooth Memerlukan Software Desktop
+            </h1>
+
+            <p className="text-sm sm:text-base text-neutral-400 leading-relaxed">
+              Browser web biasa tidak dapat mengakses port USB kamera Sony Alpha &amp; printer booth secara native. Unduh aplikasi MingleBooth Desktop untuk Windows atau Mac agar Mode Tab dapat beroperasi 100% lancar tanpa lag.
+            </p>
+          </div>
+
+          {/* Download Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 w-full max-w-3xl mb-12">
+            {/* Card 1: Windows (.exe) */}
+            <div className="p-6 rounded-2xl bg-[#0F121A] border border-white/[0.08] hover:border-violet-500/40 transition-all shadow-xl flex flex-col justify-between relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-4">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-500/20 text-violet-300 border border-violet-500/30 uppercase tracking-wider">
+                  Disarankan
+                </span>
+              </div>
+              <div>
+                <div className="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 mb-4 group-hover:scale-105 transition-transform">
+                  <Laptop className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold text-white mb-1">MingleBooth untuk Windows</h3>
+                <p className="text-xs text-neutral-400 mb-4">
+                  File installer <strong>.exe</strong> untuk laptop atau PC Windows 10 / 11 (64-bit).
+                </p>
+                <div className="space-y-2 mb-6">
+                  <div className="flex items-center gap-2 text-xs text-neutral-300">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                    <span>Dukungan Sony USB PC Remote Tethering</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-neutral-300">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                    <span>Dukungan Cetak Cepat Printer DNP, HiTi, Citizen</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-neutral-300">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                    <span>Hot Folder Inbox otomatis (&lt; 1 detik)</span>
+                  </div>
+                </div>
+              </div>
+
+              <a
+                href={winUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full h-11 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-lg active:scale-98"
+              >
+                <Download className="w-4 h-4 text-black" />
+                <span>Unduh MingleBooth (.exe) Windows</span>
+              </a>
+            </div>
+
+            {/* Card 2: macOS (.dmg) */}
+            <div className="p-6 rounded-2xl bg-[#0F121A] border border-white/[0.08] hover:border-white/20 transition-all shadow-xl flex flex-col justify-between group">
+              <div>
+                <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-200 mb-4 group-hover:scale-105 transition-transform">
+                  <Monitor className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold text-white mb-1">MingleBooth untuk macOS</h3>
+                <p className="text-xs text-neutral-400 mb-4">
+                  File installer <strong>.dmg</strong> untuk MacBook &amp; Mac Mini (Apple Silicon M1-M4 &amp; Intel).
+                </p>
+                <div className="space-y-2 mb-6">
+                  <div className="flex items-center gap-2 text-xs text-neutral-300">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                    <span>Kompatibel macOS Monterey hingga Sequoia</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-neutral-300">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                    <span>Native Sony Imaging Edge &amp; Tether Server</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-neutral-300">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                    <span>Layar Penuh Kiosk Mode tanpa bar gangguan</span>
+                  </div>
+                </div>
+              </div>
+
+              <a
+                href={macUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full h-11 rounded-xl bg-white/[0.1] hover:bg-white/[0.18] border border-white/15 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-98"
+              >
+                <Download className="w-4 h-4 text-white" />
+                <span>Unduh MingleBooth (.dmg) macOS</span>
+              </a>
+            </div>
+          </div>
+
+          {/* 3 Step Instruction Card */}
+          <div className="w-full max-w-3xl p-6 rounded-2xl bg-black/40 border border-white/[0.06] mb-8">
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Info className="w-4 h-4 text-violet-400" />
+              <span>Cara Menjalankan Mode Tab di Laptop / PC:</span>
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="flex flex-col gap-1.5 p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <div className="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 font-bold text-xs flex items-center justify-center">
+                  1
+                </div>
+                <span className="text-xs font-semibold text-white mt-1">Unduh &amp; Pasang</span>
+                <span className="text-[11px] text-neutral-400 leading-relaxed">
+                  Download file .exe atau .dmg di atas, lalu install di laptop photobooth Anda.
+                </span>
+              </div>
+              <div className="flex flex-col gap-1.5 p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <div className="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 font-bold text-xs flex items-center justify-center">
+                  2
+                </div>
+                <span className="text-xs font-semibold text-white mt-1">Colok Kabel Sony</span>
+                <span className="text-[11px] text-neutral-400 leading-relaxed">
+                  Hubungkan kabel USB kamera Sony ke laptop. Pastikan kamera di mode <strong>PC Remote</strong>.
+                </span>
+              </div>
+              <div className="flex flex-col gap-1.5 p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-xs flex items-center justify-center">
+                  3
+                </div>
+                <span className="text-xs font-semibold text-white mt-1">Buka MingleBooth</span>
+                <span className="text-[11px] text-neutral-400 leading-relaxed">
+                  Buka aplikasi MingleBooth di desktop, Mode Tab Kiosk otomatis aktif &amp; siap jepret!
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer Actions */}
+          <div className="flex flex-col sm:flex-row items-center gap-4 text-xs text-neutral-400">
+            <button
+              onClick={() => window.location.reload()}
+              className="flex items-center gap-1.5 hover:text-white transition-colors underline underline-offset-4"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Sudah membuka di aplikasi desktop? Klik di sini untuk Muat Ulang</span>
+            </button>
+            <span className="hidden sm:inline text-neutral-600">•</span>
+            <button
+              onClick={() => setBypassDownloadGate(true)}
+              className="text-neutral-400 hover:text-neutral-200 transition-colors"
+            >
+              Coba Mode Demo di Browser (Webcam Laptop Saja) &rarr;
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 1. PHASE: OPERATOR SETUP & HARDWARE CONFIGURATION

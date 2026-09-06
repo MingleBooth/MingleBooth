@@ -146,14 +146,15 @@ export const HeaderBar: React.FC = () => {
             if (typeof window !== 'undefined' && (window as any).electronAPI?.openKioskTab) {
               (window as any).electronAPI.openKioskTab();
             } else {
-              window.open('http://localhost:3000/tablet', '_blank', 'width=1280,height=800,menubar=no,toolbar=no,location=no');
+              window.open('https://minglebooth.id/tablet', '_blank', 'width=1280,height=800,menubar=no,toolbar=no,location=no');
             }
           }}
           title="Buka Mode Tab (Layar Kiosk Tamu)"
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold border bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border-violet-500/30 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-bold border bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white border-violet-400/40 shadow-sm transition-all active:scale-95"
         >
-          <Tablet className="w-3.5 h-3.5 text-violet-400" />
-          <span className="hidden sm:inline">Buka Mode Tab</span>
+          <Tablet className="w-3.5 h-3.5 text-white" />
+          <span>Buka Mode Tab</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
         </button>
 
         {/* Sambungkan Tablet Button for Mode Tab */}
