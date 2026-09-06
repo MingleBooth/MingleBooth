@@ -306,10 +306,17 @@ export default function TabletStudioPage() {
     }
   };
 
-  // Direct Printer Handler (100% Reliable Native Browser & AirPrint Dialog)
+  // Direct Printer Handler (Native Electron Printer or Browser Fallback)
   const handlePrintPhoto = useCallback((photoUrl?: string | null) => {
     const targetUrl = photoUrl || finalPhotoDataUrl;
     if (!targetUrl || typeof window === 'undefined') return;
+
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.printPhoto) {
+      (window as any).electronAPI.printPhoto({ filePath: targetUrl, silent: false, copies: 1 })
+        .then((res: any) => console.log('[Electron] Native print triggered:', res))
+        .catch((err: any) => console.warn('[Electron] Native print error:', err));
+      return;
+    }
 
     setPrintImageUrl(targetUrl);
 
@@ -983,6 +990,14 @@ export default function TabletStudioPage() {
     let frameData: string | null = null;
 
     if (selectedCameraId === 'remote_pc') {
+      // 1. Native Electron hardware shutter trigger (gphoto2 / digiCamControl)
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.triggerCameraShutter) {
+        (window as any).electronAPI.triggerCameraShutter().catch((err: any) => {
+          console.warn('[Electron] Native camera trigger error:', err);
+        });
+      }
+
+      // 2. HTTP tether server trigger
       try {
         const res = await fetch(`${remotePcUrl}/api/tether/trigger`, {
           method: 'POST',

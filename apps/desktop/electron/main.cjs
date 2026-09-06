@@ -181,6 +181,33 @@ function openKioskTabWindow(tabUrl) {
     }
   });
 
+  kioskTabWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.warn('[Electron] Kiosk Tab failed to load:', validatedURL, errorCode, errorDescription);
+    if (errorCode !== -3) {
+      kioskTabWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>MingleBooth Kiosk</title>
+          <style>
+            body { background: #07090E; color: #fff; font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            h1 { font-size: 22px; margin-bottom: 8px; }
+            p { color: #888; font-size: 13px; max-width: 440px; text-align: center; line-height: 1.5; margin-bottom: 24px; }
+            button { background: #7C3AED; color: #fff; border: none; padding: 10px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 13px; }
+            button:hover { background: #6D28D9; }
+          </style>
+        </head>
+        <body>
+          <h1>Gagal Menghubungkan ke Mode Tab</h1>
+          <p>Koneksi internet tidak terhubung atau server sedang memuat ulang. Pastikan koneksi aktif lalu klik tombol di bawah.</p>
+          <button onclick="window.location.href='${tabUrl}'">Muat Ulang Halaman</button>
+        </body>
+        </html>
+      `)}`);
+    }
+  });
+
   kioskTabWindow.on('closed', () => {
     kioskTabWindow = null;
   });
