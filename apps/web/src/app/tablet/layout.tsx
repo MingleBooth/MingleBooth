@@ -25,6 +25,8 @@ export const viewport: Viewport = {
   themeColor: '#090A0C',
 };
 
+import { VendorAuthGate } from '@/components/VendorAuthGate';
+
 export default function TabletLayout({
   children,
 }: {
@@ -32,7 +34,7 @@ export default function TabletLayout({
 }) {
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#090A0C] text-[#EDEDED] select-none touch-none font-sans">
-      {children}
+      <VendorAuthGate>{children}</VendorAuthGate>
     </div>
   );
 }

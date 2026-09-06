@@ -78,75 +78,11 @@ function triggerSonyShutter(tetherDir) {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 768,
-    backgroundColor: '#090A0C',
-    autoHideMenuBar: true,
-    icon: path.join(__dirname, '../build/icon.png'),
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    trafficLightPosition: { x: 16, y: 16 },
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: false, // Allows local webcam and local storage streaming
-    },
-  });
-
-  const devUrl = 'http://localhost:5173';
-  const prodIndex = path.join(__dirname, '../dist/index.html');
-
-  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-    mainWindow.loadURL(devUrl).catch(() => {
-      // Fallback to built dist if dev server is starting
-      mainWindow.loadFile(prodIndex);
-    });
-  } else {
-    mainWindow.loadFile(prodIndex);
-  }
-
-  // Handle external links in default browser
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
-
-  // Enable DevTools via F12 or Cmd+Alt+I (Mac) / Ctrl+Shift+I (Windows)
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (
-      input.key === 'F12' ||
-      ((input.control || input.meta) && input.alt && input.key.toLowerCase() === 'i') ||
-      ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'i')
-    ) {
-      mainWindow.webContents.toggleDevTools();
-    }
-  });
-
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-    console.error('[Electron] Page failed to load:', errorCode, errorDescription);
-  });
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
-}
-
-// ── Open Mode Tab Kiosk Window (Fullscreen photobooth UI) ──
-function openKioskTabWindow(tabUrl) {
-  if (kioskTabWindow && !kioskTabWindow.isDestroyed()) {
-    kioskTabWindow.focus();
-    kioskTabWindow.loadURL(tabUrl);
-    return;
-  }
-
   const { screen } = require('electron');
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenW, height: screenH } = primaryDisplay.workAreaSize;
 
-  kioskTabWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: screenW,
     height: screenH,
     minWidth: 1024,
@@ -155,81 +91,99 @@ function openKioskTabWindow(tabUrl) {
     autoHideMenuBar: true,
     fullscreen: false,
     icon: path.join(__dirname, '../build/icon.png'),
-    title: 'MingleBooth — Mode Tab (Kiosk)',
+    title: 'MingleBooth Tablet Studio — Operator Photobooth',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false, // Allow webcam + tether server access
+      webSecurity: false, // Allows local webcam and local storage streaming
     },
   });
 
-  // Auto-grant media/camera permissions for Kiosk window
-  if (kioskTabWindow.webContents.session) {
-    configureSessionPermissions(kioskTabWindow.webContents.session);
+  // Auto-grant full media permissions for mainWindow
+  if (mainWindow.webContents.session) {
+    configureSessionPermissions(mainWindow.webContents.session);
   }
 
-  kioskTabWindow.maximize();
-  kioskTabWindow.loadURL(tabUrl);
+  mainWindow.maximize();
 
-  // Inject fix CSS after page loads to ensure proper layout regardless of zoom
-  kioskTabWindow.webContents.on('did-finish-load', () => {
-    kioskTabWindow.webContents.insertCSS(`
+  const tetherServer = getTetherServer(4848);
+  const ips = tetherServer.getLocalIPs();
+  const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
+  const hubParam = encodeURIComponent(`http://${localIp}:4848`);
+
+  const tabletRemoteUrl = `https://minglebooth.id/tablet?hub=${hubParam}&platform=desktop`;
+  const tabletLocalDevUrl = `http://localhost:3000/tablet?hub=${hubParam}&platform=desktop`;
+
+  const http = require('http');
+  const checkLocalServer = () => new Promise((resolve) => {
+    const req = http.get('http://localhost:3000', (res) => resolve(res.statusCode < 500));
+    req.on('error', () => resolve(false));
+    req.setTimeout(800, () => { req.destroy(); resolve(false); });
+  });
+
+  checkLocalServer().then((isLocal) => {
+    const targetUrl = isLocal ? tabletLocalDevUrl : tabletRemoteUrl;
+    console.log('[Electron] Loading target URL:', targetUrl);
+    mainWindow.loadURL(targetUrl).catch(() => {
+      mainWindow.loadURL(tabletRemoteUrl);
+    });
+  });
+
+  // If local dev server fails to load, fallback to production remote
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.warn('[Electron] Page load warning:', validatedURL, errorCode, errorDescription);
+    if (errorCode !== -3 && validatedURL !== tabletRemoteUrl) {
+      mainWindow.loadURL(tabletRemoteUrl);
+    }
+  });
+
+  // Handle external links in default browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // Inject fix CSS after page loads
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.insertCSS(`
       html { min-width: 1024px !important; overflow-x: auto !important; }
       body { min-width: 1024px !important; }
     `);
-    kioskTabWindow.webContents.setZoomFactor(1.0);
-    kioskTabWindow.webContents.setVisualZoomLevelLimits(1, 1);
+    mainWindow.webContents.setZoomFactor(1.0);
+    mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
   });
 
-  // Exit kiosk mode on Escape key
-  kioskTabWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key === 'Escape') {
-      if (kioskTabWindow.isKiosk()) {
-        kioskTabWindow.setKiosk(false);
-      }
+  // Keyboard shortcuts: Escape to exit kiosk, F11 for Kiosk fullscreen, F12 for DevTools
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'Escape' && mainWindow.isKiosk()) {
+      mainWindow.setKiosk(false);
     }
-    if (input.key === 'F12') {
-      kioskTabWindow.webContents.toggleDevTools();
+    if (
+      input.key === 'F12' ||
+      ((input.control || input.meta) && input.alt && input.key.toLowerCase() === 'i') ||
+      ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'i')
+    ) {
+      mainWindow.webContents.toggleDevTools();
     }
-    // F11 = toggle kiosk fullscreen
     if (input.key === 'F11') {
-      kioskTabWindow.setKiosk(!kioskTabWindow.isKiosk());
+      mainWindow.setKiosk(!mainWindow.isKiosk());
     }
   });
 
-  kioskTabWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    console.warn('[Electron] Kiosk Tab failed to load:', validatedURL, errorCode, errorDescription);
-    if (errorCode !== -3) {
-      kioskTabWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <title>MingleBooth Kiosk</title>
-          <style>
-            body { background: #07090E; color: #fff; font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-            h1 { font-size: 22px; margin-bottom: 8px; }
-            p { color: #888; font-size: 13px; max-width: 440px; text-align: center; line-height: 1.5; margin-bottom: 24px; }
-            button { background: #7C3AED; color: #fff; border: none; padding: 10px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 13px; }
-            button:hover { background: #6D28D9; }
-          </style>
-        </head>
-        <body>
-          <h1>Gagal Menghubungkan ke Mode Tab</h1>
-          <p>Koneksi internet tidak terhubung atau server sedang memuat ulang. Pastikan koneksi aktif lalu klik tombol di bawah.</p>
-          <button onclick="window.location.href='${tabUrl}'">Muat Ulang Halaman</button>
-        </body>
-        </html>
-      `)}`);
-    }
+  mainWindow.on('closed', () => {
+    mainWindow = null;
   });
+}
 
-  kioskTabWindow.on('closed', () => {
-    kioskTabWindow = null;
-  });
-
-  console.log('[Electron] Mode Tab Kiosk Window opened:', tabUrl);
+// ── Open / Focus Tablet Studio Window ──
+function openKioskTabWindow(tabUrl) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus();
+    if (tabUrl) mainWindow.loadURL(tabUrl);
+  } else {
+    createWindow();
+  }
 }
 
 // IPC Handlers
@@ -244,31 +198,26 @@ ipcMain.handle('app:toggle-kiosk', () => {
 
 // ── Open Mode Tab as Kiosk Window ──
 ipcMain.handle('app:open-kiosk-tab', async (event, options = {}) => {
-  const tetherServer = getTetherServer(4848);
-  const ips = tetherServer.getLocalIPs();
-  const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
-  const hubParam = encodeURIComponent(`http://${localIp}:4848`);
-
-  // Pass platform=desktop so tablet enables local USB / webcam discovery
-  const tabletUrl = options.url || `https://minglebooth.id/tablet?hub=${hubParam}&platform=desktop`;
-
-  openKioskTabWindow(tabletUrl);
-  return { success: true, url: tabletUrl };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus();
+    if (options.url) mainWindow.loadURL(options.url);
+  }
+  return { success: true };
 });
 
 // ── Close Kiosk Tab Window ──
 ipcMain.handle('app:close-kiosk-tab', () => {
-  if (kioskTabWindow && !kioskTabWindow.isDestroyed()) {
-    kioskTabWindow.close();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.close();
   }
   return { success: true };
 });
 
 // ── Toggle Kiosk Fullscreen on Kiosk Tab Window ──
 ipcMain.handle('app:toggle-kiosk-tab-fullscreen', () => {
-  if (kioskTabWindow && !kioskTabWindow.isDestroyed()) {
-    const isKiosk = kioskTabWindow.isKiosk();
-    kioskTabWindow.setKiosk(!isKiosk);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const isKiosk = mainWindow.isKiosk();
+    mainWindow.setKiosk(!isKiosk);
     return !isKiosk;
   }
   return false;
@@ -467,19 +416,7 @@ app.whenReady().then(() => {
     systemPreferences.askForMediaAccess('microphone').catch(() => {});
   }
 
-  // Auto-launch Mode Tab Kiosk window so vendor gets Mode Tab directly on startup!
-  setTimeout(() => {
-    try {
-      const tetherServer = getTetherServer(4848);
-      const ips = tetherServer.getLocalIPs();
-      const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
-      const hubParam = encodeURIComponent(`http://${localIp}:4848`);
-      const tabletUrl = `https://minglebooth.id/tablet?hub=${hubParam}&platform=desktop`;
-      openKioskTabWindow(tabletUrl);
-    } catch (e) {
-      console.warn('[Electron] Could not auto-launch Mode Tab:', e);
-    }
-  }, 1200);
+
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
