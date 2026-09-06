@@ -1024,7 +1024,8 @@ export default function TabletStudioPage() {
     }
 
     if (selectedCameraId !== 'remote_pc' && (!cameraStream || !video || video.videoWidth === 0)) {
-      alert('Kamera belum aktif atau belum siap. Silakan periksa izin kamera di browser Anda atau klik tombol Hubungkan Kamera.');
+      startCameraStream();
+      alert('Kamera sedang dihubungkan ulang. Tunggu 1 detik lalu tekan tombol foto lagi.');
       return;
     }
 
