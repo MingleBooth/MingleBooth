@@ -514,28 +514,11 @@ export default function TabletStudioPage() {
     fetchCloudData();
   }, []);
 
-  // Enumerate Cameras
+  // Enumerate Cameras (Safely without stopping active hardware tracks)
   const refreshCameraList = useCallback(async () => {
     try {
       setIsCameraLoading(true);
       setCameraError(null);
-
-      // Attempt to prompt/obtain camera permission safely without breaking on laptops (Mac/PC)
-      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-        try {
-          const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-          tempStream.getTracks().forEach((track) => track.stop());
-        } catch (err1) {
-          try {
-            const tempStream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: 'user' },
-            });
-            tempStream.getTracks().forEach((track) => track.stop());
-          } catch (err2) {
-            console.warn('Initial camera handshake note:', err2);
-          }
-        }
-      }
 
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter((d) => d.kind === 'videoinput');
@@ -629,73 +612,15 @@ export default function TabletStudioPage() {
     refreshCameraList();
   }, [refreshCameraList]);
 
-  // Dedicated callback refs to ensure instant, reliable video stream binding across phase changes
-  const attachVideoRef = useCallback(
-    (el: HTMLVideoElement | null) => {
-      videoRef.current = el;
-      if (el) {
-        el.muted = true;
-        el.defaultMuted = true;
-        el.playsInline = true;
-        el.setAttribute('playsinline', 'true');
-        el.setAttribute('webkit-playsinline', 'true');
-        if (cameraStream && el.srcObject !== cameraStream) {
-          el.srcObject = cameraStream;
-        }
-        el.play().catch((err) => {
-          console.warn('Kiosk video playback prevented:', err);
-        });
-      }
-    },
-    [cameraStream]
-  );
-
-  const attachMiniVideoRef = useCallback(
-    (el: HTMLVideoElement | null) => {
-      miniVideoRef.current = el;
-      if (el) {
-        el.muted = true;
-        el.defaultMuted = true;
-        el.playsInline = true;
-        el.setAttribute('playsinline', 'true');
-        el.setAttribute('webkit-playsinline', 'true');
-        if (cameraStream && el.srcObject !== cameraStream) {
-          el.srcObject = cameraStream;
-        }
-        el.play().catch((err) => {
-          console.warn('Mini video playback prevented:', err);
-        });
-      }
-    },
-    [cameraStream]
-  );
-
-  // Connect Camera Stream
-  useEffect(() => {
-    if (!selectedCameraId) return;
-
-    if (selectedCameraId === 'remote_pc') {
-      if (cameraStream) {
-        cameraStream.getTracks().forEach((t) => t.stop());
-        setCameraStream(null);
-      }
-      setIsCameraLoading(false);
-      setCameraError(null);
-      return;
-    }
-
-    let activeStream: MediaStream | null = null;
-
-    const getUserMediaWithTimeout = (
-      constraints: MediaStreamConstraints,
-      timeoutMs = 6000
-    ): Promise<MediaStream> => {
+  // Robust getUserMedia with timeout
+  const getUserMediaWithTimeout = useCallback(
+    (constraints: MediaStreamConstraints, timeoutMs = 7000): Promise<MediaStream> => {
       let timer: any;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           reject(
             new Error(
-              'Kamera tidak merespons (batas waktu 6 detik). Pastikan izin kamera telah diizinkan dan kamera tidak sedang dipakai oleh aplikasi lain (Zoom/FaceTime).'
+              'Kamera tidak merespons (batas waktu 7 detik). Pastikan kamera tidak sedang dipakai oleh aplikasi lain (Zoom/FaceTime).'
             )
           );
         }, timeoutMs);
@@ -708,18 +633,29 @@ export default function TabletStudioPage() {
         }),
         timeoutPromise,
       ]);
-    };
+    },
+    []
+  );
 
-    const startStream = async () => {
+  // Centralized, Resilient Camera Stream Starter
+  const startCameraStream = useCallback(
+    async (targetCameraId?: string) => {
+      const camId = targetCameraId || selectedCameraId;
+      if (!camId || camId === 'remote_pc') {
+        if (camId === 'remote_pc' && cameraStream) {
+          cameraStream.getTracks().forEach((t) => t.stop());
+          setCameraStream(null);
+        }
+        setIsCameraLoading(false);
+        setCameraError(null);
+        return;
+      }
+
       setIsCameraLoading(true);
       setCameraError(null);
 
       try {
-        if (cameraStream) {
-          cameraStream.getTracks().forEach((t) => t.stop());
-        }
-
-        const isDefaultWebcam = !selectedCameraId || selectedCameraId === 'local_webcam_default';
+        const isDefaultWebcam = !camId || camId === 'local_webcam_default';
         const constraints: MediaStreamConstraints = isDefaultWebcam
           ? {
               video: {
@@ -731,7 +667,7 @@ export default function TabletStudioPage() {
             }
           : {
               video: {
-                deviceId: { ideal: selectedCameraId },
+                deviceId: { ideal: camId },
                 width: { ideal: 1920 },
                 height: { ideal: 1080 },
               },
@@ -746,21 +682,24 @@ export default function TabletStudioPage() {
           stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
 
-        activeStream = stream;
         setCameraStream(stream);
 
-        if (videoRef.current) {
-          videoRef.current.muted = true;
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-        if (miniVideoRef.current) {
-          miniVideoRef.current.muted = true;
-          miniVideoRef.current.srcObject = stream;
-          miniVideoRef.current.play().catch(() => {});
-        }
+        // Bind directly to whatever video elements are present in DOM
+        const bindTo = (el: HTMLVideoElement | null) => {
+          if (!el) return;
+          el.muted = true;
+          el.defaultMuted = true;
+          el.playsInline = true;
+          el.setAttribute('playsinline', 'true');
+          el.setAttribute('webkit-playsinline', 'true');
+          el.srcObject = stream;
+          el.play().catch((err) => console.warn('Video play error:', err));
+        };
 
-        // If permission was just granted with default id, refresh devices to grab real labels
+        bindTo(videoRef.current);
+        bindTo(miniVideoRef.current);
+
+        // If default webcam was used, refresh device list to get real device names
         if (isDefaultWebcam) {
           navigator.mediaDevices?.enumerateDevices().then((devs) => {
             const vDevs = devs.filter((d) => d.kind === 'videoinput');
@@ -770,21 +709,85 @@ export default function TabletStudioPage() {
           }).catch(() => {});
         }
       } catch (err: any) {
-        console.warn('All camera streams failed:', err);
+        console.warn('Camera stream connection failed:', err);
         setCameraError(err.message || 'Gagal menghubungkan kamera laptop / webcam.');
       } finally {
         setIsCameraLoading(false);
       }
-    };
+    },
+    [selectedCameraId, cameraStream, getUserMediaWithTimeout, refreshCameraList]
+  );
 
-    startStream();
-
-    return () => {
-      if (activeStream) {
-        activeStream.getTracks().forEach((t) => t.stop());
+  // Dedicated callback refs to ensure instant, reliable video stream binding across phase changes
+  const attachVideoRef = useCallback(
+    (el: HTMLVideoElement | null) => {
+      videoRef.current = el;
+      if (el) {
+        el.muted = true;
+        el.defaultMuted = true;
+        el.playsInline = true;
+        el.setAttribute('playsinline', 'true');
+        el.setAttribute('webkit-playsinline', 'true');
+        const track = cameraStream?.getVideoTracks()[0];
+        if (cameraStream && track && track.readyState === 'live') {
+          if (el.srcObject !== cameraStream) {
+            el.srcObject = cameraStream;
+          }
+          el.play().catch(() => {});
+        } else if (selectedCameraId && selectedCameraId !== 'remote_pc') {
+          startCameraStream();
+        }
       }
-    };
+    },
+    [cameraStream, selectedCameraId, startCameraStream]
+  );
+
+  const attachMiniVideoRef = useCallback(
+    (el: HTMLVideoElement | null) => {
+      miniVideoRef.current = el;
+      if (el) {
+        el.muted = true;
+        el.defaultMuted = true;
+        el.playsInline = true;
+        el.setAttribute('playsinline', 'true');
+        el.setAttribute('webkit-playsinline', 'true');
+        const track = cameraStream?.getVideoTracks()[0];
+        if (cameraStream && track && track.readyState === 'live') {
+          if (el.srcObject !== cameraStream) {
+            el.srcObject = cameraStream;
+          }
+          el.play().catch(() => {});
+        } else if (selectedCameraId && selectedCameraId !== 'remote_pc') {
+          startCameraStream();
+        }
+      }
+    },
+    [cameraStream, selectedCameraId, startCameraStream]
+  );
+
+  // Auto-connect camera on startup or camera switch
+  useEffect(() => {
+    if (selectedCameraId && selectedCameraId !== 'remote_pc') {
+      startCameraStream();
+    }
   }, [selectedCameraId]);
+
+  // Auto-heal camera stream on phase transition (setup <-> kiosk)
+  useEffect(() => {
+    if (selectedCameraId === 'remote_pc') return;
+    const targetEl = phase === 'setup' ? miniVideoRef.current : videoRef.current;
+    if (targetEl) {
+      const track = cameraStream?.getVideoTracks()[0];
+      if (cameraStream && track && track.readyState === 'live') {
+        if (targetEl.srcObject !== cameraStream) {
+          targetEl.srcObject = cameraStream;
+        }
+        targetEl.play().catch(() => {});
+      } else if (selectedCameraId) {
+        startCameraStream();
+      }
+    }
+  }, [phase, selectedCameraId, cameraStream, startCameraStream]);
 
   // ── Remote PC Hub Live View & Status Polling ──
   useEffect(() => {
@@ -1815,9 +1818,15 @@ export default function TabletStudioPage() {
                   <h2 className="text-sm font-semibold text-white">Kamera</h2>
                 </div>
                 <button
-                  onClick={refreshCameraList}
+                  onClick={() => {
+                    refreshCameraList();
+                    if (selectedCameraId !== 'remote_pc') {
+                      startCameraStream();
+                    }
+                  }}
                   disabled={isCameraLoading}
-                  className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white transition-colors"
+                  className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                  title="Pindai ulang dan sambungkan kembali kamera"
                 >
                   <RefreshCw className={`w-3 h-3 ${isCameraLoading ? 'animate-spin' : ''}`} />
                   <span>Pindai Ulang</span>
@@ -1825,7 +1834,15 @@ export default function TabletStudioPage() {
               </div>
 
               {/* Video Viewport */}
-              <div className="w-full aspect-[4/3] rounded-xl bg-black relative overflow-hidden border border-white/[0.06] flex items-center justify-center">
+              <div
+                onClick={() => {
+                  if (selectedCameraId !== 'remote_pc') {
+                    startCameraStream();
+                  }
+                }}
+                className="w-full aspect-[4/3] rounded-xl bg-black relative overflow-hidden border border-white/[0.06] flex items-center justify-center cursor-pointer group"
+                title="Klik untuk menyambungkan / memuat ulang tampilan kamera"
+              >
                 {selectedCameraId === 'remote_pc' ? (
                   remotePcLiveFrame ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -1974,6 +1991,7 @@ export default function TabletStudioPage() {
                         if (typeof window !== 'undefined') {
                           localStorage.setItem('mb_preferred_camera', 'local_webcam_default');
                         }
+                        startCameraStream('local_webcam_default');
                       }}
                       className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all ${
                         selectedCameraId !== 'remote_pc'
@@ -2006,6 +2024,7 @@ export default function TabletStudioPage() {
                           if (typeof window !== 'undefined') {
                             localStorage.setItem('mb_preferred_camera', cam.deviceId);
                           }
+                          startCameraStream(cam.deviceId);
                         }}
                         className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all ${
                           isSelected
