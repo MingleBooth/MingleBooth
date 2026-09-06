@@ -6,6 +6,11 @@ const crypto = require('crypto');
 const { exec } = require('child_process');
 const { getTetherServer } = require('./tether-server.cjs');
 
+// ── Fix Windows DPI / HiDPI scaling so viewport renders at correct CSS pixel width ──
+app.commandLine.appendSwitch('high-dpi-support', '1');
+app.commandLine.appendSwitch('force-device-scale-factor', '1');
+app.commandLine.appendSwitch('disable-pinch');
+
 let mainWindow = null;
 let kioskTabWindow = null;
 
@@ -153,10 +158,11 @@ function openKioskTabWindow(tabUrl) {
   // Inject fix CSS after page loads to ensure proper layout regardless of zoom
   kioskTabWindow.webContents.on('did-finish-load', () => {
     kioskTabWindow.webContents.insertCSS(`
-      html, body { min-width: 1024px !important; overflow-x: auto; }
+      html { min-width: 1024px !important; overflow-x: auto !important; }
+      body { min-width: 1024px !important; }
     `);
-    // Set zoom factor to fit content nicely
     kioskTabWindow.webContents.setZoomFactor(1.0);
+    kioskTabWindow.webContents.setVisualZoomLevelLimits(1, 1);
   });
 
   // Exit kiosk mode on Escape key
@@ -199,26 +205,9 @@ ipcMain.handle('app:open-kiosk-tab', async (event, options = {}) => {
   const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
   const hubParam = encodeURIComponent(`http://${localIp}:4848`);
 
-  // Check if Next.js local dev server (port 3000) is running
-  const http = require('http');
-  const isPort3000Available = await new Promise((resolve) => {
-    const req = http.get('http://localhost:3000', (res) => {
-      resolve(res.statusCode < 500);
-    });
-    req.on('error', () => resolve(false));
-    req.setTimeout(1500, () => { req.destroy(); resolve(false); });
-  });
-
-  let tabletUrl;
-  if (options.url) {
-    tabletUrl = options.url;
-  } else if (isPort3000Available) {
-    // Next.js local dev server is running — use it (best CSS/JS)
-    tabletUrl = `http://localhost:3000/tablet?hub=${hubParam}`;
-  } else {
-    // Fallback: use tether server's built-in hub page
-    tabletUrl = `http://${localIp}:4848/tablet?hub=${hubParam}`;
-  }
+  // Always use Vercel production URL — guaranteed full CSS/JS, no local server required
+  // The hub= param auto-connects the tablet to this laptop's tether server
+  const tabletUrl = options.url || `https://minglebooth.id/tablet?hub=${hubParam}`;
 
   openKioskTabWindow(tabletUrl);
   return { success: true, url: tabletUrl };
