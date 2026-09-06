@@ -114,12 +114,14 @@ class TetherServer {
     if (this.server) return;
 
     this.server = http.createServer((req, res) => {
-      // Add permissive CORS for local network tablet clients
+      // Add permissive CORS for local network tablet clients & Private Network Access
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Headers', '*');
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
 
       if (req.method === 'OPTIONS') {
+        res.setHeader('Access-Control-Max-Age', '86400');
         res.statusCode = 204;
         res.end();
         return;
@@ -198,10 +200,8 @@ class TetherServer {
 
           const triggerPromise = new Promise((resolve) => {
             const timeoutId = setTimeout(() => {
-              // Remove this trigger from array
               this.pendingTriggers = this.pendingTriggers.filter((t) => t.timeoutId !== timeoutId);
 
-              // If fallback allowed and no real camera file dropped, return high-res simulated studio photo
               if (mockFallback) {
                 const fallbackData = this.latestLiveFrame || this.latestPhotoBase64 || this.generateMockStudioPhoto();
                 resolve({
@@ -240,6 +240,101 @@ class TetherServer {
             timestamp: this.latestPhotoTimestamp,
           })
         );
+        return;
+      }
+
+      // ── 6. Mobile & Tablet Web Landing Page (Direct Hub Dashboard) ──
+      if (pathname === '/' || pathname === '/tablet') {
+        const primaryIp = this.getLocalIPs().find((ip) => ip !== '127.0.0.1') || this.getLocalIPs()[0] || 'localhost';
+        const hubUrl = `http://${primaryIp}:${this.port}`;
+        const tabletLaunchUrl = `https://minglebooth.id/tablet?hub=${encodeURIComponent(hubUrl)}`;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.end(`<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MingleBooth — Jembatan Kamera Studio</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #090A0C; color: #fff; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+    .card { background: #121316; border: 1px solid rgba(255,255,255,0.08); border-radius: 24px; padding: 28px; max-width: 440px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+    .badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(16,185,129,0.15); color: #34d399; padding: 6px 14px; border-radius: 9999px; font-size: 13px; font-weight: 600; border: 1px solid rgba(16,185,129,0.3); margin-bottom: 20px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 10px #10b981; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    p.desc { font-size: 13px; color: #9ca3af; line-height: 1.5; margin-bottom: 24px; }
+    .preview-box { width: 100%; aspect-ratio: 3/2; background: #000; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; position: relative; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
+    .preview-box img { width: 100%; height: 100%; object-cover: cover; }
+    .preview-empty { color: #6b7280; font-size: 12px; }
+    .code-box { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.06); padding: 12px; border-radius: 12px; font-family: monospace; font-size: 14px; color: #34d399; margin-bottom: 20px; word-break: break-all; }
+    .btn { display: block; width: 100%; padding: 14px; border-radius: 14px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 0.2s; border: none; }
+    .btn-primary { background: #10b981; color: #000; margin-bottom: 12px; }
+    .btn-primary:hover { background: #34d399; }
+    .btn-secondary { background: rgba(255,255,255,0.08); color: #fff; }
+    .btn-secondary:hover { background: rgba(255,255,255,0.12); }
+    .footer { font-size: 11px; color: #4b5563; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge"><span class="dot"></span> Kamera Laptop Terhubung</div>
+    <h1>MingleBooth Studio Hub</h1>
+    <p class="desc">Sinyal kamera Sony / DSLR di laptop aktif dan siap memotret dari layar tablet.</p>
+
+    <div class="preview-box" id="previewBox">
+      <span class="preview-empty">Menunggu Gambar Kamera...</span>
+    </div>
+
+    <div class="code-box">${hubUrl}</div>
+
+    <a href="${tabletLaunchUrl}" class="btn btn-primary">Buka Mode Tab (Tablet Booth)</a>
+    <button onclick="testShutter()" id="shutterBtn" class="btn btn-secondary">Tes Jepret Kamera &amp; Flash</button>
+
+    <div class="footer" id="statusMsg">Tersambung di jaringan yang sama</div>
+  </div>
+
+  <script>
+    const hubUrl = '${hubUrl}';
+    const previewBox = document.getElementById('previewBox');
+    const statusMsg = document.getElementById('statusMsg');
+
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/tether/liveview');
+        const data = await res.json();
+        if (data.frameDataUrl) {
+          previewBox.innerHTML = '<img src="' + data.frameDataUrl + '" alt="Live View">';
+        }
+      } catch (e) {}
+    }, 400);
+
+    async function testShutter() {
+      const btn = document.getElementById('shutterBtn');
+      btn.innerText = 'Mengirim sinyal jepret...';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/tether/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeoutMs: 3000, mockFallback: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          statusMsg.innerText = '✅ Jepret Berhasil! Flash & Shutter sinkron.';
+          statusMsg.style.color = '#34d399';
+        }
+      } catch (err) {
+        statusMsg.innerText = 'Gagal jepret: ' + err.message;
+        statusMsg.style.color = '#f87171';
+      } finally {
+        btn.innerText = 'Tes Jepret Kamera & Flash';
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>`);
         return;
       }
 
@@ -299,6 +394,11 @@ function getTetherServer(port = 4848) {
     tetherInstance = new TetherServer(port);
   }
   return tetherInstance;
+}
+
+if (require.main === module) {
+  const server = getTetherServer(4848);
+  server.start();
 }
 
 module.exports = {

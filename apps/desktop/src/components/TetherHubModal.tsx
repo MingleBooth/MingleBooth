@@ -200,11 +200,18 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
         </div>
 
         {/* Panduan Cepat untuk Vendor */}
-        <div className="text-[11px] text-neutral-400 space-y-1.5 bg-black/30 p-3.5 rounded-xl border border-white/[0.04] leading-relaxed">
+        <div className="text-[11px] text-neutral-400 space-y-2 bg-black/30 p-3.5 rounded-xl border border-white/[0.04] leading-relaxed">
           <p className="font-semibold text-neutral-300 flex items-center gap-1">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
             <span>Cara Sambungkan ke iPad / Tablet:</span>
           </p>
+          <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px]">
+            <strong>Cara Paling Cepat &amp; Bebas Hambatan:</strong>
+            <br />
+            Buka browser di iPad / Tablet, lalu ketik alamat ini langsung:
+            <br />
+            <span className="font-mono text-xs font-bold text-white select-all">{hubUrl}</span>
+          </div>
           <p>1. Buka <strong>Mode Tab</strong> di browser iPad / Tablet.</p>
           <p>2. Pada pilihan kamera, pilih: <strong>Kamera Sony / DSLR di Laptop</strong>.</p>
           <p>3. Masukkan kode alamat di atas: <code className="text-emerald-400">{hubUrl}</code></p>

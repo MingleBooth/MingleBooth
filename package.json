@@ -12,6 +12,7 @@
     "dev:desktop": "npm --workspace=@minglebooth/desktop run dev",
     "dev:web": "npm --workspace=@minglebooth/web run dev",
     "desktop:electron": "npm --workspace=@minglebooth/desktop run electron:dev",
+    "tether": "node apps/desktop/electron/tether-server.cjs",
     "desktop:build:mac": "npm --workspace=@minglebooth/desktop run electron:build:mac",
     "desktop:build:win": "npm --workspace=@minglebooth/desktop run electron:build:win",
     "build": "npm run build --workspaces --if-present",

@@ -145,13 +145,23 @@ export default function TabletStudioPage() {
   const [isTestingRemotePc, setIsTestingRemotePc] = useState<boolean>(false);
   const [remotePcTestMsg, setRemotePcTestMsg] = useState<string | null>(null);
 
-  // Restore saved Remote PC settings from localStorage
+  // Restore saved Remote PC settings from localStorage or URL query (?hub=...)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('mb_remote_pc_url');
-      if (saved) setRemotePcUrl(saved);
-      const savedCam = localStorage.getItem('mb_preferred_camera');
-      if (savedCam === 'remote_pc') setSelectedCameraId('remote_pc');
+      const searchParams = new URLSearchParams(window.location.search);
+      const hubParam = searchParams.get('hub') || searchParams.get('remote');
+      if (hubParam) {
+        const formatted = hubParam.startsWith('http') ? hubParam : `http://${hubParam}`;
+        setRemotePcUrl(formatted);
+        setSelectedCameraId('remote_pc');
+        localStorage.setItem('mb_remote_pc_url', formatted);
+        localStorage.setItem('mb_preferred_camera', 'remote_pc');
+      } else {
+        const saved = localStorage.getItem('mb_remote_pc_url');
+        if (saved) setRemotePcUrl(saved);
+        const savedCam = localStorage.getItem('mb_preferred_camera');
+        if (savedCam === 'remote_pc') setSelectedCameraId('remote_pc');
+      }
     }
   }, []);
 
@@ -3267,7 +3277,11 @@ export default function TabletStudioPage() {
                     }
                   } catch (e: any) {
                     setRemotePcStatus('disconnected');
-                    setRemotePcTestMsg(`Gagal terhubung: ${e.message}. Pastikan URL benar dan satu jaringan Wi-Fi.`);
+                    const isMixed = typeof window !== 'undefined' && window.location.protocol === 'https:';
+                    const helpText = isMixed
+                      ? `Gagal terhubung (${e.message}). Browser tablet membatasi sambungan ke laptop karena membuka website internet (HTTPS). Buka browser tablet langsung di alamat: ${remotePcUrl} atau pastikan satu Wi-Fi.`
+                      : `Gagal terhubung (${e.message}). Pastikan aplikasi MingleBooth di laptop sudah menyala dan satu jaringan Wi-Fi.`;
+                    setRemotePcTestMsg(helpText);
                   } finally {
                     setIsTestingRemotePc(false);
                   }
