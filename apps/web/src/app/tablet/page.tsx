@@ -41,6 +41,7 @@ import {
   Wifi,
   WifiOff,
   LogOut,
+  Hand,
 } from 'lucide-react';
 import { FrameHoleDetector, DetectedCutout } from '@minglebooth/template-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
@@ -224,6 +225,9 @@ export default function TabletStudioPage() {
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
   const [isFlashing, setIsFlashing] = useState<boolean>(false);
 
+  // Tablet Kiosk Tap-to-Shoot mode: true = tap anywhere on screen, false = only bottom shutter button
+  const [tapAnywhereEnabled, setTapAnywhereEnabled] = useState<boolean>(true);
+
   // Result & QR Code
   const [finalPhotoDataUrl, setFinalPhotoDataUrl] = useState<string | null>(null);
   const [finalGifDataUrl, setFinalGifDataUrl] = useState<string | null>(null);
@@ -268,6 +272,10 @@ export default function TabletStudioPage() {
       const saved = localStorage.getItem('mb_custom_folder_name');
       if (saved) {
         setCustomFolderName(saved);
+      }
+      const savedTap = localStorage.getItem('mb_tap_anywhere_enabled');
+      if (savedTap !== null) {
+        setTapAnywhereEnabled(savedTap === 'true');
       }
     }
   }, []);
@@ -1753,6 +1761,385 @@ export default function TabletStudioPage() {
     );
   }
 
+  // ── Reusable In-Kiosk / In-Review Event Gallery Modal ──────────────────────
+  const renderGalleryModalJSX = () => {
+    if (!showEventGalleryModal) return null;
+
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fadeIn select-none"
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="max-w-4xl w-full bg-[#121318] border border-white/15 rounded-3xl p-5 sm:p-6 flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-hidden"
+        >
+          {/* Header Modal */}
+          <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 text-white flex items-center justify-center">
+                <Images className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">
+                  Galeri Foto Acara: {selectedEventName || 'MingleBooth Event'}
+                </h3>
+                <p className="text-xs text-neutral-400">
+                  Koleksi seluruh foto yang telah diambil oleh tamu di acara ini
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <a
+                href={`/gallery/${selectedEventId}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="h-8 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 hover:text-white text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Buka galeri publik di tab baru"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Buka di Web</span>
+              </a>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowEventGalleryModal(false);
+                  setPreviewGalleryPhoto(null);
+                }}
+                className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center bg-black/50 rounded-xl p-0.5 border border-white/[0.06] text-xs">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setGalleryFilter('all');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  galleryFilter === 'all'
+                    ? 'bg-white text-black font-semibold shadow-sm'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Semua ({eventGalleryPhotos.length})
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setGalleryFilter('photo');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  galleryFilter === 'photo'
+                    ? 'bg-white text-black font-semibold shadow-sm'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Foto Cetak ({eventGalleryPhotos.filter((p) => p.thumbUrl || p.fullUrl).length})
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setGalleryFilter('gif');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                  galleryFilter === 'gif'
+                    ? 'bg-white text-black font-semibold shadow-sm'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <Sparkles className="w-3 h-3 text-amber-400" />
+                <span>GIF ({eventGalleryPhotos.filter((p) => p.hasGif).length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setGalleryFilter('raw');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                  galleryFilter === 'raw'
+                    ? 'bg-white text-black font-semibold shadow-sm'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <Camera className="w-3 h-3 text-blue-400" />
+                <span>
+                  Foto Mentahan ({eventGalleryPhotos.reduce((acc, p) => acc + (p.rawShots?.length || 0), 0)})
+                </span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                loadEventGallery();
+              }}
+              className="h-8 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-400 hover:text-white text-xs flex items-center gap-1 transition-colors flex-shrink-0 cursor-pointer"
+              title="Muat ulang foto terbaru"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Segarkan</span>
+            </button>
+          </div>
+
+          {/* Gallery Grid / Content */}
+          <div className="flex-1 overflow-y-auto pr-1 min-h-[280px]">
+            {isEventGalleryLoading ? (
+              <div className="py-20 text-center text-xs text-neutral-500 flex flex-col items-center justify-center gap-3">
+                <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                <span>Memuat foto-foto acara...</span>
+              </div>
+            ) : eventGalleryPhotos.length === 0 ? (
+              <div className="py-20 text-center text-xs text-neutral-500 flex flex-col items-center justify-center gap-2 border border-dashed border-white/10 rounded-2xl">
+                <Images className="w-8 h-8 text-neutral-600" />
+                <span className="text-neutral-300 font-medium">Belum Ada Foto di Acara Ini</span>
+                <p className="max-w-xs text-[11px] text-neutral-500">
+                  Foto yang diambil di photobooth ini akan langsung muncul di sini.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {eventGalleryPhotos
+                  .filter((p) => {
+                    if (galleryFilter === 'photo') return !!(p.thumbUrl || p.fullUrl);
+                    if (galleryFilter === 'gif') return !!p.hasGif;
+                    if (galleryFilter === 'raw') return p.rawShots && p.rawShots.length > 0;
+                    return true;
+                  })
+                  .map((photo) => {
+                    const thumbSrc =
+                      galleryFilter === 'raw' && photo.rawShots && photo.rawShots.length > 0
+                        ? photo.rawShots[0].url
+                        : photo.thumbUrl || photo.fullUrl;
+
+                    return (
+                      <div
+                        key={photo.photoId}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPreviewGalleryPhoto(photo);
+                          if (galleryFilter === 'gif' && photo.hasGif) {
+                            setPreviewGalleryTab('gif');
+                          } else if (galleryFilter === 'raw' && photo.rawShots && photo.rawShots.length > 0) {
+                            setPreviewGalleryTab(`raw_${photo.rawShots[0].index}`);
+                          } else {
+                            setPreviewGalleryTab('photo');
+                          }
+                        }}
+                        className="group relative rounded-2xl bg-[#171820] border border-white/[0.08] hover:border-white/30 overflow-hidden cursor-pointer transition-all flex flex-col shadow-md"
+                      >
+                        <div className="w-full aspect-[3/4] bg-black relative overflow-hidden flex items-center justify-center">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={thumbSrc}
+                            alt={photo.photoId}
+                            loading="lazy"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                          <div className="absolute top-2 left-2 flex flex-col gap-1">
+                            {photo.hasGif && (
+                              <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-black/70 backdrop-blur-md text-amber-300 border border-amber-400/30 flex items-center gap-1">
+                                <Sparkles className="w-2 h-2 text-amber-400" />
+                                GIF
+                              </span>
+                            )}
+                            {photo.rawShots && photo.rawShots.length > 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-black/70 backdrop-blur-md text-blue-300 border border-blue-400/30 flex items-center gap-1">
+                                <Camera className="w-2 h-2 text-blue-400" />
+                                {photo.rawShots.length} Mentah
+                              </span>
+                            )}
+                          </div>
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <span className="text-xs font-semibold text-white px-3 py-1.5 rounded-lg bg-white/20 backdrop-blur-md">
+                              Lihat
+                            </span>
+                          </div>
+                        </div>
+                        <div className="p-2 border-t border-white/[0.04] bg-[#0E0F12] flex items-center justify-between text-[10px] text-neutral-400">
+                          <span className="truncate max-w-[90px]">{photo.photoId}</span>
+                          <span>
+                            {new Date(photo.createdAt).toLocaleTimeString('id-ID', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+
+          {/* Modal Detail / Preview Satu Foto dari Galeri Acara */}
+          {previewGalleryPhoto && (
+            <div
+              className="fixed inset-0 z-60 bg-black/95 flex items-center justify-center p-4 animate-fadeIn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setPreviewGalleryPhoto(null);
+              }}
+            >
+              <div
+                className="max-w-lg w-full bg-[#121316] border border-white/20 rounded-3xl p-5 flex flex-col gap-3 shadow-2xl relative"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-white/[0.08] pb-2.5">
+                  <span className="text-xs font-mono text-neutral-300">ID: {previewGalleryPhoto.photoId}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPreviewGalleryPhoto(null);
+                    }}
+                    className="w-7 h-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Asset Tabs: Foto Berbingkai, Animasi GIF, Pose Mentah */}
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-black/50 border border-white/[0.06] text-xs font-medium overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPreviewGalleryTab('photo');
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-center transition-all cursor-pointer ${
+                      previewGalleryTab === 'photo'
+                        ? 'bg-white text-black font-semibold shadow-sm'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Foto Berbingkai
+                  </button>
+
+                  {previewGalleryPhoto.hasGif && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPreviewGalleryTab('gif');
+                      }}
+                      className={`flex-1 py-1.5 px-2 rounded-lg text-center transition-all cursor-pointer ${
+                        previewGalleryTab === 'gif'
+                          ? 'bg-white text-black font-semibold shadow-sm'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      GIF Loop
+                    </button>
+                  )}
+
+                  {previewGalleryPhoto.rawShots &&
+                    previewGalleryPhoto.rawShots.map((raw: any) => (
+                      <button
+                        key={raw.index}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPreviewGalleryTab(`raw_${raw.index}`);
+                        }}
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-center whitespace-nowrap transition-all cursor-pointer ${
+                          previewGalleryTab === `raw_${raw.index}`
+                            ? 'bg-white text-black font-semibold shadow-sm'
+                            : 'text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        Pose {raw.index} (Mentah)
+                      </button>
+                    ))}
+                </div>
+
+                {/* Visual Preview */}
+                {(() => {
+                  const activeUrl =
+                    previewGalleryTab === 'gif' && previewGalleryPhoto.gifUrl
+                      ? previewGalleryPhoto.gifUrl
+                      : previewGalleryTab.startsWith('raw_')
+                      ? previewGalleryPhoto.rawShots?.find(
+                          (r: any) => r.index === parseInt(previewGalleryTab.replace('raw_', ''), 10)
+                        )?.url || `/api/gallery/${previewGalleryPhoto.photoId}?type=raw&index=${previewGalleryTab.replace('raw_', '')}`
+                      : previewGalleryPhoto.fullUrl;
+
+                  return (
+                    <>
+                      <div className="w-full max-h-[55vh] bg-black rounded-2xl overflow-hidden flex items-center justify-center p-1 border border-white/10">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={activeUrl}
+                          alt={previewGalleryPhoto.photoId}
+                          className="max-h-[52vh] max-w-full object-contain rounded-xl"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePrintPhoto(activeUrl);
+                          }}
+                          className="flex-1 h-10 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 cursor-pointer"
+                        >
+                          <Printer className="w-4 h-4" />
+                          <span>Cetak Foto Ini</span>
+                        </button>
+
+                        <a
+                          href={activeUrl}
+                          download={`MingleBooth_${previewGalleryPhoto.photoId}_${previewGalleryTab}.jpg`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-10 px-4 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Unduh</span>
+                        </a>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Footer Modal */}
+          <div className="flex items-center justify-between border-t border-white/[0.08] pt-3 text-xs">
+            <span className="text-[11px] text-neutral-500">
+              Tekan Tutup Galeri untuk kembali ke layar booth
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowEventGalleryModal(false);
+                setPreviewGalleryPhoto(null);
+              }}
+              className="h-8 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs transition-colors cursor-pointer"
+            >
+              Tutup Galeri
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   // 1. PHASE: OPERATOR SETUP & HARDWARE CONFIGURATION
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2364,6 +2751,52 @@ export default function TabletStudioPage() {
                 </div>
               </div>
 
+              {/* Mode Pemicu Foto (Tap Anywhere vs Tombol Shutter) */}
+              <div className="pt-3 border-t border-white/[0.06] flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-neutral-300 flex items-center gap-1.5">
+                    <Hand className="w-3.5 h-3.5 text-neutral-400" />
+                    <span>Mode Jepret Layar Booth</span>
+                  </label>
+                  <span className="text-[11px] text-neutral-400">
+                    {tapAnywhereEnabled ? 'Sentuh bebas di layar' : 'Hanya tombol shutter'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTapAnywhereEnabled(true);
+                      if (typeof window !== 'undefined') localStorage.setItem('mb_tap_anywhere_enabled', 'true');
+                    }}
+                    className={`h-9 px-3 rounded-xl text-xs font-medium border flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      tapAnywhereEnabled
+                        ? 'bg-white text-black border-white shadow-sm font-semibold'
+                        : 'bg-[#171820] text-neutral-400 border-white/[0.06] hover:text-neutral-200 hover:border-white/15'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${tapAnywhereEnabled ? 'bg-black' : 'bg-neutral-600'}`} />
+                    <span>Sentuh Bebas di Layar (ON)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTapAnywhereEnabled(false);
+                      if (typeof window !== 'undefined') localStorage.setItem('mb_tap_anywhere_enabled', 'false');
+                    }}
+                    className={`h-9 px-3 rounded-xl text-xs font-medium border flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      !tapAnywhereEnabled
+                        ? 'bg-white text-black border-white shadow-sm font-semibold'
+                        : 'bg-[#171820] text-neutral-400 border-white/[0.06] hover:text-neutral-200 hover:border-white/15'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${!tapAnywhereEnabled ? 'bg-black' : 'bg-neutral-600'}`} />
+                    <span>Hanya Tombol Foto (OFF)</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Clean Tablet Storage & Offline Settings Card */}
               {/* Clean Tablet Storage & External SSD Settings Card */}
               <div className="p-3 rounded-xl bg-[#14151B] border border-white/[0.08] flex flex-col gap-2.5">
@@ -2869,7 +3302,22 @@ export default function TabletStudioPage() {
   // ═══════════════════════════════════════════════════════════════════════════
   if (phase === 'kiosk') {
     return (
-      <div className="relative h-screen w-screen bg-black overflow-hidden select-none touch-none font-sans">
+      <div
+        onClick={() => {
+          if (!tapAnywhereEnabled) return;
+          if (showEventGalleryModal) return;
+          if (sessionStep === 'idle') {
+            triggerPoseShot(0);
+          } else if (sessionStep === 'paused_between_poses') {
+            triggerPoseShot(currentShotIndex);
+          }
+        }}
+        className={`relative h-screen w-screen bg-black overflow-hidden select-none touch-none font-sans ${
+          tapAnywhereEnabled && (sessionStep === 'idle' || sessionStep === 'paused_between_poses')
+            ? 'cursor-pointer'
+            : ''
+        }`}
+      >
         {/* Shutter White Flash Screen */}
         {isFlashing && (
           <div className="absolute inset-0 z-50 bg-white pointer-events-none animate-flash" />
@@ -2882,10 +3330,13 @@ export default function TabletStudioPage() {
             <img
               src={remotePcLiveFrame}
               alt="Remote PC Live View"
-              className="absolute inset-0 w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
             />
           ) : (
-            <div className="absolute inset-0 bg-[#090A0C] flex flex-col items-center justify-center p-6 text-center">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="absolute inset-0 bg-[#090A0C] flex flex-col items-center justify-center p-6 text-center"
+            >
               <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-4 animate-pulse">
                 <Monitor className="w-10 h-10" />
               </div>
@@ -2898,7 +3349,8 @@ export default function TabletStudioPage() {
               </div>
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   const targetCam = cameras.find((c) => c.type === 'external') || cameras[0];
                   const targetId = targetCam ? targetCam.deviceId : 'local_webcam_default';
                   setSelectedCameraId(targetId);
@@ -2906,7 +3358,7 @@ export default function TabletStudioPage() {
                     localStorage.setItem('mb_preferred_camera', targetId);
                   }
                 }}
-                className="mt-4 px-5 py-2.5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-xl active:scale-95"
+                className="mt-4 px-5 py-2.5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-xl active:scale-95 cursor-pointer"
               >
                 <Camera className="w-4 h-4 fill-black" />
                 <span>Gunakan Kamera Laptop / Webcam ({cameras.find((c) => c.type === 'external')?.label || cameras[0]?.label || 'Aktifkan Webcam'})</span>
@@ -2919,7 +3371,7 @@ export default function TabletStudioPage() {
             autoPlay
             playsInline
             muted
-            className={`absolute inset-0 w-full h-full object-cover ${
+            className={`absolute inset-0 w-full h-full object-cover pointer-events-none ${
               currentCam?.type === 'front' ? 'scale-x-[-1]' : ''
             }`}
           />
@@ -2927,7 +3379,7 @@ export default function TabletStudioPage() {
 
         {/* ── CAMERA STARTING UP INDICATOR ── */}
         {selectedCameraId !== 'remote_pc' && isCameraLoading && !cameraStream && (
-          <div className="absolute inset-0 z-35 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center text-white gap-3 select-none">
+          <div className="absolute inset-0 z-35 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center text-white gap-3 select-none pointer-events-none">
             <RefreshCw className="w-8 h-8 animate-spin text-white" />
             <span className="text-xs font-semibold tracking-wide">Menyalakan Kamera...</span>
           </div>
@@ -2935,7 +3387,10 @@ export default function TabletStudioPage() {
 
         {/* ── CAMERA INACTIVE / PERMISSION OVERLAY ── */}
         {selectedCameraId !== 'remote_pc' && !isCameraLoading && (!cameraStream || cameraError) && (
-          <div className="absolute inset-0 z-40 bg-neutral-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 z-40 bg-neutral-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none"
+          >
             <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4">
               <CameraOff className="w-8 h-8" />
             </div>
@@ -2947,22 +3402,24 @@ export default function TabletStudioPage() {
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   refreshCameraList();
                   startCameraStream();
                 }}
-                className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95 cursor-pointer"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span>Hubungkan Ulang Kamera</span>
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   handleResetKiosk();
                   setPhase('setup');
                 }}
-                className="h-11 px-5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white font-semibold text-xs transition-colors"
+                className="h-11 px-5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white font-semibold text-xs transition-colors cursor-pointer"
               >
                 Kembali ke Pengaturan
               </button>
@@ -2999,11 +3456,17 @@ export default function TabletStudioPage() {
         )}
 
         {/* Top-Right: Kiosk Controls (Akses Cepat Galeri Event + Kembali ke Pengaturan) */}
-        <div className="absolute top-6 right-6 z-30 pointer-events-auto flex items-center gap-2.5">
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-6 right-6 z-40 pointer-events-auto flex items-center gap-2.5"
+        >
           {/* Tombol Akses Cepat Galeri Acara untuk Vendor / Tamu */}
           <button
             type="button"
-            onClick={() => setShowEventGalleryModal(true)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowEventGalleryModal(true);
+            }}
             className="h-10 px-4 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-amber-400/40 hover:border-amber-400/80 flex items-center gap-2 text-white/95 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all cursor-pointer group"
             title="Lihat Galeri Foto Acara (Hasil jepretan tamu)"
           >
@@ -3018,7 +3481,8 @@ export default function TabletStudioPage() {
 
           <button
             type="button"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               handleResetKiosk();
               setPhase('setup');
             }}
@@ -3059,40 +3523,63 @@ export default function TabletStudioPage() {
 
         {/* STATE 1: IDLE (SIAP FOTO POSE 1) */}
         {sessionStep === 'idle' && (
-          <div className="absolute bottom-10 inset-x-0 z-20 flex flex-col items-center justify-center pointer-events-auto">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-10 inset-x-0 z-20 flex flex-col items-center justify-center pointer-events-auto"
+          >
             <button
-              onClick={() => triggerPoseShot(0)}
-              className="group px-9 py-4 rounded-full bg-white text-black font-bold text-sm tracking-wider uppercase flex items-center gap-3 shadow-[0_10px_35px_rgba(0,0,0,0.6)] active:scale-95 transition-all hover:bg-neutral-200"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerPoseShot(0);
+              }}
+              className="group px-9 py-4 rounded-full bg-white text-black font-bold text-sm tracking-wider uppercase flex items-center gap-3 shadow-[0_10px_35px_rgba(0,0,0,0.6)] active:scale-95 transition-all hover:bg-neutral-200 cursor-pointer"
             >
-              <Camera className="w-5 h-5 fill-black" />
-              <span>SENTUH UNTUK FOTO 1</span>
+              {tapAnywhereEnabled ? <Hand className="w-5 h-5 text-black" /> : <Camera className="w-5 h-5 fill-black" />}
+              <span>{tapAnywhereEnabled ? 'SENTUH LAYAR / TOMBOL UNTUK FOTO 1' : 'SENTUH TOMBOL UNTUK FOTO 1'}</span>
             </button>
             <span className="text-[11px] font-medium text-white/90 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] mt-2.5">
-              Total {shotsCount} Pose bergantian santai
+              {tapAnywhereEnabled
+                ? `Sentuh di mana saja pada layar untuk memotret • Total ${shotsCount} Pose`
+                : `Total ${shotsCount} Pose bergantian santai`}
             </span>
           </div>
         )}
 
         {/* STATE 2: JEDA / PAUSE ANTAR POSE (WAITING FOR NEXT POSE TAP) */}
         {sessionStep === 'paused_between_poses' && (
-          <div className="absolute bottom-10 inset-x-4 z-20 flex flex-col items-center justify-center pointer-events-auto gap-3">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-10 inset-x-4 z-20 flex flex-col items-center justify-center pointer-events-auto gap-3"
+          >
             <button
-              onClick={() => triggerPoseShot(currentShotIndex)}
-              className="px-9 py-4 rounded-full bg-white text-black font-bold text-sm tracking-wider uppercase flex items-center gap-3 shadow-[0_10px_35px_rgba(0,0,0,0.6)] active:scale-95 transition-all hover:bg-neutral-200 animate-pulse"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerPoseShot(currentShotIndex);
+              }}
+              className="px-9 py-4 rounded-full bg-white text-black font-bold text-sm tracking-wider uppercase flex items-center gap-3 shadow-[0_10px_35px_rgba(0,0,0,0.6)] active:scale-95 transition-all hover:bg-neutral-200 animate-pulse cursor-pointer"
             >
-              <Camera className="w-5 h-5 fill-black" />
-              <span>SENTUH UNTUK FOTO {currentShotIndex + 1}</span>
+              {tapAnywhereEnabled ? <Hand className="w-5 h-5 text-black" /> : <Camera className="w-5 h-5 fill-black" />}
+              <span>{tapAnywhereEnabled ? `SENTUH LAYAR / TOMBOL UNTUK FOTO ${currentShotIndex + 1}` : `SENTUH TOMBOL UNTUK FOTO ${currentShotIndex + 1}`}</span>
             </button>
 
             <button
-              onClick={handleRetakePreviousPose}
-              className="text-xs text-white/90 hover:text-white flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/20 transition-colors shadow-md"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRetakePreviousPose();
+              }}
+              className="text-xs text-white/90 hover:text-white flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/20 transition-colors shadow-md cursor-pointer"
             >
               <RotateCcw className="w-3 h-3" />
               <span>Ulangi Pose {currentShotIndex}</span>
             </button>
           </div>
         )}
+
+        {/* ── Modal In-Kiosk Event Gallery (Tamu Melihat Semua Foto Langsung) ── */}
+        {renderGalleryModalJSX()}
       </div>
     );
   }
@@ -3325,327 +3812,8 @@ export default function TabletStudioPage() {
         </button>
       </footer>
 
-      {/* ── Modal In-Kiosk Event Gallery (Tamu Melihat Semua Foto Langsung) ── */}
-      {showEventGalleryModal && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fadeIn select-none">
-          <div className="max-w-4xl w-full bg-[#121318] border border-white/15 rounded-3xl p-5 sm:p-6 flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-hidden">
-            {/* Header Modal */}
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/20 text-white flex items-center justify-center">
-                  <Images className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-white">
-                    Galeri Foto Acara: {selectedEventName || 'Wedding Bayu & Irma'}
-                  </h3>
-                  <p className="text-xs text-neutral-400">
-                    Koleksi seluruh foto yang telah diambil oleh tamu di acara ini
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <a
-                  href={`/gallery/${selectedEventId}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="h-8 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 hover:text-white text-xs flex items-center gap-1.5 transition-colors"
-                  title="Buka galeri publik di tab baru"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Buka di Web</span>
-                </a>
-                <button
-                  onClick={() => {
-                    setShowEventGalleryModal(false);
-                    setPreviewGalleryPhoto(null);
-                  }}
-                  className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 flex items-center justify-center transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Filter Tabs */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center bg-black/50 rounded-xl p-0.5 border border-white/[0.06] text-xs">
-                <button
-                  onClick={() => setGalleryFilter('all')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    galleryFilter === 'all'
-                      ? 'bg-white text-black font-semibold shadow-sm'
-                      : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  Semua ({eventGalleryPhotos.length})
-                </button>
-                <button
-                  onClick={() => setGalleryFilter('photo')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    galleryFilter === 'photo'
-                      ? 'bg-white text-black font-semibold shadow-sm'
-                      : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  Foto Cetak ({eventGalleryPhotos.filter((p) => p.thumbUrl || p.fullUrl).length})
-                </button>
-                <button
-                  onClick={() => setGalleryFilter('gif')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-all ${
-                    galleryFilter === 'gif'
-                      ? 'bg-white text-black font-semibold shadow-sm'
-                      : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  <Sparkles className="w-3 h-3 text-amber-400" />
-                  <span>GIF ({eventGalleryPhotos.filter((p) => p.hasGif).length})</span>
-                </button>
-                <button
-                  onClick={() => setGalleryFilter('raw')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-all ${
-                    galleryFilter === 'raw'
-                      ? 'bg-white text-black font-semibold shadow-sm'
-                      : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  <Camera className="w-3 h-3 text-blue-400" />
-                  <span>
-                    Foto Mentahan ({eventGalleryPhotos.reduce((acc, p) => acc + (p.rawShots?.length || 0), 0)})
-                  </span>
-                </button>
-              </div>
-
-              <button
-                onClick={loadEventGallery}
-                className="h-8 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-400 hover:text-white text-xs flex items-center gap-1 transition-colors flex-shrink-0"
-                title="Muat ulang foto terbaru"
-              >
-                <RefreshCw className="w-3 h-3" />
-                <span>Segarkan</span>
-              </button>
-            </div>
-
-            {/* Gallery Grid / Content */}
-            <div className="flex-1 overflow-y-auto pr-1 min-h-[280px]">
-              {isEventGalleryLoading ? (
-                <div className="py-20 text-center text-xs text-neutral-500 flex flex-col items-center justify-center gap-3">
-                  <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                  <span>Memuat foto-foto acara...</span>
-                </div>
-              ) : eventGalleryPhotos.length === 0 ? (
-                <div className="py-20 text-center text-xs text-neutral-500 flex flex-col items-center justify-center gap-2 border border-dashed border-white/10 rounded-2xl">
-                  <Images className="w-8 h-8 text-neutral-600" />
-                  <span className="text-neutral-300 font-medium">Belum Ada Foto di Acara Ini</span>
-                  <p className="max-w-xs text-[11px] text-neutral-500">
-                    Foto yang diambil di photobooth ini akan langsung muncul di sini.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                  {eventGalleryPhotos
-                    .filter((p) => {
-                      if (galleryFilter === 'photo') return !!(p.thumbUrl || p.fullUrl);
-                      if (galleryFilter === 'gif') return !!p.hasGif;
-                      if (galleryFilter === 'raw') return p.rawShots && p.rawShots.length > 0;
-                      return true;
-                    })
-                    .map((photo) => {
-                      const thumbSrc =
-                        galleryFilter === 'raw' && photo.rawShots && photo.rawShots.length > 0
-                          ? photo.rawShots[0].url
-                          : photo.thumbUrl || photo.fullUrl;
-
-                      return (
-                        <div
-                          key={photo.photoId}
-                          onClick={() => {
-                            setPreviewGalleryPhoto(photo);
-                            if (galleryFilter === 'gif' && photo.hasGif) {
-                              setPreviewGalleryTab('gif');
-                            } else if (galleryFilter === 'raw' && photo.rawShots && photo.rawShots.length > 0) {
-                              setPreviewGalleryTab(`raw_${photo.rawShots[0].index}`);
-                            } else {
-                              setPreviewGalleryTab('photo');
-                            }
-                          }}
-                          className="group relative rounded-2xl bg-[#171820] border border-white/[0.08] hover:border-white/30 overflow-hidden cursor-pointer transition-all flex flex-col shadow-md"
-                        >
-                          <div className="w-full aspect-[3/4] bg-black relative overflow-hidden flex items-center justify-center">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={thumbSrc}
-                              alt={photo.photoId}
-                              loading="lazy"
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                            <div className="absolute top-2 left-2 flex flex-col gap-1">
-                              {photo.hasGif && (
-                                <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-black/70 backdrop-blur-md text-amber-300 border border-amber-400/30 flex items-center gap-1">
-                                  <Sparkles className="w-2 h-2 text-amber-400" />
-                                  GIF
-                                </span>
-                              )}
-                              {photo.rawShots && photo.rawShots.length > 0 && (
-                                <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-black/70 backdrop-blur-md text-blue-300 border border-blue-400/30 flex items-center gap-1">
-                                  <Camera className="w-2 h-2 text-blue-400" />
-                                  {photo.rawShots.length} Mentah
-                                </span>
-                              )}
-                            </div>
-                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                              <span className="text-xs font-semibold text-white px-3 py-1.5 rounded-lg bg-white/20 backdrop-blur-md">
-                                Lihat
-                              </span>
-                            </div>
-                          </div>
-                          <div className="p-2 border-t border-white/[0.04] bg-[#0E0F12] flex items-center justify-between text-[10px] text-neutral-400">
-                            <span className="truncate max-w-[90px]">{photo.photoId}</span>
-                            <span>
-                              {new Date(photo.createdAt).toLocaleTimeString('id-ID', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-
-            {/* Modal Detail / Preview Satu Foto dari Galeri Acara */}
-            {previewGalleryPhoto && (
-              <div
-                className="fixed inset-0 z-60 bg-black/95 flex items-center justify-center p-4 animate-fadeIn"
-                onClick={() => setPreviewGalleryPhoto(null)}
-              >
-                <div
-                  className="max-w-lg w-full bg-[#121316] border border-white/20 rounded-3xl p-5 flex flex-col gap-3 shadow-2xl relative"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between border-b border-white/[0.08] pb-2.5">
-                    <span className="text-xs font-mono text-neutral-300">ID: {previewGalleryPhoto.photoId}</span>
-                    <button
-                      onClick={() => setPreviewGalleryPhoto(null)}
-                      className="w-7 h-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 flex items-center justify-center transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Asset Tabs: Foto Berbingkai, Animasi GIF, Pose Mentah */}
-                  <div className="flex items-center gap-1 p-1 rounded-xl bg-black/50 border border-white/[0.06] text-xs font-medium overflow-x-auto">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewGalleryTab('photo')}
-                      className={`flex-1 py-1.5 px-2 rounded-lg text-center transition-all ${
-                        previewGalleryTab === 'photo'
-                          ? 'bg-white text-black font-semibold shadow-sm'
-                          : 'text-neutral-400 hover:text-white'
-                      }`}
-                    >
-                      Foto Berbingkai
-                    </button>
-
-                    {previewGalleryPhoto.hasGif && (
-                      <button
-                        type="button"
-                        onClick={() => setPreviewGalleryTab('gif')}
-                        className={`flex-1 py-1.5 px-2 rounded-lg text-center transition-all ${
-                          previewGalleryTab === 'gif'
-                            ? 'bg-white text-black font-semibold shadow-sm'
-                            : 'text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        GIF Loop
-                      </button>
-                    )}
-
-                    {previewGalleryPhoto.rawShots &&
-                      previewGalleryPhoto.rawShots.map((raw: any) => (
-                        <button
-                          key={raw.index}
-                          type="button"
-                          onClick={() => setPreviewGalleryTab(`raw_${raw.index}`)}
-                          className={`flex-1 py-1.5 px-2 rounded-lg text-center whitespace-nowrap transition-all ${
-                            previewGalleryTab === `raw_${raw.index}`
-                              ? 'bg-white text-black font-semibold shadow-sm'
-                              : 'text-neutral-400 hover:text-white'
-                          }`}
-                        >
-                          Pose {raw.index} (Mentah)
-                        </button>
-                      ))}
-                  </div>
-
-                  {/* Visual Preview */}
-                  {(() => {
-                    const activeUrl =
-                      previewGalleryTab === 'gif' && previewGalleryPhoto.gifUrl
-                        ? previewGalleryPhoto.gifUrl
-                        : previewGalleryTab.startsWith('raw_')
-                        ? previewGalleryPhoto.rawShots?.find(
-                            (r: any) => r.index === parseInt(previewGalleryTab.replace('raw_', ''), 10)
-                          )?.url || `/api/gallery/${previewGalleryPhoto.photoId}?type=raw&index=${previewGalleryTab.replace('raw_', '')}`
-                        : previewGalleryPhoto.fullUrl;
-
-                    return (
-                      <>
-                        <div className="w-full max-h-[55vh] bg-black rounded-2xl overflow-hidden flex items-center justify-center p-1 border border-white/10">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={activeUrl}
-                            alt={previewGalleryPhoto.photoId}
-                            className="max-h-[52vh] max-w-full object-contain rounded-xl"
-                          />
-                        </div>
-
-                        <div className="flex items-center gap-2 pt-1">
-                          <button
-                            onClick={() => handlePrintPhoto(activeUrl)}
-                            className="flex-1 h-10 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98"
-                          >
-                            <Printer className="w-4 h-4" />
-                            <span>Cetak Foto Ini</span>
-                          </button>
-
-                          <a
-                            href={activeUrl}
-                            download={`MingleBooth_${previewGalleryPhoto.photoId}_${previewGalleryTab}.jpg`}
-                            className="h-10 px-4 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                          >
-                            <Download className="w-4 h-4" />
-                            <span>Unduh</span>
-                          </a>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-            )}
-
-            {/* Footer Modal */}
-            <div className="flex items-center justify-between border-t border-white/[0.08] pt-3 text-xs">
-              <span className="text-[11px] text-neutral-500">
-                Tekan tombol Tutup untuk kembali ke layar review foto Anda
-              </span>
-              <button
-                onClick={() => {
-                  setShowEventGalleryModal(false);
-                  setPreviewGalleryPhoto(null);
-                }}
-                className="h-8 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs transition-colors"
-              >
-                Kembali ke Review
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Modal In-Kiosk / Review Event Gallery (Tamu Melihat Semua Foto Langsung) ── */}
+      {renderGalleryModalJSX()}
 
       {/* ── Native 100% Reliable Print Mount (Media Print) ── */}
       {printImageUrl && (
