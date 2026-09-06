@@ -504,8 +504,15 @@ export default function TabletStudioPage() {
         const label = dev.label.toLowerCase();
         let type: DiscoveredCamera['type'] = 'generic';
 
+        // Sony Imaging Edge Webcam, Sony Alpha/ZV/RX models, capture cards
         if (
           label.includes('sony') ||
+          label.includes('imaging edge') ||
+          label.includes('ilce') ||   // Sony Alpha MILC (ILCE-6400, ILCE-7M4 etc)
+          label.includes('ilme') ||   // Sony Cinema Line
+          label.includes('zv-') ||    // Sony ZV series (ZV-E10, ZV-1 etc)
+          label.includes('dsc-') ||   // Sony Cybershot
+          label.includes('alpha') ||
           label.includes('cam link') ||
           label.includes('capture') ||
           label.includes('hdmi') ||
@@ -513,7 +520,11 @@ export default function TabletStudioPage() {
           label.includes('uvc') ||
           label.includes('obs') ||
           label.includes('elgato') ||
-          label.includes('mirrorless')
+          label.includes('mirabox') ||
+          label.includes('mirrorless') ||
+          label.includes('fujifilm') ||
+          label.includes('canon') ||
+          label.includes('nikon')
         ) {
           type = 'external';
         } else if (
@@ -1675,10 +1686,41 @@ export default function TabletStudioPage() {
                   </div>
 
                   {showSonyHelp && (
-                    <div className="pt-2 border-t border-white/[0.06] text-[11px] text-neutral-400 space-y-1.5 leading-relaxed animate-fadeIn">
-                      <p><strong>1. Rekomendasi (Kualitas 24MP):</strong> Pilih opsi <strong>Remote PC</strong> di atas. Kamera Sony dicolok ke laptop via USB (mode PC Remote) dan lampu studio flash akan sinkron jepret!</p>
-                      <p><strong>2. Opsi Dongle HDMI:</strong> Hubungkan kabel Micro-HDMI dari Sony ke USB Video Capture Card lalu colok ke iPad.</p>
-                      <p><strong>3. Setting Sony:</strong> Di menu kamera: Atur <em>USB Connection &gt; PC Remote</em> (atau <em>HDMI Output &gt; Clean HDMI 1080p</em>).</p>
+                    <div className="pt-2 border-t border-white/[0.06] text-[11px] text-neutral-400 space-y-3 leading-relaxed animate-fadeIn">
+
+                      {/* Method A: Sony Imaging Edge Webcam — RECOMMENDED */}
+                      <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 space-y-1.5">
+                        <p className="font-semibold text-emerald-300 text-[11px]">⭐ Cara Terbaik — Sony Langsung Terbaca Browser (Seperti Webcam)</p>
+                        <p><strong>1.</strong> Di laptop/PC operator, download &amp; install software gratis dari Sony:</p>
+                        <a
+                          href="https://support.d-imaging.sony.co.jp/app/webcam/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 my-1 rounded-lg bg-emerald-500/20 text-emerald-300 font-semibold hover:bg-emerald-500/30 transition-colors w-fit"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          Download Sony Imaging Edge Webcam (Gratis)
+                        </a>
+                        <p><strong>2.</strong> Setelah install, restart laptop &amp; colok kabel USB kamera Sony.</p>
+                        <p><strong>3.</strong> Nyalakan kamera Sony (mode <strong>apapun</strong> — tidak perlu ubah setting).</p>
+                        <p><strong>4.</strong> Refresh halaman ini → nama kamera Sony langsung muncul di daftar kamera di atas! ✅</p>
+                        <p className="text-[10px] text-emerald-400/70">Install ini hanya sekali seumur hidup di laptop operator. Tablet/iPad tamu tidak perlu install apa pun.</p>
+                      </div>
+
+                      {/* Method B: Remote PC (24MP + Flash) */}
+                      <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06] space-y-1">
+                        <p className="font-semibold text-neutral-300">🖥️ Cara Kedua — Remote PC (Foto 24MP + Flash Studio Sinkron)</p>
+                        <p><strong>1.</strong> Di menu kamera Sony: <strong>USB Connection → PC Remote</strong>.</p>
+                        <p><strong>2.</strong> Pilih opsi <strong>"Kamera Sony / DSLR di Laptop"</strong> di atas &amp; klik Ubah Sambungan.</p>
+                        <p><strong>3.</strong> Masukkan alamat kode laptop dari tombol "Sambungkan Tablet" di layar laptop.</p>
+                      </div>
+
+                      {/* Method C: HDMI Capture */}
+                      <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06] space-y-1">
+                        <p className="font-semibold text-neutral-300">🔌 Cara Ketiga — Dongle HDMI Capture Card</p>
+                        <p>Hubungkan Micro-HDMI kamera → USB Video Capture Card (Elgato/Mirabox) → colok ke laptop. Kamera langsung terbaca sebagai webcam.</p>
+                      </div>
+
                     </div>
                   )}
                 </div>
