@@ -125,11 +125,18 @@ function openKioskTabWindow(tabUrl) {
     return;
   }
 
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenW, height: screenH } = primaryDisplay.workAreaSize;
+
   kioskTabWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: screenW,
+    height: screenH,
+    minWidth: 1024,
+    minHeight: 768,
     backgroundColor: '#090A0C',
     autoHideMenuBar: true,
+    fullscreen: false,
     icon: path.join(__dirname, '../build/icon.png'),
     title: 'MingleBooth — Mode Tab (Kiosk)',
     webPreferences: {
@@ -140,8 +147,17 @@ function openKioskTabWindow(tabUrl) {
     },
   });
 
-  kioskTabWindow.loadURL(tabUrl);
   kioskTabWindow.maximize();
+  kioskTabWindow.loadURL(tabUrl);
+
+  // Inject fix CSS after page loads to ensure proper layout regardless of zoom
+  kioskTabWindow.webContents.on('did-finish-load', () => {
+    kioskTabWindow.webContents.insertCSS(`
+      html, body { min-width: 1024px !important; overflow-x: auto; }
+    `);
+    // Set zoom factor to fit content nicely
+    kioskTabWindow.webContents.setZoomFactor(1.0);
+  });
 
   // Exit kiosk mode on Escape key
   kioskTabWindow.webContents.on('before-input-event', (event, input) => {
@@ -177,13 +193,33 @@ ipcMain.handle('app:toggle-kiosk', () => {
 });
 
 // ── Open Mode Tab as Kiosk Window ──
-ipcMain.handle('app:open-kiosk-tab', (event, options = {}) => {
+ipcMain.handle('app:open-kiosk-tab', async (event, options = {}) => {
   const tetherServer = getTetherServer(4848);
   const ips = tetherServer.getLocalIPs();
   const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
+  const hubParam = encodeURIComponent(`http://${localIp}:4848`);
 
-  // Determine tablet URL: prefer local Next.js dev server, fallback to tether server hub page
-  const tabletUrl = options.url || `http://localhost:3000/tablet?hub=${encodeURIComponent(`http://${localIp}:4848`)}`;
+  // Check if Next.js local dev server (port 3000) is running
+  const http = require('http');
+  const isPort3000Available = await new Promise((resolve) => {
+    const req = http.get('http://localhost:3000', (res) => {
+      resolve(res.statusCode < 500);
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(1500, () => { req.destroy(); resolve(false); });
+  });
+
+  let tabletUrl;
+  if (options.url) {
+    tabletUrl = options.url;
+  } else if (isPort3000Available) {
+    // Next.js local dev server is running — use it (best CSS/JS)
+    tabletUrl = `http://localhost:3000/tablet?hub=${hubParam}`;
+  } else {
+    // Fallback: use tether server's built-in hub page
+    tabletUrl = `http://${localIp}:4848/tablet?hub=${hubParam}`;
+  }
+
   openKioskTabWindow(tabletUrl);
   return { success: true, url: tabletUrl };
 });

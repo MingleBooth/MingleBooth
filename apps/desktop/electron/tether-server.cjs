@@ -243,8 +243,22 @@ class TetherServer {
         return;
       }
 
-      // ── 6. Mobile & Tablet Web Landing Page (Direct Hub Dashboard) ──
-      if (pathname === '/' || pathname === '/tablet') {
+      // ── 6. Tablet Kiosk Redirect — redirect to Vercel production Mode Tab ──
+      if (pathname === '/tablet') {
+        const primaryIp = this.getLocalIPs().find((ip) => ip !== '127.0.0.1') || this.getLocalIPs()[0] || 'localhost';
+        const hubUrl = `http://${primaryIp}:${this.port}`;
+        // Redirect to Vercel production (full CSS/JS) with hub pre-configured
+        const query = url.search ? url.search : '';
+        const hubParam = query.includes('hub=') ? query : `?hub=${encodeURIComponent(hubUrl)}`;
+        const redirectUrl = `https://minglebooth.id/tablet${hubParam}`;
+        res.statusCode = 302;
+        res.setHeader('Location', redirectUrl);
+        res.end();
+        return;
+      }
+
+      // ── 7. Mobile & Tablet Web Landing Page (Direct Hub Dashboard) ──
+      if (pathname === '/') {
         const primaryIp = this.getLocalIPs().find((ip) => ip !== '127.0.0.1') || this.getLocalIPs()[0] || 'localhost';
         const hubUrl = `http://${primaryIp}:${this.port}`;
         const tabletLaunchUrl = `https://minglebooth.id/tablet?hub=${encodeURIComponent(hubUrl)}`;
