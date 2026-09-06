@@ -1472,7 +1472,7 @@ export default function TabletStudioPage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={remotePcLiveFrame}
-                      alt="Remote PC Live View"
+                      alt="Preview Kamera Laptop"
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -1480,12 +1480,14 @@ export default function TabletStudioPage() {
                       <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-400 animate-pulse">
                         <Monitor className="w-6 h-6" />
                       </div>
-                      <span className="text-xs font-semibold text-white">Remote PC Live View Hub</span>
-                      <span className="text-[11px] text-neutral-400 font-mono">{remotePcUrl}</span>
+                      <span className="text-xs font-semibold text-white">Kamera Studio di Laptop</span>
+                      <span className="text-[11px] text-neutral-400">
+                        {remotePcStatus === 'connected' ? 'Kamera Sony / DSLR Siap Digunakan' : 'Menyambungkan ke Laptop...'}
+                      </span>
                       <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-medium ${
                         remotePcStatus === 'connected' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
                       }`}>
-                        {remotePcStatus === 'connected' ? '● Siap Menjepret 24MP Studio Flash' : 'Menghubungkan ke Laptop...'}
+                        {remotePcStatus === 'connected' ? '● Siap Memotret (Kualitas Studio + Flash)' : 'Belum Tersambung ke Laptop'}
                       </span>
                     </div>
                   )
@@ -1520,7 +1522,7 @@ export default function TabletStudioPage() {
 
                 <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-md bg-black/75 backdrop-blur-md border border-white/10 text-[11px] font-medium text-white flex items-center gap-1.5">
                   <span className={`w-1.5 h-1.5 rounded-full ${selectedCameraId === 'remote_pc' ? (remotePcStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-emerald-400'}`} />
-                  <span>{currentCam?.label || (selectedCameraId === 'remote_pc' ? 'Remote PC (Sony / DSLR Studio)' : 'Kamera Terhubung')}</span>
+                  <span>{selectedCameraId === 'remote_pc' ? 'Kamera Sony / DSLR di Laptop' : (currentCam?.label || 'Kamera Terhubung')}</span>
                 </div>
               </div>
 
@@ -1534,7 +1536,7 @@ export default function TabletStudioPage() {
                       className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 transition-colors"
                     >
                       <Settings className="w-3 h-3" />
-                      <span>Atur IP Remote PC</span>
+                      <span>Sambungkan ke Laptop</span>
                     </button>
                   )}
                 </div>
@@ -1564,11 +1566,11 @@ export default function TabletStudioPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold text-white truncate">Remote PC (Sony / DSLR)</span>
+                        <span className="text-xs font-semibold text-white truncate">Kamera Sony / DSLR di Laptop</span>
                         {selectedCameraId === 'remote_pc' && <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
                       </div>
                       <span className="text-[10px] text-emerald-400/90 block mt-0.5">
-                        {remotePcStatus === 'connected' ? '● Terhubung 24MP Studio Flash' : 'Koneksi Wi-Fi ke Laptop'}
+                        {remotePcStatus === 'connected' ? '● Tersambung (Foto Studio + Flash)' : 'Sambungkan ke Laptop via Wi-Fi'}
                       </span>
                     </div>
                   </button>
@@ -1629,15 +1631,18 @@ export default function TabletStudioPage() {
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                         remotePcStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
                       }`} />
-                      <span className="font-mono text-[11px] text-neutral-300 truncate">
-                        Hub: <strong className="text-emerald-400">{remotePcUrl}</strong>
+                      <span className="text-[11px] text-neutral-300 truncate">
+                        Status:{' '}
+                        <strong className="text-emerald-400">
+                          {remotePcStatus === 'connected' ? 'Tersambung ke Laptop Booth' : 'Menunggu Sambungan Laptop'}
+                        </strong>
                       </span>
                     </div>
                     <button
                       onClick={() => setIsRemotePcModalOpen(true)}
                       className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-medium text-[11px] transition-colors flex-shrink-0"
                     >
-                      Ganti IP Laptop
+                      Ubah Sambungan
                     </button>
                   </div>
                 )}
@@ -1926,8 +1931,8 @@ export default function TabletStudioPage() {
                       </div>
                       <span className="text-[10px] text-neutral-400 block mt-0.5">
                         {customFolderName
-                          ? 'Tersimpan otomatis ke folder khusus di SSD & database lokal'
-                          : 'Tersimpan otomatis di folder Unduhan tablet & database lokal'}
+                          ? 'Tersimpan otomatis ke folder khusus di SSD & memori tablet'
+                          : 'Tersimpan otomatis di tablet & galeri online'}
                       </span>
                     </div>
                   </div>
@@ -2427,12 +2432,12 @@ export default function TabletStudioPage() {
               <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-4 animate-pulse">
                 <Monitor className="w-10 h-10" />
               </div>
-              <h2 className="text-xl font-bold text-white mb-1">Remote PC Studio Terhubung</h2>
+              <h2 className="text-xl font-bold text-white mb-1">Kamera Studio di Laptop Siap</h2>
               <p className="text-xs text-neutral-400 max-w-sm mb-4 leading-relaxed">
-                Kamera Sony / DSLR siap menjepret dengan sensor 24MP dan lampu studio flash.
+                Kamera Sony / DSLR di laptop siap memotret dengan hasil tajam dan lampu flash fisik.
               </p>
-              <div className="px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-mono font-medium border border-emerald-500/30">
-                ● {remotePcUrl} (Studio Hub Aktif)
+              <div className="px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-medium border border-emerald-500/30">
+                ● Tersambung ke Laptop Booth
               </div>
             </div>
           )
@@ -2808,7 +2813,7 @@ export default function TabletStudioPage() {
 
       {/* Bottom Footer */}
       <footer className="w-full max-w-6xl mx-auto border-t border-white/[0.08] pt-3 flex items-center justify-between text-xs text-neutral-500 flex-shrink-0">
-        <span>Tersimpan di memori lokal tablet &amp; cloud gallery</span>
+        <span>Tersimpan aman di tablet &amp; galeri online</span>
         <button
           onClick={() => {
             handleResetKiosk();
@@ -3203,7 +3208,7 @@ export default function TabletStudioPage() {
             <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
               <div className="flex items-center gap-2">
                 <Monitor className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-sm font-semibold text-white">Hubungkan ke Remote PC (Laptop)</h3>
+                <h3 className="text-sm font-semibold text-white">Sambungkan Tablet ke Laptop Kamera</h3>
               </div>
               <button
                 onClick={() => setIsRemotePcModalOpen(false)}
@@ -3214,22 +3219,22 @@ export default function TabletStudioPage() {
             </div>
 
             <p className="text-xs text-neutral-400 leading-relaxed">
-              Pastikan laptop vendor membuka MingleBooth Studio Desktop dan berada di jaringan Wi-Fi / Hotspot yang sama dengan iPad ini.
+              Pastikan laptop booth membuka MingleBooth Studio dan terhubung ke Wi-Fi / Hotspot yang sama dengan tablet ini.
             </p>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-neutral-300">Alamat URL Remote PC Hub:</label>
+              <label className="text-xs font-medium text-neutral-300">Kode Alamat Sambungan Laptop:</label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={remotePcUrl}
                   onChange={(e) => setRemotePcUrl(e.target.value)}
-                  placeholder="http://192.168.1.15:4848"
+                  placeholder="Contoh: http://192.168.1.15:4848"
                   className="flex-1 h-10 px-3 rounded-xl bg-[#171820] border border-white/[0.08] text-xs font-mono text-emerald-400 focus:outline-none focus:border-emerald-400/50"
                 />
               </div>
               <span className="text-[10px] text-neutral-500">
-                Lihat tombol &quot;Remote PC Hub&quot; di header aplikasi laptop untuk melihat IP-nya.
+                Lihat tombol hijau &quot;Sambungkan Tablet&quot; di atas layar laptop untuk melihat nomor kodenya.
               </span>
             </div>
 

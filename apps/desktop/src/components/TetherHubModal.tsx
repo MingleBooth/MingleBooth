@@ -116,8 +116,8 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
               <Monitor className="w-4 h-4 text-emerald-400" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white">Remote PC Studio Hub (Mode Tab)</h3>
-              <p className="text-[11px] text-neutral-400">Jembatan koneksi kamera Sony / DSLR ke iPad & Tablet</p>
+              <h3 className="text-sm font-semibold text-white">Sambungkan iPad / Tablet</h3>
+              <p className="text-[11px] text-neutral-400">Kendalikan kamera Sony / DSLR langsung dari layar sentuh tablet</p>
             </div>
           </div>
           <button
@@ -133,7 +133,7 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Status Server Hub: Aktif</span>
+              <span>Sambungan Kamera: Siap Digunakan</span>
             </span>
             <button
               onClick={fetchStatus}
@@ -146,7 +146,7 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
 
           <div className="flex flex-col gap-1.5">
             <label className="text-[11px] text-neutral-400">
-              Alamat URL Remote PC (Masukkan di iPad / Tablet):
+              Kode Alamat Laptop (Masukkan nomor ini di iPad / Tablet):
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -159,14 +159,14 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
                 className="px-3 py-2 rounded-lg bg-white/[0.08] hover:bg-white/[0.12] text-xs font-medium text-white flex items-center gap-1.5 transition-colors"
               >
                 {copiedIp === hubUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedIp === hubUrl ? 'Disalin' : 'Salin'}</span>
+                <span>{copiedIp === hubUrl ? 'Disalin' : 'Salin Kode'}</span>
               </button>
             </div>
           </div>
 
           {hubInfo.ips.length > 1 && (
             <div className="text-[10px] text-neutral-500">
-              IP Alternatif:{' '}
+              Alamat Cadangan:{' '}
               {hubInfo.ips
                 .filter((ip) => ip !== primaryIp)
                 .map((ip) => (
@@ -185,7 +185,7 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
         {/* Hot Folder Inbox Path */}
         <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
           <div className="flex flex-col min-w-0 pr-2">
-            <span className="text-xs font-medium text-neutral-200">Folder Tethering (Hot Folder)</span>
+            <span className="text-xs font-medium text-neutral-200">Folder Simpan Foto Kamera</span>
             <span className="text-[11px] text-neutral-400 font-mono truncate max-w-sm">
               {hubInfo.tetherDir || 'data/tether-inbox'}
             </span>
@@ -203,12 +203,12 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
         <div className="text-[11px] text-neutral-400 space-y-1.5 bg-black/30 p-3.5 rounded-xl border border-white/[0.04] leading-relaxed">
           <p className="font-semibold text-neutral-300 flex items-center gap-1">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Cara Menghubungkan ke iPad / Mode Tab:</span>
+            <span>Cara Sambungkan ke iPad / Tablet:</span>
           </p>
-          <p>1. Buka <strong>Mode Tab (Tablet Booth)</strong> di browser iPad / Tablet.</p>
-          <p>2. Pada pilihan kamera, pilih kartu: <strong>🖥️ Remote PC (Sony / DSLR Studio)</strong>.</p>
-          <p>3. Masukkan alamat URL di atas: <code className="text-emerald-400">{hubUrl}</code></p>
-          <p>4. Tekan jepret di Tablet: Shutter Sony + Flash fisik akan menembak dan foto 24MP langsung masuk!</p>
+          <p>1. Buka <strong>Mode Tab</strong> di browser iPad / Tablet.</p>
+          <p>2. Pada pilihan kamera, pilih: <strong>Kamera Sony / DSLR di Laptop</strong>.</p>
+          <p>3. Masukkan kode alamat di atas: <code className="text-emerald-400">{hubUrl}</code></p>
+          <p>4. Tekan jepret di Tablet: Shutter Sony + Flash studio langsung jepret dan foto kualitas penuh masuk ke tablet!</p>
         </div>
 
         {/* Test Shutter Trigger Button */}
