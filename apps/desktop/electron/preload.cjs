@@ -10,4 +10,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: (currentPath) => ipcRenderer.invoke('storage:select-folder', currentPath),
   listFiles: (options) => ipcRenderer.invoke('storage:list-files', options),
   getPrinters: () => ipcRenderer.invoke('printer:get-printers'),
+  getTetherInfo: () => ipcRenderer.invoke('tether:get-info'),
 });
+

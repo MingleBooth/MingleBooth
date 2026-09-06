@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
+const { getTetherServer } = require('./tether-server.cjs');
 
 let mainWindow = null;
 
@@ -223,11 +224,29 @@ ipcMain.handle('printer:print-photo', async (event, { filePath, copies = 1, sile
       );
     });
   } catch (err) {
-    return { success: false, error: err.message };
+ipcMain.handle('tether:get-info', () => {
+  try {
+    const tetherServer = getTetherServer(4848);
+    return {
+      port: tetherServer.port,
+      ips: tetherServer.getLocalIPs(),
+      tetherDir: tetherServer.tetherDir,
+      status: 'online',
+    };
+  } catch (err) {
+    return { status: 'error', error: err.message, port: 4848, ips: ['127.0.0.1'] };
   }
 });
 
 app.whenReady().then(() => {
+  // Start Tether Server for Remote PC / Tablet Hub
+  try {
+    const tetherServer = getTetherServer(4848);
+    tetherServer.start();
+  } catch (e) {
+    console.error('[Electron] Failed to start Tether Server:', e);
+  }
+
   const iconPath = path.join(__dirname, '../build/icon.png');
   if (process.platform === 'darwin' && app.dock && fs.existsSync(iconPath)) {
     try {
@@ -251,3 +270,4 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+

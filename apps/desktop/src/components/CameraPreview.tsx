@@ -120,6 +120,27 @@ export const CameraPreview: React.FC = () => {
     };
   }, [cameraManager]);
 
+  // Broadcast live preview frames to local TetherServer (for Tablet Mode clients)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      let frame: string | null = null;
+      if (currentBrand === 'webcam' && typeof (window as any).__grabWebcamFrame === 'function') {
+        frame = (window as any).__grabWebcamFrame();
+      } else if (previewSrc) {
+        frame = previewSrc;
+      }
+      if (frame) {
+        fetch('http://localhost:4848/api/tether/update-frame', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ frameDataUrl: frame }),
+        }).catch(() => {});
+      }
+    }, 350);
+
+    return () => clearInterval(interval);
+  }, [currentBrand, previewSrc]);
+
   // Trigger animation when a new photo is captured
   useEffect(() => {
     const newIdx = capturedPhotos.length - 1;

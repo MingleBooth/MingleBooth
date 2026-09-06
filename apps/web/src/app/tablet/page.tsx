@@ -36,6 +36,9 @@ import {
   ChevronLeft,
   ArrowLeft,
   CameraOff,
+  Monitor,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { FrameHoleDetector, DetectedCutout } from '@minglebooth/template-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
@@ -50,7 +53,7 @@ import {
 interface DiscoveredCamera {
   deviceId: string;
   label: string;
-  type: 'external' | 'back' | 'front' | 'generic';
+  type: 'remote_pc' | 'external' | 'back' | 'front' | 'generic';
 }
 
 interface EventItem {
@@ -133,6 +136,24 @@ export default function TabletStudioPage() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isCameraLoading, setIsCameraLoading] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+
+  // Remote PC Hub State (Sony / DSLR Studio Tethering)
+  const [remotePcUrl, setRemotePcUrl] = useState<string>('http://localhost:4848');
+  const [remotePcStatus, setRemotePcStatus] = useState<'checking' | 'connected' | 'disconnected'>('disconnected');
+  const [remotePcLiveFrame, setRemotePcLiveFrame] = useState<string | null>(null);
+  const [isRemotePcModalOpen, setIsRemotePcModalOpen] = useState<boolean>(false);
+  const [isTestingRemotePc, setIsTestingRemotePc] = useState<boolean>(false);
+  const [remotePcTestMsg, setRemotePcTestMsg] = useState<string | null>(null);
+
+  // Restore saved Remote PC settings from localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mb_remote_pc_url');
+      if (saved) setRemotePcUrl(saved);
+      const savedCam = localStorage.getItem('mb_preferred_camera');
+      if (savedCam === 'remote_pc') setSelectedCameraId('remote_pc');
+    }
+  }, []);
 
   // Configuration
   const [events, setEvents] = useState<EventItem[]>([
@@ -511,10 +532,13 @@ export default function TabletStudioPage() {
       setCameras(classified);
 
       if (classified.length > 0) {
-        const externalCam = classified.find((c) => c.type === 'external');
-        const backCam = classified.find((c) => c.type === 'back');
-        const defaultCam = externalCam || backCam || classified[0];
-        setSelectedCameraId(defaultCam.deviceId);
+        setSelectedCameraId((prev) => {
+          if (prev === 'remote_pc') return 'remote_pc';
+          const externalCam = classified.find((c) => c.type === 'external');
+          const backCam = classified.find((c) => c.type === 'back');
+          const defaultCam = externalCam || backCam || classified[0];
+          return prev || defaultCam.deviceId;
+        });
       }
     } catch (err: any) {
       console.error('Error discovering cameras:', err);
@@ -572,6 +596,16 @@ export default function TabletStudioPage() {
   // Connect Camera Stream
   useEffect(() => {
     if (!selectedCameraId) return;
+
+    if (selectedCameraId === 'remote_pc') {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((t) => t.stop());
+        setCameraStream(null);
+      }
+      setIsCameraLoading(false);
+      setCameraError(null);
+      return;
+    }
 
     let activeStream: MediaStream | null = null;
 
@@ -641,6 +675,46 @@ export default function TabletStudioPage() {
       }
     };
   }, [selectedCameraId]);
+
+  // ── Remote PC Hub Live View & Status Polling ──
+  useEffect(() => {
+    if (selectedCameraId !== 'remote_pc') return;
+
+    let isMounted = true;
+
+    // Check status immediately
+    fetch(`${remotePcUrl}/api/tether/status`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (isMounted && data.success) {
+          setRemotePcStatus('connected');
+        }
+      })
+      .catch(() => {
+        if (isMounted) setRemotePcStatus('disconnected');
+      });
+
+    // Polling live frames (every 300ms)
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${remotePcUrl}/api/tether/liveview`);
+        const data = await res.json();
+        if (isMounted && data.success && data.frameDataUrl) {
+          setRemotePcLiveFrame(data.frameDataUrl);
+          setRemotePcStatus('connected');
+        }
+      } catch {
+        if (isMounted) {
+          setRemotePcStatus('disconnected');
+        }
+      }
+    }, 350);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [selectedCameraId, remotePcUrl]);
 
   // Re-attach Stream on Phase Change or when stream updates
   useEffect(() => {
@@ -802,7 +876,9 @@ export default function TabletStudioPage() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
 
-      const currentCam = cameras.find((c) => c.deviceId === selectedCameraId);
+      const currentCam = selectedCameraId === 'remote_pc'
+        ? { deviceId: 'remote_pc', label: 'Sony / DSLR Studio (Remote PC)', type: 'remote_pc' as const }
+        : cameras.find((c) => c.deviceId === selectedCameraId);
       const isFront = currentCam?.type === 'front';
 
       if (isFront) {
@@ -834,7 +910,7 @@ export default function TabletStudioPage() {
       }
     }
 
-    if (!cameraStream || !video || video.videoWidth === 0) {
+    if (selectedCameraId !== 'remote_pc' && (!cameraStream || !video || video.videoWidth === 0)) {
       alert('Kamera belum aktif atau belum siap. Silakan periksa izin kamera di browser Anda atau klik tombol Hubungkan Kamera.');
       return;
     }
@@ -861,13 +937,32 @@ export default function TabletStudioPage() {
     }, 1000);
   };
 
-  const executeShot = (shotIdx: number) => {
+  const executeShot = async (shotIdx: number) => {
     setIsFlashing(true);
     playShutterSound();
 
-    setTimeout(() => {
-      setIsFlashing(false);
-      let frameData = grabVideoFrame();
+    let frameData: string | null = null;
+
+    if (selectedCameraId === 'remote_pc') {
+      try {
+        const res = await fetch(`${remotePcUrl}/api/tether/trigger`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeoutMs: 8000, mockFallback: true }),
+        });
+        const data = await res.json();
+        if (data.success && data.photoDataUrl) {
+          frameData = data.photoDataUrl;
+        }
+      } catch (err) {
+        console.warn('Remote PC trigger error:', err);
+      }
+
+      if (!frameData && remotePcLiveFrame) {
+        frameData = remotePcLiveFrame;
+      }
+    } else {
+      frameData = grabVideoFrame();
 
       // Retry once if readyState is sufficient
       if (!frameData && videoRef.current) {
@@ -878,6 +973,10 @@ export default function TabletStudioPage() {
           console.error('Retry grab failed:', e);
         }
       }
+    }
+
+    setTimeout(() => {
+      setIsFlashing(false);
 
       if (!frameData) {
         alert('Gagal mengambil foto dari kamera. Pastikan kamera menyala dan izin kamera telah diberikan di browser.');
@@ -1303,7 +1402,9 @@ export default function TabletStudioPage() {
     });
   };
 
-  const currentCam = cameras.find((c) => c.deviceId === selectedCameraId);
+  const currentCam = selectedCameraId === 'remote_pc'
+    ? { deviceId: 'remote_pc', label: 'Sony / DSLR Studio (Remote PC)', type: 'remote_pc' as const }
+    : cameras.find((c) => c.deviceId === selectedCameraId);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 1. PHASE: OPERATOR SETUP & HARDWARE CONFIGURATION
@@ -1366,22 +1467,46 @@ export default function TabletStudioPage() {
 
               {/* Video Viewport */}
               <div className="w-full aspect-[4/3] rounded-xl bg-black relative overflow-hidden border border-white/[0.06] flex items-center justify-center">
-                <video
-                  ref={attachMiniVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className={`w-full h-full object-cover ${
-                    currentCam?.type === 'front' ? 'scale-x-[-1]' : ''
-                  }`}
-                />
-                {isCameraLoading && (
+                {selectedCameraId === 'remote_pc' ? (
+                  remotePcLiveFrame ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={remotePcLiveFrame}
+                      alt="Remote PC Live View"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-2 p-5 text-center">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-400 animate-pulse">
+                        <Monitor className="w-6 h-6" />
+                      </div>
+                      <span className="text-xs font-semibold text-white">Remote PC Live View Hub</span>
+                      <span className="text-[11px] text-neutral-400 font-mono">{remotePcUrl}</span>
+                      <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-medium ${
+                        remotePcStatus === 'connected' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                      }`}>
+                        {remotePcStatus === 'connected' ? '● Siap Menjepret 24MP Studio Flash' : 'Menghubungkan ke Laptop...'}
+                      </span>
+                    </div>
+                  )
+                ) : (
+                  <video
+                    ref={attachMiniVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`w-full h-full object-cover ${
+                      currentCam?.type === 'front' ? 'scale-x-[-1]' : ''
+                    }`}
+                  />
+                )}
+                {selectedCameraId !== 'remote_pc' && isCameraLoading && (
                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center gap-2 text-xs text-white">
                     <RefreshCw className="w-4 h-4 animate-spin text-white" />
                     <span>Menghubungkan Kamera...</span>
                   </div>
                 )}
-                {cameraError && (
+                {selectedCameraId !== 'remote_pc' && cameraError && (
                   <div className="absolute inset-0 bg-black/85 p-4 flex flex-col items-center justify-center text-center gap-2 text-xs text-rose-400">
                     <p>{cameraError}</p>
                     <button
@@ -1394,21 +1519,72 @@ export default function TabletStudioPage() {
                 )}
 
                 <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-md bg-black/75 backdrop-blur-md border border-white/10 text-[11px] font-medium text-white flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>{currentCam?.label || 'Kamera Terhubung'}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${selectedCameraId === 'remote_pc' ? (remotePcStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-emerald-400'}`} />
+                  <span>{currentCam?.label || (selectedCameraId === 'remote_pc' ? 'Remote PC (Sony / DSLR Studio)' : 'Kamera Terhubung')}</span>
                 </div>
               </div>
 
               {/* Camera Selection List */}
               <div className="flex flex-col gap-2">
-                <label className="text-xs font-medium text-neutral-400">Pilih Sumber Kamera:</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-neutral-400">Pilih Sumber Kamera:</label>
+                  {selectedCameraId === 'remote_pc' && (
+                    <button
+                      onClick={() => setIsRemotePcModalOpen(true)}
+                      className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 transition-colors"
+                    >
+                      <Settings className="w-3 h-3" />
+                      <span>Atur IP Remote PC</span>
+                    </button>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {/* ── Option 1: Remote PC (Sony / DSLR Studio) ── */}
+                  <button
+                    key="remote_pc"
+                    onClick={() => {
+                      setSelectedCameraId('remote_pc');
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('mb_preferred_camera', 'remote_pc');
+                      }
+                    }}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all relative overflow-hidden ${
+                      selectedCameraId === 'remote_pc'
+                        ? 'bg-emerald-500/10 border-emerald-500/40 shadow-sm'
+                        : 'bg-[#171820] border-white/[0.04] hover:border-white/15'
+                    }`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        selectedCameraId === 'remote_pc' ? 'bg-emerald-400 text-black' : 'bg-white/[0.06] text-neutral-400'
+                      }`}
+                    >
+                      <Monitor className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-white truncate">Remote PC (Sony / DSLR)</span>
+                        {selectedCameraId === 'remote_pc' && <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
+                      </div>
+                      <span className="text-[10px] text-emerald-400/90 block mt-0.5">
+                        {remotePcStatus === 'connected' ? '● Terhubung 24MP Studio Flash' : 'Koneksi Wi-Fi ke Laptop'}
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Local Cameras (Webcam, Built-in, Dongle Capture) */}
                   {cameras.map((cam) => {
                     const isSelected = cam.deviceId === selectedCameraId;
                     return (
                       <button
                         key={cam.deviceId}
-                        onClick={() => setSelectedCameraId(cam.deviceId)}
+                        onClick={() => {
+                          setSelectedCameraId(cam.deviceId);
+                          if (typeof window !== 'undefined') {
+                            localStorage.setItem('mb_preferred_camera', cam.deviceId);
+                          }
+                        }}
                         className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all ${
                           isSelected
                             ? 'bg-white/[0.08] border-white/40 shadow-sm'
@@ -1433,11 +1609,11 @@ export default function TabletStudioPage() {
                           </div>
                           <span className="text-[10px] text-neutral-400 block mt-0.5">
                             {cam.type === 'external'
-                              ? 'Sony / Mirrorless via USB-C'
+                              ? 'Sony / Mirrorless via Dongle'
                               : cam.type === 'back'
-                              ? 'Kamera Belakang'
+                              ? 'Kamera Belakang Tablet'
                               : cam.type === 'front'
-                              ? 'Kamera Depan'
+                              ? 'Kamera Depan Tablet'
                               : 'Kamera Bawaan'}
                           </span>
                         </div>
@@ -1445,6 +1621,26 @@ export default function TabletStudioPage() {
                     );
                   })}
                 </div>
+
+                {/* Remote PC Quick Status & Config Bar */}
+                {selectedCameraId === 'remote_pc' && (
+                  <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 flex items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                        remotePcStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                      }`} />
+                      <span className="font-mono text-[11px] text-neutral-300 truncate">
+                        Hub: <strong className="text-emerald-400">{remotePcUrl}</strong>
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setIsRemotePcModalOpen(true)}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-medium text-[11px] transition-colors flex-shrink-0"
+                    >
+                      Ganti IP Laptop
+                    </button>
+                  </div>
+                )}
 
                 {/* Minimalist Sony Camera Accordion */}
                 <div className="mt-1 p-3 rounded-xl bg-[#171820] border border-white/[0.06] flex flex-col gap-2">
@@ -1465,10 +1661,9 @@ export default function TabletStudioPage() {
 
                   {showSonyHelp && (
                     <div className="pt-2 border-t border-white/[0.06] text-[11px] text-neutral-400 space-y-1.5 leading-relaxed animate-fadeIn">
-                      <p>1. Hubungkan kabel Micro-HDMI dari Sony ke dongle <strong>USB-C Video Capture Card</strong>.</p>
-                      <p>2. Colok dongle ke port USB-C iPad / Android Tablet.</p>
-                      <p>3. Di menu kamera Sony: Atur <em>HDMI Output &gt; Clean HDMI (1080p)</em>.</p>
-                      <p>4. Tekan <strong>Pindai Ulang</strong> di atas untuk langsung mengaktifkan kamera Sony.</p>
+                      <p><strong>1. Rekomendasi (Kualitas 24MP):</strong> Pilih opsi <strong>Remote PC</strong> di atas. Kamera Sony dicolok ke laptop via USB (mode PC Remote) dan lampu studio flash akan sinkron jepret!</p>
+                      <p><strong>2. Opsi Dongle HDMI:</strong> Hubungkan kabel Micro-HDMI dari Sony ke USB Video Capture Card lalu colok ke iPad.</p>
+                      <p><strong>3. Setting Sony:</strong> Di menu kamera: Atur <em>USB Connection &gt; PC Remote</em> (atau <em>HDMI Output &gt; Clean HDMI 1080p</em>).</p>
                     </div>
                   )}
                 </div>
@@ -2219,18 +2414,42 @@ export default function TabletStudioPage() {
         )}
 
         {/* ── 100% FULL SCREEN CAMERA FEED (EDGE-TO-EDGE 1 TAB) ── */}
-        <video
-          ref={attachVideoRef}
-          autoPlay
-          playsInline
-          muted
-          className={`absolute inset-0 w-full h-full object-cover ${
-            currentCam?.type === 'front' ? 'scale-x-[-1]' : ''
-          }`}
-        />
+        {selectedCameraId === 'remote_pc' ? (
+          remotePcLiveFrame ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={remotePcLiveFrame}
+              alt="Remote PC Live View"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 bg-[#090A0C] flex flex-col items-center justify-center p-6 text-center">
+              <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-4 animate-pulse">
+                <Monitor className="w-10 h-10" />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-1">Remote PC Studio Terhubung</h2>
+              <p className="text-xs text-neutral-400 max-w-sm mb-4 leading-relaxed">
+                Kamera Sony / DSLR siap menjepret dengan sensor 24MP dan lampu studio flash.
+              </p>
+              <div className="px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-mono font-medium border border-emerald-500/30">
+                ● {remotePcUrl} (Studio Hub Aktif)
+              </div>
+            </div>
+          )
+        ) : (
+          <video
+            ref={attachVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`absolute inset-0 w-full h-full object-cover ${
+              currentCam?.type === 'front' ? 'scale-x-[-1]' : ''
+            }`}
+          />
+        )}
 
         {/* ── CAMERA INACTIVE / PERMISSION OVERLAY ── */}
-        {(!cameraStream || cameraError) && (
+        {selectedCameraId !== 'remote_pc' && (!cameraStream || cameraError) && (
           <div className="absolute inset-0 z-40 bg-neutral-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none">
             <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4">
               <CameraOff className="w-8 h-8" />
@@ -2974,6 +3193,99 @@ export default function TabletStudioPage() {
           `}</style>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={printImageUrl} alt="Print Preview" />
+        </div>
+      )}
+
+      {/* Remote PC Hub Configuration Modal */}
+      {isRemotePcModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 select-none animate-fadeIn">
+          <div className="max-w-md w-full bg-[#121316] border border-white/[0.08] rounded-2xl p-5 flex flex-col gap-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <Monitor className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-semibold text-white">Hubungkan ke Remote PC (Laptop)</h3>
+              </div>
+              <button
+                onClick={() => setIsRemotePcModalOpen(false)}
+                className="w-7 h-7 rounded-lg hover:bg-white/[0.08] text-neutral-400 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              Pastikan laptop vendor membuka MingleBooth Studio Desktop dan berada di jaringan Wi-Fi / Hotspot yang sama dengan iPad ini.
+            </p>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-neutral-300">Alamat URL Remote PC Hub:</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={remotePcUrl}
+                  onChange={(e) => setRemotePcUrl(e.target.value)}
+                  placeholder="http://192.168.1.15:4848"
+                  className="flex-1 h-10 px-3 rounded-xl bg-[#171820] border border-white/[0.08] text-xs font-mono text-emerald-400 focus:outline-none focus:border-emerald-400/50"
+                />
+              </div>
+              <span className="text-[10px] text-neutral-500">
+                Lihat tombol &quot;Remote PC Hub&quot; di header aplikasi laptop untuk melihat IP-nya.
+              </span>
+            </div>
+
+            {remotePcTestMsg && (
+              <div className={`p-2.5 rounded-lg text-xs ${
+                remotePcStatus === 'connected' ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
+              }`}>
+                {remotePcTestMsg}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+              <button
+                disabled={isTestingRemotePc}
+                onClick={async () => {
+                  setIsTestingRemotePc(true);
+                  setRemotePcTestMsg(`Menguji koneksi ke ${remotePcUrl}...`);
+                  try {
+                    const res = await fetch(`${remotePcUrl}/api/tether/status`);
+                    const data = await res.json();
+                    if (data.success) {
+                      setRemotePcStatus('connected');
+                      setRemotePcTestMsg('Berhasil terhubung! Studio Hub aktif dan siap digunakan.');
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('mb_remote_pc_url', remotePcUrl);
+                      }
+                    } else {
+                      setRemotePcStatus('disconnected');
+                      setRemotePcTestMsg('Respon hub tidak valid.');
+                    }
+                  } catch (e: any) {
+                    setRemotePcStatus('disconnected');
+                    setRemotePcTestMsg(`Gagal terhubung: ${e.message}. Pastikan URL benar dan satu jaringan Wi-Fi.`);
+                  } finally {
+                    setIsTestingRemotePc(false);
+                  }
+                }}
+                className="px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-medium text-neutral-200 transition-colors flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isTestingRemotePc ? 'animate-spin' : ''}`} />
+                <span>Uji Koneksi</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('mb_remote_pc_url', remotePcUrl);
+                  }
+                  setIsRemotePcModalOpen(false);
+                }}
+                className="px-4 py-2 rounded-xl bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors"
+              >
+                Simpan & Tutup
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

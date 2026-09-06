@@ -9,6 +9,16 @@ function localDevStoragePlugin(): Plugin {
   return {
     name: 'local-dev-storage-plugin',
     configureServer(server) {
+      // Start Local Tether Hub for Remote PC / Tablet Booth mode
+      import('./electron/tether-server.cjs').then(({ getTetherServer }) => {
+        try {
+          const tether = getTetherServer(4848);
+          tether.start();
+        } catch (e) {
+          console.warn('[Vite Dev Tether Server]:', e);
+        }
+      }).catch(() => {});
+
       // 1. Open Folder Endpoint
       server.middlewares.use('/api/storage/open-folder', (req, res) => {
         if (req.method !== 'POST') {
