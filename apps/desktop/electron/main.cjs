@@ -3,9 +3,11 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
+const { exec } = require('child_process');
 const { getTetherServer } = require('./tether-server.cjs');
 
 let mainWindow = null;
+let kioskTabWindow = null;
 
 function generateHardwareFingerprint() {
   const cpus = os.cpus();
@@ -23,6 +25,39 @@ function generateHardwareFingerprint() {
   }
   const rawString = `${os.hostname()}-${os.platform()}-${os.arch()}-${model}-${mac}`;
   return crypto.createHash('sha256').update(rawString).digest('hex').substring(0, 32);
+}
+
+// ── Trigger Sony Camera shutter via gphoto2 (if available) ──
+function triggerSonyShutter(tetherDir) {
+  return new Promise((resolve) => {
+    // Try gphoto2 first (Mac/Linux)
+    exec('gphoto2 --capture-image-and-download --filename=%Y%m%d_%H%M%S.jpg', { cwd: tetherDir }, (err, stdout, stderr) => {
+      if (!err) {
+        console.log('[Electron] gphoto2 shutter triggered:', stdout);
+        resolve({ success: true, method: 'gphoto2' });
+        return;
+      }
+
+      // Try digiCamControl HTTP API (Windows - runs on port 5513 by default)
+      const http = require('http');
+      const req = http.get('http://127.0.0.1:5513//?CMD=Capture', (res) => {
+        let body = '';
+        res.on('data', (d) => (body += d));
+        res.on('end', () => {
+          console.log('[Electron] digiCamControl shutter triggered:', body);
+          resolve({ success: true, method: 'digiCamControl' });
+        });
+      });
+      req.on('error', () => {
+        // No auto-trigger available, tether server will wait for hot folder
+        resolve({ success: false, method: 'hotfolder_only', message: 'No auto-trigger available. Waiting for hot folder.' });
+      });
+      req.setTimeout(2000, () => {
+        req.destroy();
+        resolve({ success: false, method: 'hotfolder_only', message: 'Trigger timeout.' });
+      });
+    });
+  });
 }
 
 function createWindow() {
@@ -82,6 +117,55 @@ function createWindow() {
   });
 }
 
+// ── Open Mode Tab Kiosk Window (Fullscreen photobooth UI) ──
+function openKioskTabWindow(tabUrl) {
+  if (kioskTabWindow && !kioskTabWindow.isDestroyed()) {
+    kioskTabWindow.focus();
+    kioskTabWindow.loadURL(tabUrl);
+    return;
+  }
+
+  kioskTabWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    backgroundColor: '#090A0C',
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, '../build/icon.png'),
+    title: 'MingleBooth — Mode Tab (Kiosk)',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false, // Allow webcam + tether server access
+    },
+  });
+
+  kioskTabWindow.loadURL(tabUrl);
+  kioskTabWindow.maximize();
+
+  // Exit kiosk mode on Escape key
+  kioskTabWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'Escape') {
+      if (kioskTabWindow.isKiosk()) {
+        kioskTabWindow.setKiosk(false);
+      }
+    }
+    if (input.key === 'F12') {
+      kioskTabWindow.webContents.toggleDevTools();
+    }
+    // F11 = toggle kiosk fullscreen
+    if (input.key === 'F11') {
+      kioskTabWindow.setKiosk(!kioskTabWindow.isKiosk());
+    }
+  });
+
+  kioskTabWindow.on('closed', () => {
+    kioskTabWindow = null;
+  });
+
+  console.log('[Electron] Mode Tab Kiosk Window opened:', tabUrl);
+}
+
 // IPC Handlers
 ipcMain.handle('app:toggle-kiosk', () => {
   if (mainWindow) {
@@ -92,12 +176,50 @@ ipcMain.handle('app:toggle-kiosk', () => {
   return false;
 });
 
+// ── Open Mode Tab as Kiosk Window ──
+ipcMain.handle('app:open-kiosk-tab', (event, options = {}) => {
+  const tetherServer = getTetherServer(4848);
+  const ips = tetherServer.getLocalIPs();
+  const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
+
+  // Determine tablet URL: prefer local Next.js dev server, fallback to tether server hub page
+  const tabletUrl = options.url || `http://localhost:3000/tablet?hub=${encodeURIComponent(`http://${localIp}:4848`)}`;
+  openKioskTabWindow(tabletUrl);
+  return { success: true, url: tabletUrl };
+});
+
+// ── Close Kiosk Tab Window ──
+ipcMain.handle('app:close-kiosk-tab', () => {
+  if (kioskTabWindow && !kioskTabWindow.isDestroyed()) {
+    kioskTabWindow.close();
+  }
+  return { success: true };
+});
+
+// ── Toggle Kiosk Fullscreen on Kiosk Tab Window ──
+ipcMain.handle('app:toggle-kiosk-tab-fullscreen', () => {
+  if (kioskTabWindow && !kioskTabWindow.isDestroyed()) {
+    const isKiosk = kioskTabWindow.isKiosk();
+    kioskTabWindow.setKiosk(!isKiosk);
+    return !isKiosk;
+  }
+  return false;
+});
+
+// ── Sony Camera Shutter Trigger via USB (gphoto2 / digiCamControl) ──
+ipcMain.handle('camera:trigger-shutter', async () => {
+  const tetherServer = getTetherServer(4848);
+  const result = await triggerSonyShutter(tetherServer.tetherDir);
+  return result;
+});
+
 ipcMain.handle('system:get-hwid', () => {
   return generateHardwareFingerprint();
 });
 
 ipcMain.handle('storage:select-folder', async (event, currentPath) => {
   try {
+
     const defaultPath = currentPath ? path.resolve(currentPath) : undefined;
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Pilih Folder Penyimpanan Foto Photobooth',
