@@ -2,9 +2,11 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const EventEmitter = require('events');
 
-class TetherServer {
+class TetherServer extends EventEmitter {
   constructor(port = 4848) {
+    super();
     this.port = port;
     this.server = null;
     this.latestLiveFrame = null;
@@ -13,6 +15,8 @@ class TetherServer {
     this.latestPhotoTimestamp = null;
     this.pendingTriggers = [];
     this.processedFiles = new Set();
+    this.sseClients = new Set();
+    this.fsWatcher = null;
 
     // Default tether inbox directory: <workspace-root>/data/tether-inbox
     this.tetherDir = path.resolve(__dirname, '../../../data/tether-inbox');
@@ -35,6 +39,23 @@ class TetherServer {
     }
   }
 
+  setTetherDirectory(newPath) {
+    if (!newPath || typeof newPath !== 'string') return;
+    try {
+      if (this.fsWatcher) {
+        this.fsWatcher.close();
+        this.fsWatcher = null;
+      }
+      this.tetherDir = path.resolve(newPath);
+      this.ensureDirectory();
+      this.initWatcher();
+      console.log('[TetherServer] Updated hot folder directory to:', this.tetherDir);
+      this.emit('directoryChange', this.tetherDir);
+    } catch (err) {
+      console.error('[TetherServer] Failed to switch directory:', err);
+    }
+  }
+
   getLocalIPs() {
     const interfaces = os.networkInterfaces();
     const ips = [];
@@ -50,7 +71,10 @@ class TetherServer {
 
   initWatcher() {
     try {
-      fs.watch(this.tetherDir, (eventType, filename) => {
+      if (this.fsWatcher) {
+        this.fsWatcher.close();
+      }
+      this.fsWatcher = fs.watch(this.tetherDir, (eventType, filename) => {
         if (!filename) return;
         const lower = filename.toLowerCase();
         if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg') && !lower.endsWith('.png')) {
@@ -92,18 +116,34 @@ class TetherServer {
 
       console.log(`[TetherServer] 📸 New high-res photo captured from Sony/DSLR: ${filename} (${(stat.size / (1024 * 1024)).toFixed(2)} MB)`);
 
-      // Resolve pending trigger requests
+      const photoPayload = {
+        success: true,
+        source: 'hotfolder',
+        filename,
+        filePath,
+        photoDataUrl: base64Data,
+        byteSize: stat.size,
+        timestamp: this.latestPhotoTimestamp,
+      };
+
+      // 1. Emit internal event for Electron main process
+      this.emit('photo', photoPayload);
+
+      // 2. Broadcast via Server-Sent Events (SSE) to connected web/tablet clients
+      const sseData = `data: ${JSON.stringify(photoPayload)}\n\n`;
+      for (const client of this.sseClients) {
+        try {
+          client.write(sseData);
+        } catch {
+          this.sseClients.delete(client);
+        }
+      }
+
+      // 3. Resolve any pending manual trigger promises
       while (this.pendingTriggers.length > 0) {
         const trigger = this.pendingTriggers.shift();
         clearTimeout(trigger.timeoutId);
-        trigger.resolve({
-          success: true,
-          source: 'hotfolder',
-          filename,
-          photoDataUrl: base64Data,
-          byteSize: stat.size,
-          timestamp: this.latestPhotoTimestamp,
-        });
+        trigger.resolve(photoPayload);
       }
     } catch (err) {
       console.error('[TetherServer] Error reading tether file:', err);
@@ -147,6 +187,54 @@ class TetherServer {
             pendingTriggers: this.pendingTriggers.length,
           })
         );
+        return;
+      }
+
+      // ── 1b. Real-time Shutter Event Stream (Server-Sent Events) ──
+      if (pathname === '/api/tether/events') {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.write(`data: ${JSON.stringify({ type: 'connected', tetherDir: this.tetherDir, timestamp: Date.now() })}\n\n`);
+        this.sseClients.add(res);
+
+        // Keep connection alive with heartbeat ping every 25s
+        const pingInterval = setInterval(() => {
+          try {
+            res.write(': heartbeat\n\n');
+          } catch {
+            clearInterval(pingInterval);
+            this.sseClients.delete(res);
+          }
+        }, 25000);
+
+        req.on('close', () => {
+          clearInterval(pingInterval);
+          this.sseClients.delete(res);
+        });
+        return;
+      }
+
+      // ── 1c. Change Hot Folder Directory Endpoint ──
+      if (pathname === '/api/tether/set-directory' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          try {
+            const data = JSON.parse(body || '{}');
+            if (data.tetherDir) {
+              this.setTetherDirectory(data.tetherDir);
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: true, tetherDir: this.tetherDir }));
+          } catch (err) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ success: false, error: err.message }));
+          }
+        });
         return;
       }
 

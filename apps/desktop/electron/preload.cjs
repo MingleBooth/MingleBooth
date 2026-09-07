@@ -15,4 +15,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listFiles: (options) => ipcRenderer.invoke('storage:list-files', options),
   getPrinters: () => ipcRenderer.invoke('printer:get-printers'),
   getTetherInfo: () => ipcRenderer.invoke('tether:get-info'),
+  setTetherFolder: (folderPath) => ipcRenderer.invoke('tether:set-folder', folderPath),
+  onTetherPhotoCaptured: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('tether:photo-captured', handler);
+    return () => ipcRenderer.removeListener('tether:photo-captured', handler);
+  },
+  // Native Direct USB Camera Controls
+  getNativeCameraStatus: () => ipcRenderer.invoke('camera:get-native-status'),
+  installCameraDriver: () => ipcRenderer.invoke('camera:install-driver'),
+  releaseUsbLock: () => ipcRenderer.invoke('camera:release-usb-lock'),
+  detectNativeCameras: () => ipcRenderer.invoke('camera:detect-cameras'),
+  startNativeTether: () => ipcRenderer.invoke('camera:start-native-tether'),
+  stopNativeTether: () => ipcRenderer.invoke('camera:stop-native-tether'),
+  triggerNativeCapture: () => ipcRenderer.invoke('camera:direct-capture'),
+  onDriverInstallLog: (callback) => {
+    const handler = (_event, logMsg) => callback(logMsg);
+    ipcRenderer.on('camera:driver-install-log', handler);
+    return () => ipcRenderer.removeListener('camera:driver-install-log', handler);
+  },
 });
+

@@ -7,6 +7,7 @@ import {
 } from '@minglebooth/shared';
 import { MockCameraAdapter } from './adapters/mock-camera.adapter';
 import { WebcamAdapter } from './adapters/webcam.adapter';
+import { NativeUsbCameraAdapter } from './adapters/native-usb.adapter';
 
 export class CameraManager extends UniversalEventEmitter {
   private activeAdapter: ICameraAdapter;
@@ -17,6 +18,7 @@ export class CameraManager extends UniversalEventEmitter {
     // Register available adapters
     this.adapters.set('mock', new MockCameraAdapter());
     this.adapters.set('webcam', new WebcamAdapter());
+    this.adapters.set('device', new NativeUsbCameraAdapter());
 
     this.activeAdapter = this.adapters.get(defaultBrand) || this.adapters.get('mock')!;
     this.bindAdapterEvents(this.activeAdapter);

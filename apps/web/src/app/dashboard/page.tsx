@@ -315,32 +315,25 @@ export default function DashboardPage() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base font-bold text-white">
-                  MingleBooth Studio (iPad, Tablet &amp; Laptop)
+                  MingleBooth Studio (Desktop Kiosk)
                 </h2>
                 <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/[0.08] text-neutral-300 border border-white/10 uppercase tracking-wider">
-                  iPad &amp; Android Ready
+                  Mac &amp; Windows App
                 </span>
               </div>
               <p className="text-xs text-neutral-400 mt-1 leading-relaxed max-w-xl">
-                Gunakan di <strong>iPad / Android Tablet</strong> untuk roaming &amp; kiosk photobooth (mendukung kamera Sony via USB-C), atau pasang di <strong>Laptop Mac &amp; Windows</strong>.
+                Jalankan sesi Kiosk Photobooth melalui aplikasi <strong>MingleBooth Studio Desktop</strong> di laptop Mac atau Windows untuk koneksi kamera DSLR/Mirrorless, tethering offline, dan cetak foto instan.
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto flex-shrink-0">
-            <Link
-              href="/tablet"
-              className="h-10 px-4 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-98 whitespace-nowrap"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>Buka Mode Tablet</span>
-            </Link>
+          <div className="flex items-center gap-2.5 w-full sm:w-auto flex-shrink-0">
             <button
               onClick={() => setIsDownloadModalOpen(true)}
-              className="h-10 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 whitespace-nowrap flex-shrink-0"
+              className="h-10 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 whitespace-nowrap flex-shrink-0 cursor-pointer"
             >
               <Download className="w-4 h-4 text-black" />
-              <span>Panduan &amp; Unduh</span>
+              <span>Unduh Aplikasi Desktop &amp; Panduan</span>
             </button>
           </div>
         </section>

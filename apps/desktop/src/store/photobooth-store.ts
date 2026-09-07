@@ -193,6 +193,14 @@ interface PhotoboothState {
   isAdminTestingOpen: boolean;
   isStorageModalOpen: boolean;
   customStorageDir: string;
+  isHotFolderActive: boolean;
+  hotFolderDir: string;
+  isNativeDriverInstalled: boolean;
+  nativeDriverVersion: string;
+  detectedNativeCameras: Array<{ model: string; port: string }>;
+  activeNativeCameraModel: string | null;
+  isInstallingDriver: boolean;
+  driverInstallLogs: string[];
 
   initialize: () => Promise<void>;
   setEvent: (event: EventConfig) => void;
@@ -224,6 +232,13 @@ interface PhotoboothState {
   resetStorageDir: () => void;
   toggleNetworkStatus: () => void;
   triggerMockSync: () => Promise<void>;
+  handleExternalPhotoCapture: (photoDataUrl: string, filename?: string) => Promise<void>;
+  setHotFolderDir: (dir: string) => Promise<void>;
+  checkNativeDriverStatus: () => Promise<void>;
+  installNativeDriver: () => Promise<boolean>;
+  detectNativeCameras: () => Promise<void>;
+  releaseUsbLock: () => Promise<void>;
+  triggerNativeDirectCapture: () => Promise<void>;
 }
 
 function buildDynamicTemplate(
@@ -522,6 +537,205 @@ function getInitialGifFrame(): FrameOverlayItem | null {
   return null;
 }
 
+let activeCountdownTimer: any = null;
+
+function playShutterSound() {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    // 1. Shutter front-curtain noise burst
+    const bufferSize = Math.floor(ctx.sampleRate * 0.045);
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1;
+    }
+    const whiteNoise = ctx.createBufferSource();
+    whiteNoise.buffer = noiseBuffer;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1400, now);
+    filter.Q.setValueAtTime(3.5, now);
+
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(0.7, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.045);
+
+    whiteNoise.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    whiteNoise.start(now);
+
+    // 2. Shutter rear-curtain slap after 60ms
+    setTimeout(() => {
+      try {
+        const curtainTime = ctx.currentTime;
+        const curtainNoise = ctx.createBufferSource();
+        curtainNoise.buffer = noiseBuffer;
+        const curtainFilter = ctx.createBiquadFilter();
+        curtainFilter.type = 'lowpass';
+        curtainFilter.frequency.setValueAtTime(900, curtainTime);
+        const curtainGain = ctx.createGain();
+        curtainGain.gain.setValueAtTime(0.5, curtainTime);
+        curtainGain.gain.exponentialRampToValueAtTime(0.01, curtainTime + 0.05);
+        curtainNoise.connect(curtainFilter);
+        curtainFilter.connect(curtainGain);
+        curtainGain.connect(ctx.destination);
+        curtainNoise.start(curtainTime);
+      } catch {}
+    }, 60);
+  } catch {}
+}
+
+const finishSessionWithPhotos = async (
+  updatedPhotos: string[],
+  currentEvent: EventConfig,
+  get: () => PhotoboothState,
+  set: (partial: Partial<PhotoboothState> | ((state: PhotoboothState) => Partial<PhotoboothState>)) => void
+) => {
+  set({ sessionStep: 'processing', capturedPhotos: updatedPhotos });
+  const photoId = 'photo_' + Math.random().toString(36).substring(2, 10);
+  const qrUrl = QRGenerator.buildGalleryUrl(currentEvent.qrBaseUrl, photoId);
+  const qrDataUrl = await QRGenerator.generateDataUrl(qrUrl);
+
+  let rasterJpegDataUrl = '';
+  const activeTpl = get().selectedTemplate;
+
+  try {
+    rasterJpegDataUrl = await PhotoCompositor.composeRasterDataUrl(
+      {
+        template: activeTpl,
+        capturedPhotos: updatedPhotos.map((p, i) => ({
+          slotId: activeTpl.photoSlots[i]?.id || `slot_${i}`,
+          imageBufferOrBase64: p,
+          mimeType: 'image/jpeg',
+        })),
+        customTexts: {
+          txt_event: currentEvent.branding.eventName,
+          txt_date: currentEvent.branding.dateFormatted || '2026',
+        },
+      },
+      'image/jpeg'
+    );
+  } catch (err) {
+    console.warn('Raster compose error, falling back to SVG:', err);
+    const compositeSvg = PhotoCompositor.composeSvg({
+      template: activeTpl,
+      capturedPhotos: updatedPhotos.map((p, i) => ({
+        slotId: activeTpl.photoSlots[i]?.id || `slot_${i}`,
+        imageBufferOrBase64: p,
+        mimeType: 'image/jpeg',
+      })),
+      customTexts: {
+        txt_event: currentEvent.branding.eventName,
+        txt_date: currentEvent.branding.dateFormatted || '2026',
+      },
+    });
+    rasterJpegDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(compositeSvg)}`;
+  }
+
+  // Auto-Generate Animated GIF with custom GIF Frame Overlay
+  let gifDataUrl = '';
+  try {
+    const gifOverlay = get().activeGifFrameOverlay || get().activeFrameOverlay;
+    const gifResult = await GifComposer.composeGif(updatedPhotos, {
+      frameOverlayBase64: gifOverlay?.base64 || null,
+      playbackMode: 'boomerang',
+      frameDelayMs: 320,
+    });
+    gifDataUrl = gifResult.dataUrl;
+  } catch (gifErr) {
+    console.warn('[Auto-GIF] Generation notice:', gifErr);
+  }
+
+  const localPaths = get().localStorageManager.formatCaptureRecord({
+    eventId: currentEvent.id,
+    photoId,
+    rawPhotos: updatedPhotos,
+    compositeDataUrlOrBuffer: rasterJpegDataUrl,
+    mimeType: 'image/jpeg',
+  });
+
+  try {
+    const persistPayload = JSON.stringify({
+      eventId: currentEvent.id,
+      photoId,
+      compositeDataUrl: rasterJpegDataUrl,
+      gifDataUrl,
+      rawPhotos: updatedPhotos,
+      customStoragePath: get().customStorageDir || undefined,
+    });
+
+    fetch('/api/storage/persist-capture', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: persistPayload,
+    }).then((res) => {
+      if (!res.ok) {
+        fetch('http://localhost:3000/api/storage/persist-capture', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: persistPayload,
+        }).catch(() => {});
+      }
+    }).catch(() => {
+      fetch('http://localhost:3000/api/storage/persist-capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: persistPayload,
+      }).catch((e) => console.warn('Storage persist error:', e));
+    });
+  } catch (e) {
+    console.warn('Physical disk write notice:', e);
+  }
+
+  get().syncManager.enqueue({
+    id: 'sync_' + photoId,
+    organizationId: currentEvent.organizationId,
+    eventId: currentEvent.id,
+    entityId: photoId,
+    type: 'photo',
+    filePath: rasterJpegDataUrl,
+    cloudStorageBucket: 'public-gallery',
+    cloudStoragePath: `events/${currentEvent.id}/${photoId}.jpg`,
+  });
+
+  if (gifDataUrl) {
+    get().syncManager.enqueue({
+      id: 'sync_gif_' + photoId,
+      organizationId: currentEvent.organizationId,
+      eventId: currentEvent.id,
+      entityId: photoId,
+      type: 'gif',
+      filePath: gifDataUrl,
+      cloudStorageBucket: 'public-gallery',
+      cloudStoragePath: `events/${currentEvent.id}/${photoId}.gif`,
+    });
+  }
+
+  set({
+    sessionStep: 'review',
+    lastCompositePhoto: {
+      photoId,
+      svgContent: '',
+      dataUrl: rasterJpegDataUrl,
+      gifDataUrl,
+      rawPhotos: updatedPhotos,
+      isGifAvailable: Boolean(gifDataUrl),
+      qrUrl,
+      qrDataUrl,
+      localFilePath: localPaths.processedFilePath.replace('.png', '.jpg'),
+      fileSizeBytes: 1024 * 720,
+      isGif: false,
+    },
+  });
+};
+
 export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
   const cameraManager = new CameraManager('mock');
   const syncManager = new SyncManager();
@@ -577,6 +791,14 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
     isAdminTestingOpen: false,
     isStorageModalOpen: false,
     customStorageDir: initialCustomDir,
+    isHotFolderActive: true,
+    hotFolderDir: './data/tether-inbox',
+    isNativeDriverInstalled: false,
+    nativeDriverVersion: '',
+    detectedNativeCameras: [],
+    activeNativeCameraModel: null,
+    isInstallingDriver: false,
+    driverInstallLogs: [],
 
     initialize: async () => {
       // Sync network status with real browser online/offline events
@@ -593,6 +815,51 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
         };
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
+
+        // Check native camera driver status and scan USB cameras
+        get().checkNativeDriverStatus();
+
+        if ((window as any).electronAPI?.onDriverInstallLog) {
+          (window as any).electronAPI.onDriverInstallLog((logMsg: string) => {
+            set((state) => ({ driverInstallLogs: [...state.driverInstallLogs, logMsg] }));
+          });
+        }
+
+        // Listen for camera shutter hot folder events via Electron IPC
+        if ((window as any).electronAPI?.onTetherPhotoCaptured) {
+          (window as any).electronAPI.onTetherPhotoCaptured((payload: any) => {
+            if (payload?.photoDataUrl) {
+              console.log('[Tether] 📸 Shutter detected via IPC from camera:', payload.filename);
+              get().handleExternalPhotoCapture(payload.photoDataUrl, payload.filename);
+            }
+          });
+
+          if ((window as any).electronAPI?.getTetherInfo) {
+            (window as any).electronAPI.getTetherInfo().then((info: any) => {
+              if (info?.tetherDir) {
+                set({ hotFolderDir: info.tetherDir, isHotFolderActive: true });
+              }
+            }).catch(() => {});
+          }
+        }
+
+        // Also connect to Server-Sent Events (SSE) stream on port 4848 (for web tablet or fallback)
+        try {
+          const hubHost = window.location.hostname || 'localhost';
+          const evtSource = new EventSource(`http://${hubHost}:4848/api/tether/events`);
+          evtSource.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.type === 'photo' && data.photoDataUrl) {
+                console.log('[Tether] 📸 Shutter detected via SSE from camera:', data.filename);
+                get().handleExternalPhotoCapture(data.photoDataUrl, data.filename);
+              } else if (data.tetherDir) {
+                set({ hotFolderDir: data.tetherDir, isHotFolderActive: true });
+              }
+            } catch (e) {}
+          };
+          evtSource.onerror = () => {};
+        } catch (e) {}
       }
 
       await cameraManager.connect();
@@ -861,6 +1128,10 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
         cameraStatus: cameraManager.getStatus(),
         availableDevices: devices,
       });
+
+      if (brand === 'device' && typeof window !== 'undefined' && (window as any).electronAPI?.startNativeTether) {
+        await (window as any).electronAPI.startNativeTether();
+      }
     },
 
     startSession: async () => {
@@ -994,9 +1265,21 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
 
       const executeCapture = async (shotIdx: number) => {
         set({ isFlashing: true, sessionStep: 'capturing', currentShotIndex: shotIdx });
+        playShutterSound();
         setTimeout(() => set({ isFlashing: false }), 200);
 
         try {
+          // Direct Native USB trigger (Sony / Canon / Nikon / Fuji via USB without 3rd party apps)
+          if (get().currentBrand === 'device' && typeof window !== 'undefined' && (window as any).electronAPI?.triggerNativeCapture) {
+            console.log('[Capture] Triggering native direct camera shutter via USB...');
+            const captureResult = await (window as any).electronAPI.triggerNativeCapture();
+            if (captureResult?.success) {
+              // Photo will arrive via file watcher in handleExternalPhotoCapture
+              return;
+            }
+            console.warn('[Capture] Native direct capture failed or no camera connected, falling back:', captureResult?.error);
+          }
+
           let photoDataUrl = '';
           if (get().currentBrand === 'webcam' && typeof (window as any).__grabWebcamFrame === 'function') {
             const liveFrame = (window as any).__grabWebcamFrame();
@@ -1014,145 +1297,7 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
             // Wait for manual next shot trigger — show "GANTI POSE" screen
             set({ sessionStep: 'waiting_next_shot' });
           } else {
-            // All takes finished: Show processing state, then show result modal
-            set({ sessionStep: 'processing' });
-            const photoId = 'photo_' + Math.random().toString(36).substring(2, 10);
-            const qrUrl = QRGenerator.buildGalleryUrl(currentEvent.qrBaseUrl, photoId);
-            const qrDataUrl = await QRGenerator.generateDataUrl(qrUrl);
-
-            // Render High-Resolution JPEG Composite with PNG frame overlay
-            let rasterJpegDataUrl = '';
-            const activeTpl = get().selectedTemplate;
-
-            try {
-              rasterJpegDataUrl = await PhotoCompositor.composeRasterDataUrl(
-                {
-                  template: activeTpl,
-                  capturedPhotos: updatedPhotos.map((p, i) => ({
-                    slotId: activeTpl.photoSlots[i]?.id || `slot_${i}`,
-                    imageBufferOrBase64: p,
-                    mimeType: 'image/jpeg',
-                  })),
-                  customTexts: {
-                    txt_event: currentEvent.branding.eventName,
-                    txt_date: currentEvent.branding.dateFormatted || '2026',
-                  },
-                },
-                'image/jpeg'
-              );
-            } catch (err) {
-              console.warn('Raster compose error, falling back to SVG:', err);
-              const compositeSvg = PhotoCompositor.composeSvg({
-                template: activeTpl,
-                capturedPhotos: updatedPhotos.map((p, i) => ({
-                  slotId: activeTpl.photoSlots[i]?.id || `slot_${i}`,
-                  imageBufferOrBase64: p,
-                  mimeType: 'image/jpeg',
-                })),
-                customTexts: {
-                  txt_event: currentEvent.branding.eventName,
-                  txt_date: currentEvent.branding.dateFormatted || '2026',
-                },
-              });
-              rasterJpegDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(compositeSvg)}`;
-            }
-
-            // Auto-Generate Animated GIF with custom GIF Frame Overlay (auto-detects landscape/portrait aspect)
-            let gifDataUrl = '';
-            try {
-              const gifOverlay = get().activeGifFrameOverlay || get().activeFrameOverlay;
-              const gifResult = await GifComposer.composeGif(updatedPhotos, {
-                frameOverlayBase64: gifOverlay?.base64 || null,
-                playbackMode: 'boomerang',
-                frameDelayMs: 320,
-              });
-              gifDataUrl = gifResult.dataUrl;
-              console.log('[Auto-GIF] Generated animated GIF:', gifResult.width, 'x', gifResult.height, 'size:', gifResult.byteLength);
-            } catch (gifErr) {
-              console.warn('[Auto-GIF] Generation notice:', gifErr);
-            }
-
-            const localPaths = get().localStorageManager.formatCaptureRecord({
-              eventId: currentEvent.id,
-              photoId,
-              rawPhotos: updatedPhotos,
-              compositeDataUrlOrBuffer: rasterJpegDataUrl,
-              mimeType: 'image/jpeg',
-            });
-
-            try {
-              const persistPayload = JSON.stringify({
-                eventId: currentEvent.id,
-                photoId,
-                compositeDataUrl: rasterJpegDataUrl,
-                gifDataUrl,
-                rawPhotos: updatedPhotos,
-                customStoragePath: get().customStorageDir || undefined,
-              });
-
-              fetch('/api/storage/persist-capture', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: persistPayload,
-              }).then((res) => {
-                if (!res.ok) {
-                  fetch('http://localhost:3000/api/storage/persist-capture', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: persistPayload,
-                  }).catch(() => {});
-                }
-              }).catch(() => {
-                fetch('http://localhost:3000/api/storage/persist-capture', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: persistPayload,
-                }).catch((e) => console.warn('Storage persist error:', e));
-              });
-            } catch (e) {
-              console.warn('Physical disk write notice:', e);
-            }
-
-            get().syncManager.enqueue({
-              id: 'sync_' + photoId,
-              organizationId: currentEvent.organizationId,
-              eventId: currentEvent.id,
-              entityId: photoId,
-              type: 'photo',
-              filePath: rasterJpegDataUrl,
-              cloudStorageBucket: 'public-gallery',
-              cloudStoragePath: `events/${currentEvent.id}/${photoId}.jpg`,
-            });
-
-            if (gifDataUrl) {
-              get().syncManager.enqueue({
-                id: 'sync_gif_' + photoId,
-                organizationId: currentEvent.organizationId,
-                eventId: currentEvent.id,
-                entityId: photoId,
-                type: 'gif',
-                filePath: gifDataUrl,
-                cloudStorageBucket: 'public-gallery',
-                cloudStoragePath: `events/${currentEvent.id}/${photoId}.gif`,
-              });
-            }
-
-            set({
-              sessionStep: 'review',
-              lastCompositePhoto: {
-                photoId,
-                svgContent: '',
-                dataUrl: rasterJpegDataUrl,
-                gifDataUrl,
-                rawPhotos: updatedPhotos,
-                isGifAvailable: Boolean(gifDataUrl),
-                qrUrl,
-                qrDataUrl,
-                localFilePath: localPaths.processedFilePath.replace('.png', '.jpg'),
-                fileSizeBytes: 1024 * 720,
-                isGif: false,
-              },
-            });
+            await finishSessionWithPhotos(updatedPhotos, currentEvent, get, set);
           }
         } catch (err) {
           console.error('Capture execution error:', err);
@@ -1161,6 +1306,10 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
       };
 
       const runCountdownForShot = (shotIdx: number, seconds: number) => {
+        if (activeCountdownTimer) {
+          clearInterval(activeCountdownTimer);
+          activeCountdownTimer = null;
+        }
         let remaining = seconds;
         set({
           countdownRemaining: remaining,
@@ -1168,12 +1317,15 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
           currentShotIndex: shotIdx,
         });
 
-        const timer = setInterval(() => {
+        activeCountdownTimer = setInterval(() => {
           remaining -= 1;
           if (remaining > 0) {
             set({ countdownRemaining: remaining });
           } else {
-            clearInterval(timer);
+            if (activeCountdownTimer) {
+              clearInterval(activeCountdownTimer);
+              activeCountdownTimer = null;
+            }
             executeCapture(shotIdx);
           }
         }, 1000);
@@ -1212,10 +1364,6 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
       const nextShotIdx = capturedPhotos.length;
       const isTimerOff = countdownSeconds === 0;
       if (isTimerOff) {
-        // Direct capture — defined inline because executeCapture is a closure inside startSession
-        // We trigger a new startSession-like flow but only for the remaining shot
-        // Instead: re-enter via the internal executeCapture by setting state back to capturing
-        // We'll use a simple trick: store makes executeCapture accessible via ref
         if (typeof (window as any).__minglebooth_captureShot === 'function') {
           (window as any).__minglebooth_captureShot(nextShotIdx);
         }
@@ -1226,9 +1374,72 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
       }
     },
 
+    handleExternalPhotoCapture: async (photoDataUrl: string, filename?: string) => {
+      const { sessionStep, capturedPhotos, shotsCount, selectedTemplate, currentEvent } = get();
+
+      if (sessionStep === 'processing') {
+        console.log('[Tether] Ignoring shutter: already processing composite');
+        return;
+      }
+
+      // Audio shutter click & white flash screen
+      playShutterSound();
+      set({ isFlashing: true });
+      setTimeout(() => set({ isFlashing: false }), 220);
+
+      // Cancel any running countdown timer
+      if (activeCountdownTimer) {
+        clearInterval(activeCountdownTimer);
+        activeCountdownTimer = null;
+      }
+
+      const totalSlots = shotsCount || selectedTemplate.photoSlots.length || 2;
+
+      // Start fresh if idle or review, otherwise append
+      let basePhotos: string[] = [];
+      if (sessionStep === 'idle' || sessionStep === 'review') {
+        basePhotos = [];
+      } else {
+        basePhotos = [...capturedPhotos];
+      }
+
+      const updatedPhotos = [...basePhotos, photoDataUrl];
+      const nextIdx = updatedPhotos.length;
+      console.log(`[Tether] 📸 Shutter accepted: shot ${nextIdx}/${totalSlots} (${filename || 'camera_photo'})`);
+
+      if (updatedPhotos.length < totalSlots) {
+        set({
+          capturedPhotos: updatedPhotos,
+          currentShotIndex: nextIdx,
+          countdownRemaining: 0,
+          sessionStep: 'waiting_next_shot',
+        });
+      } else {
+        await finishSessionWithPhotos(updatedPhotos, currentEvent, get, set);
+      }
+    },
+
+    setHotFolderDir: async (dir: string) => {
+      set({ hotFolderDir: dir });
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.setTetherFolder) {
+        await (window as any).electronAPI.setTetherFolder(dir);
+      } else {
+        fetch('http://localhost:4848/api/tether/set-directory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tetherDir: dir }),
+        }).catch(() => {});
+      }
+    },
+
     cancelSession: () => {
+      if (activeCountdownTimer) {
+        clearInterval(activeCountdownTimer);
+        activeCountdownTimer = null;
+      }
       set({
         sessionStep: 'idle',
+        countdownRemaining: 0,
         capturedPhotos: [],
         gifFrames: [],
         currentShotIndex: 0,
@@ -1369,6 +1580,77 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
 
     triggerMockSync: async () => {
       await get().syncManager.processNext();
+    },
+
+    checkNativeDriverStatus: async () => {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.getNativeCameraStatus) {
+        try {
+          const status = await (window as any).electronAPI.getNativeCameraStatus();
+          set({
+            isNativeDriverInstalled: Boolean(status?.installed),
+            nativeDriverVersion: status?.version || '',
+          });
+          if (status?.installed) {
+            get().detectNativeCameras();
+          }
+        } catch (e) {
+          console.warn('Failed to check native camera driver status:', e);
+        }
+      }
+    },
+
+    installNativeDriver: async () => {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.installCameraDriver) {
+        set({ isInstallingDriver: true, driverInstallLogs: ['Memulai instalasi driver universal gphoto2...'] });
+        try {
+          const res = await (window as any).electronAPI.installCameraDriver();
+          set({ isInstallingDriver: false });
+          if (res?.success) {
+            await get().checkNativeDriverStatus();
+            return true;
+          }
+        } catch (err: any) {
+          set((state) => ({
+            isInstallingDriver: false,
+            driverInstallLogs: [...state.driverInstallLogs, `Error: ${err.message}`],
+          }));
+        }
+      }
+      return false;
+    },
+
+    detectNativeCameras: async () => {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.detectNativeCameras) {
+        try {
+          const res = await (window as any).electronAPI.detectNativeCameras();
+          if (res?.success) {
+            const detected = res.cameras || [];
+            const activeModel = res.activeModel || (detected[0]?.model ?? null);
+            set({
+              detectedNativeCameras: detected,
+              activeNativeCameraModel: activeModel,
+            });
+            if (detected.length > 0 && get().currentBrand === 'mock') {
+              console.log('[NativeCamera] Auto-switching to detected USB camera:', activeModel);
+              get().switchCameraBrand('device');
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to detect native USB cameras:', err);
+        }
+      }
+    },
+
+    releaseUsbLock: async () => {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.releaseUsbLock) {
+        await (window as any).electronAPI.releaseUsbLock();
+      }
+    },
+
+    triggerNativeDirectCapture: async () => {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.triggerNativeCapture) {
+        await (window as any).electronAPI.triggerNativeCapture();
+      }
     },
   };
 });

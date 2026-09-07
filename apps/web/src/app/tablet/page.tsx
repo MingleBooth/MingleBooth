@@ -1560,7 +1560,7 @@ export default function TabletStudioPage() {
     );
   }
 
-  if (isDesktopApp === false && !bypassDownloadGate) {
+  if (isDesktopApp === false) {
     const winUrl =
       process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
       !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('11yqBITrjKw')
@@ -1574,9 +1574,9 @@ export default function TabletStudioPage() {
         : 'https://drive.google.com/file/d/1hRJ4X9UGSYql2dsWYYyH5TO2fmZ0PHBk/view?usp=share_link';
 
     return (
-      <div className="min-h-screen w-full bg-[#07090E] text-white flex flex-col font-sans selection:bg-violet-500 selection:text-white">
+      <div className="min-h-screen w-full bg-[#090A0C] text-white flex flex-col font-sans">
         {/* Top Navigation */}
-        <header className="h-16 px-6 sm:px-10 border-b border-white/[0.06] flex items-center justify-between bg-[#0A0D14]/80 backdrop-blur-md sticky top-0 z-50">
+        <header className="h-16 px-6 sm:px-10 border-b border-white/[0.06] flex items-center justify-between bg-[#0F1014]">
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -1586,15 +1586,15 @@ export default function TabletStudioPage() {
               className="h-6 w-auto object-contain"
             />
             <div className="h-4 w-[1px] bg-white/10 hidden sm:block" />
-            <span className="text-xs font-semibold text-neutral-400 hidden sm:inline">
-              Mode Tab Kiosk • Unduh Software
+            <span className="text-xs font-medium text-neutral-400 hidden sm:inline">
+              MingleBooth Studio • Unduh Aplikasi Desktop
             </span>
           </div>
 
           <div className="flex items-center gap-3">
             <a
               href="/dashboard"
-              className="h-8 px-3.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
+              className="h-8 px-3.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Kembali ke Dashboard</span>
@@ -1603,158 +1603,107 @@ export default function TabletStudioPage() {
         </header>
 
         {/* Hero & Download Content */}
-        <main className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-12 max-w-5xl mx-auto w-full">
-          {/* Badge & Title */}
-          <div className="text-center max-w-2xl mx-auto mb-10">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-500/10 border border-violet-500/20 text-violet-300 text-xs font-semibold mb-5 shadow-inner">
-              <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-              <span>Wajib Gunakan Aplikasi MingleBooth Desktop</span>
+        <main className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-12 max-w-4xl mx-auto w-full text-center">
+          <div className="max-w-xl mx-auto mb-10">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/10 text-neutral-300 text-xs font-medium mb-4">
+              <Laptop className="w-3.5 h-3.5 text-neutral-300" />
+              <span>Aplikasi Desktop Diperlukan</span>
             </div>
 
-            <h1 className="text-2xl sm:text-4xl font-bold tracking-tight text-white mb-3 leading-tight">
-              Mode Tab Photobooth Memerlukan Software Desktop
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white mb-3">
+              Jalankan Photobooth di MingleBooth Studio Desktop
             </h1>
 
-            <p className="text-sm sm:text-base text-neutral-400 leading-relaxed">
-              Browser web biasa tidak dapat mengakses port USB kamera Sony Alpha &amp; printer booth secara native. Unduh aplikasi MingleBooth Desktop untuk Windows atau Mac agar Mode Tab dapat beroperasi 100% lancar tanpa lag.
+            <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
+              Sesi Kiosk Photobooth membutuhkan akses langsung ke hardware kamera Sony/DSLR, printer cetak cepat, dan penyimpanan lokal SSD. Silakan unduh dan pasang aplikasi desktop di laptop operator Anda.
             </p>
           </div>
 
           {/* Download Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 w-full max-w-3xl mb-12">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl mb-10 text-left">
             {/* Card 1: Windows (.exe) */}
-            <div className="p-6 rounded-2xl bg-[#0F121A] border border-white/[0.08] hover:border-violet-500/40 transition-all shadow-xl flex flex-col justify-between relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-4">
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-500/20 text-violet-300 border border-violet-500/30 uppercase tracking-wider">
-                  Disarankan
-                </span>
-              </div>
+            <div className="p-5 rounded-2xl bg-[#121316] border border-white/[0.08] hover:border-white/20 transition-all flex flex-col justify-between">
               <div>
-                <div className="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 mb-4 group-hover:scale-105 transition-transform">
-                  <Laptop className="w-6 h-6" />
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-white">
+                    <Laptop className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider bg-white/[0.06] px-2 py-0.5 rounded">
+                    Windows 64-bit
+                  </span>
                 </div>
-                <h3 className="text-lg font-bold text-white mb-1">MingleBooth untuk Windows</h3>
-                <p className="text-xs text-neutral-400 mb-4">
-                  File installer <strong>.exe</strong> untuk laptop atau PC Windows 10 / 11 (64-bit).
+                <h3 className="text-sm font-semibold text-white mb-1">MingleBooth untuk Windows</h3>
+                <p className="text-[11px] text-neutral-400 mb-4">
+                  Installer <strong>.exe</strong> untuk Windows 10 &amp; 11 (Driver DNP, HiTi, Citizen Ready).
                 </p>
-                <div className="space-y-2 mb-6">
-                  <div className="flex items-center gap-2 text-xs text-neutral-300">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                    <span>Dukungan Sony USB PC Remote Tethering</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-neutral-300">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                    <span>Dukungan Cetak Cepat Printer DNP, HiTi, Citizen</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-neutral-300">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                    <span>Hot Folder Inbox otomatis (&lt; 1 detik)</span>
-                  </div>
-                </div>
               </div>
 
               <a
                 href={winUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full h-11 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-lg active:scale-98"
+                className="w-full h-10 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-sm active:scale-98"
               >
                 <Download className="w-4 h-4 text-black" />
-                <span>Unduh MingleBooth (.exe) Windows</span>
+                <span>Unduh .exe (Windows)</span>
               </a>
             </div>
 
             {/* Card 2: macOS (.dmg) */}
-            <div className="p-6 rounded-2xl bg-[#0F121A] border border-white/[0.08] hover:border-white/20 transition-all shadow-xl flex flex-col justify-between group">
+            <div className="p-5 rounded-2xl bg-[#121316] border border-white/[0.08] hover:border-white/20 transition-all flex flex-col justify-between">
               <div>
-                <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-200 mb-4 group-hover:scale-105 transition-transform">
-                  <Monitor className="w-6 h-6" />
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-white">
+                    <Monitor className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider bg-white/[0.06] px-2 py-0.5 rounded">
+                    macOS 12+
+                  </span>
                 </div>
-                <h3 className="text-lg font-bold text-white mb-1">MingleBooth untuk macOS</h3>
-                <p className="text-xs text-neutral-400 mb-4">
-                  File installer <strong>.dmg</strong> untuk MacBook &amp; Mac Mini (Apple Silicon M1-M4 &amp; Intel).
+                <h3 className="text-sm font-semibold text-white mb-1">MingleBooth untuk Mac</h3>
+                <p className="text-[11px] text-neutral-400 mb-4">
+                  Installer <strong>.dmg</strong> untuk Apple Silicon (M1-M4) &amp; Intel.
                 </p>
-                <div className="space-y-2 mb-6">
-                  <div className="flex items-center gap-2 text-xs text-neutral-300">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                    <span>Kompatibel macOS Monterey hingga Sequoia</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-neutral-300">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                    <span>Native Sony Imaging Edge &amp; Tether Server</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-neutral-300">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                    <span>Layar Penuh Kiosk Mode tanpa bar gangguan</span>
-                  </div>
-                </div>
               </div>
 
               <a
                 href={macUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full h-11 rounded-xl bg-white/[0.1] hover:bg-white/[0.18] border border-white/15 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-98"
+                className="w-full h-10 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-sm active:scale-98"
               >
-                <Download className="w-4 h-4 text-white" />
-                <span>Unduh MingleBooth (.dmg) macOS</span>
+                <Download className="w-4 h-4 text-black" />
+                <span>Unduh .dmg (macOS)</span>
               </a>
             </div>
           </div>
 
-          {/* 3 Step Instruction Card */}
-          <div className="w-full max-w-3xl p-6 rounded-2xl bg-black/40 border border-white/[0.06] mb-8">
-            <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
-              <Info className="w-4 h-4 text-violet-400" />
-              <span>Cara Menjalankan Mode Tab di Laptop / PC:</span>
+          {/* 3 Step Simple Instruction Card */}
+          <div className="w-full max-w-2xl p-5 rounded-2xl bg-[#121316] border border-white/[0.06] text-left">
+            <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Info className="w-4 h-4 text-neutral-400" />
+              <span>Langkah Menjalankan Photobooth:</span>
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="flex flex-col gap-1.5 p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                <div className="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 font-bold text-xs flex items-center justify-center">
-                  1
-                </div>
-                <span className="text-xs font-semibold text-white mt-1">Unduh &amp; Pasang</span>
-                <span className="text-[11px] text-neutral-400 leading-relaxed">
-                  Download file .exe atau .dmg di atas, lalu install di laptop photobooth Anda.
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3 rounded-xl bg-black/40 border border-white/[0.04]">
+                <span className="text-xs font-semibold text-white block mb-0.5">1. Pasang Software</span>
+                <span className="text-[11px] text-neutral-400 leading-relaxed block">
+                  Download dan instal file aplikasi di laptop operator.
                 </span>
               </div>
-              <div className="flex flex-col gap-1.5 p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                <div className="w-6 h-6 rounded-full bg-violet-500/20 text-violet-300 font-bold text-xs flex items-center justify-center">
-                  2
-                </div>
-                <span className="text-xs font-semibold text-white mt-1">Colok Kabel Sony</span>
-                <span className="text-[11px] text-neutral-400 leading-relaxed">
-                  Hubungkan kabel USB kamera Sony ke laptop. Pastikan kamera di mode <strong>PC Remote</strong>.
+              <div className="p-3 rounded-xl bg-black/40 border border-white/[0.04]">
+                <span className="text-xs font-semibold text-white block mb-0.5">2. Sambungkan Kamera</span>
+                <span className="text-[11px] text-neutral-400 leading-relaxed block">
+                  Colok USB kamera DSLR / Sony ke laptop di mode PC Remote.
                 </span>
               </div>
-              <div className="flex flex-col gap-1.5 p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-xs flex items-center justify-center">
-                  3
-                </div>
-                <span className="text-xs font-semibold text-white mt-1">Buka MingleBooth</span>
-                <span className="text-[11px] text-neutral-400 leading-relaxed">
-                  Buka aplikasi MingleBooth di desktop, Mode Tab Kiosk otomatis aktif &amp; siap jepret!
+              <div className="p-3 rounded-xl bg-black/40 border border-white/[0.04]">
+                <span className="text-xs font-semibold text-white block mb-0.5">3. Buka Studio</span>
+                <span className="text-[11px] text-neutral-400 leading-relaxed block">
+                  Buka aplikasi MingleBooth Studio dan mulai memotret.
                 </span>
               </div>
             </div>
-          </div>
-
-          {/* Footer Actions */}
-          <div className="flex flex-col sm:flex-row items-center gap-4 text-xs text-neutral-400">
-            <button
-              onClick={() => window.location.reload()}
-              className="flex items-center gap-1.5 hover:text-white transition-colors underline underline-offset-4"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Sudah membuka di aplikasi desktop? Klik di sini untuk Muat Ulang</span>
-            </button>
-            <span className="hidden sm:inline text-neutral-600">•</span>
-            <button
-              onClick={() => setBypassDownloadGate(true)}
-              className="text-neutral-400 hover:text-neutral-200 transition-colors"
-            >
-              Coba Mode Demo di Browser (Webcam Laptop Saja) &rarr;
-            </button>
           </div>
         </main>
       </div>
@@ -2186,7 +2135,7 @@ export default function TabletStudioPage() {
                   window.location.reload();
                 }
               }}
-              className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 transition-colors border border-rose-500/20 text-xs flex items-center gap-1.5"
+              className="px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-neutral-400 hover:text-white transition-colors border border-white/[0.06] text-xs flex items-center gap-1.5"
               title="Keluar / Nonaktifkan Akun Studio"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -2240,22 +2189,19 @@ export default function TabletStudioPage() {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="flex flex-col items-center justify-center gap-2 p-5 text-center">
-                      <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-400 animate-pulse">
-                        <Monitor className="w-6 h-6" />
+                    <div className="flex flex-col items-center justify-center gap-2.5 p-5 text-center">
+                      <div className="w-10 h-10 rounded-xl bg-white/[0.05] border border-white/[0.08] flex items-center justify-center text-neutral-300">
+                        <Monitor className="w-5 h-5" />
                       </div>
                       <span className="text-xs font-semibold text-white">Kamera Studio di Laptop</span>
-                      <span className="text-[11px] text-neutral-400">
-                        {remotePcStatus === 'connected' ? 'Kamera Sony / DSLR Siap Digunakan' : 'Menyambungkan ke Laptop...'}
-                      </span>
-                      <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-medium ${
-                        remotePcStatus === 'connected' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
-                      }`}>
-                        {remotePcStatus === 'connected' ? '● Siap Memotret (Kualitas Studio + Flash)' : 'Belum Tersambung ke Laptop'}
-                      </span>
+                      <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
+                        <span className={`w-1.5 h-1.5 rounded-full ${remotePcStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                        <span>{remotePcStatus === 'connected' ? 'Kamera Siap Digunakan' : 'Menghubungkan ke Laptop...'}</span>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           const targetCam = cameras.find((c) => c.type === 'external') || cameras[0];
                           const targetId = targetCam ? targetCam.deviceId : 'local_webcam_default';
                           setSelectedCameraId(targetId);
@@ -2263,10 +2209,10 @@ export default function TabletStudioPage() {
                             localStorage.setItem('mb_preferred_camera', targetId);
                           }
                         }}
-                        className="mt-2 px-3.5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[11px] flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                        className="mt-1 px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 hover:text-white border border-white/10 text-xs font-medium flex items-center gap-1.5 transition-colors"
                       >
-                        <Camera className="w-3.5 h-3.5" />
-                        <span>Gunakan Kamera Laptop / Webcam ({cameras.find((c) => c.type === 'external')?.label || cameras[0]?.label || 'Aktifkan Webcam'})</span>
+                        <Camera className="w-3.5 h-3.5 text-neutral-400" />
+                        <span>Ganti ke Webcam</span>
                       </button>
                     </div>
                   )
@@ -2293,7 +2239,7 @@ export default function TabletStudioPage() {
                     <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
                       <button
                         onClick={refreshCameraList}
-                        className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-medium transition-colors"
+                        className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white font-medium transition-colors border border-white/10"
                       >
                         Coba Lagi
                       </button>
@@ -2305,19 +2251,19 @@ export default function TabletStudioPage() {
                               localStorage.setItem('mb_preferred_camera', 'remote_pc');
                             }
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors flex items-center gap-1.5 shadow-md active:scale-95"
+                          className="px-3 py-1.5 rounded-lg bg-white text-black font-semibold transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
                         >
                           <Monitor className="w-3.5 h-3.5" />
-                          <span>Gunakan Kamera Sony / DSLR</span>
+                          <span>Gunakan Kamera Studio</span>
                         </button>
                       )}
                     </div>
                   </div>
                 )}
 
-                <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-md bg-black/75 backdrop-blur-md border border-white/10 text-[11px] font-medium text-white flex items-center gap-1.5">
+                <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 text-[11px] font-medium text-neutral-200 flex items-center gap-1.5">
                   <span className={`w-1.5 h-1.5 rounded-full ${selectedCameraId === 'remote_pc' ? (remotePcStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-emerald-400'}`} />
-                  <span>{selectedCameraId === 'remote_pc' ? 'Kamera Sony / DSLR di Laptop' : (currentCam?.label || 'Kamera Terhubung')}</span>
+                  <span>{selectedCameraId === 'remote_pc' ? 'Kamera Sony / DSLR' : (currentCam?.label || 'Kamera Terhubung')}</span>
                 </div>
               </div>
 
@@ -2328,10 +2274,10 @@ export default function TabletStudioPage() {
                   {selectedCameraId === 'remote_pc' && (
                     <button
                       onClick={() => setIsRemotePcModalOpen(true)}
-                      className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 transition-colors"
+                      className="text-[11px] text-neutral-400 hover:text-white font-medium flex items-center gap-1 transition-colors"
                     >
                       <Settings className="w-3 h-3" />
-                      <span>Sambungkan ke Laptop</span>
+                      <span>Konfigurasi Laptop</span>
                     </button>
                   )}
                 </div>
@@ -2348,25 +2294,26 @@ export default function TabletStudioPage() {
                     }}
                     className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all relative overflow-hidden ${
                       selectedCameraId === 'remote_pc'
-                        ? 'bg-emerald-500/10 border-emerald-500/40 shadow-sm'
+                        ? 'bg-white/[0.08] border-white/25 shadow-sm'
                         : 'bg-[#171820] border-white/[0.04] hover:border-white/15'
                     }`}
                   >
                     <div
                       className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        selectedCameraId === 'remote_pc' ? 'bg-emerald-400 text-black' : 'bg-white/[0.06] text-neutral-400'
+                        selectedCameraId === 'remote_pc' ? 'bg-white text-black' : 'bg-white/[0.06] text-neutral-400'
                       }`}
                     >
                       <Monitor className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold text-white truncate">Kamera Sony / DSLR di Laptop</span>
-                        {selectedCameraId === 'remote_pc' && <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
+                        <span className="text-xs font-semibold text-white truncate">Kamera Sony / DSLR</span>
+                        {selectedCameraId === 'remote_pc' && <Check className="w-3.5 h-3.5 text-white flex-shrink-0" />}
                       </div>
-                      <span className="text-[10px] text-emerald-400/90 block mt-0.5">
-                        {remotePcStatus === 'connected' ? '● Tersambung (Foto Studio + Flash)' : 'Sambungkan ke Laptop via Wi-Fi'}
-                      </span>
+                      <div className="flex items-center gap-1.5 text-[10px] text-neutral-400 mt-1">
+                        <span className={`w-1.5 h-1.5 rounded-full ${remotePcStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                        <span>{remotePcStatus === 'connected' ? 'Tersambung ke Laptop' : 'Menunggu Sambungan'}</span>
+                      </div>
                     </div>
                   </button>
 
@@ -2383,20 +2330,20 @@ export default function TabletStudioPage() {
                       }}
                       className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all ${
                         selectedCameraId !== 'remote_pc'
-                          ? 'bg-white/[0.08] border-white/40 shadow-sm'
+                          ? 'bg-white/[0.08] border-white/25 shadow-sm'
                           : 'bg-[#171820] border-white/[0.04] hover:border-white/15'
                       }`}
                     >
                       <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-white/[0.06] text-neutral-400">
-                        <Camera className="w-4 h-4 text-violet-400" />
+                        <Camera className="w-4 h-4 text-neutral-300" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-semibold text-white truncate">Kamera Laptop / Webcam</span>
                           {selectedCameraId !== 'remote_pc' && <Check className="w-3.5 h-3.5 text-white flex-shrink-0" />}
                         </div>
-                        <span className="text-[10px] text-violet-400 block mt-0.5">
-                          ● Klik untuk Aktifkan Webcam Laptop
+                        <span className="text-[10px] text-neutral-400 block mt-1">
+                          Kamera Internal Perangkat
                         </span>
                       </div>
                     </button>
@@ -2416,7 +2363,7 @@ export default function TabletStudioPage() {
                         }}
                         className={`p-3 rounded-xl border text-left flex items-start gap-3 transition-all ${
                           isSelected
-                            ? 'bg-white/[0.08] border-white/40 shadow-sm'
+                            ? 'bg-white/[0.08] border-white/25 shadow-sm'
                             : 'bg-[#171820] border-white/[0.04] hover:border-white/15'
                         }`}
                       >
@@ -2436,13 +2383,13 @@ export default function TabletStudioPage() {
                             <span className="text-xs font-semibold text-white truncate">{cam.label}</span>
                             {isSelected && <Check className="w-3.5 h-3.5 text-white flex-shrink-0" />}
                           </div>
-                          <span className="text-[10px] text-neutral-400 block mt-0.5">
+                          <span className="text-[10px] text-neutral-400 block mt-1">
                             {cam.type === 'external'
-                              ? 'Sony / Mirrorless via Dongle'
+                              ? 'Dongle HDMI / Mirrorless'
                               : cam.type === 'back'
-                              ? 'Kamera Belakang Tablet'
+                              ? 'Kamera Belakang'
                               : cam.type === 'front'
-                              ? 'Kamera Laptop / Webcam'
+                              ? 'Webcam Depan'
                               : 'Kamera Bawaan'}
                           </span>
                         </div>
@@ -2453,21 +2400,21 @@ export default function TabletStudioPage() {
 
                 {/* Remote PC Quick Status & Config Bar */}
                 {selectedCameraId === 'remote_pc' && (
-                  <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 flex items-center justify-between gap-2 text-xs">
+                  <div className="p-2.5 px-3 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-between gap-2 text-xs">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                        remotePcStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        remotePcStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'
                       }`} />
                       <span className="text-[11px] text-neutral-300 truncate">
                         Status:{' '}
-                        <strong className="text-emerald-400">
+                        <strong className="text-neutral-200 font-medium">
                           {remotePcStatus === 'connected' ? 'Tersambung ke Laptop Booth' : 'Menunggu Sambungan Laptop'}
                         </strong>
                       </span>
                     </div>
                     <button
                       onClick={() => setIsRemotePcModalOpen(true)}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-medium text-[11px] transition-colors flex-shrink-0"
+                      className="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-neutral-300 hover:text-white font-medium text-[11px] transition-colors flex-shrink-0 border border-white/[0.08]"
                     >
                       Ubah Sambungan
                     </button>
@@ -2494,23 +2441,31 @@ export default function TabletStudioPage() {
                   {showSonyHelp && (
                     <div className="pt-2 border-t border-white/[0.06] text-[11px] text-neutral-400 space-y-3 leading-relaxed animate-fadeIn">
 
-                      {/* Method 1: HDMI Capture Card - 100% UNIVERSAL FOR ALL CAMERAS */}
-                      <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 space-y-1.5">
-                        <p className="font-semibold text-emerald-300 text-xs">⭐ Dongle USB HDMI Capture (Paling Direkomendasikan — Universal Semua Merk)</p>
-                        <p className="text-[11px] text-neutral-300">Hubungkan kabel Mini/Micro-HDMI kamera ke dongle <strong>USB HDMI Video Capture</strong> (Elgato Cam Link atau USB Capture Card Rp 80rb - 200rb) lalu colok ke laptop.</p>
-                        <p className="text-[11px] text-emerald-400/90 font-medium">✅ <strong>Bisa untuk 100% SEMUA Merk &amp; Tipe Kamera:</strong> Canon DSLR (60D, 70D, 80D, 200D, 5D, 1300D, R-series), Nikon (D-series &amp; Z-series), Fujifilm (X-T, X-S, X100), Sony (Alpha, ZV, FX), dan Lumix. Kamera langsung aktif tanpa delay.</p>
+                      {/* Method 1: Physical Camera Shutter via PC Remote / Tethering (Hot Folder) */}
+                      <div className="p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="font-semibold text-neutral-200 text-xs flex items-center gap-1.5">
+                            <span>Mode Shutter Fisik Kamera (Tethered Remote)</span>
+                          </p>
+                          <span className="text-[9px] px-2 py-0.5 rounded bg-white/[0.06] text-neutral-300 font-medium">
+                            Resolusi Penuh
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-neutral-300 leading-relaxed">
+                          Shutter kamera ditekan ➔ Flash menyala ➔ Foto otomatis masuk ke sistem photobooth:
+                        </p>
+                        <ul className="text-[10px] text-neutral-400 space-y-1 list-disc list-inside bg-black/40 p-2.5 rounded-lg border border-white/[0.04]">
+                          <li><strong className="text-neutral-200">Sony:</strong> USB Connection → <strong>PC Remote</strong> (Sony Imaging Edge Remote).</li>
+                          <li><strong className="text-neutral-200">Canon:</strong> Colok USB → Buka <strong>Canon EOS Utility</strong>.</li>
+                          <li><strong className="text-neutral-200">Fujifilm:</strong> Menu Connection → <strong>PC Shoot Auto</strong>.</li>
+                          <li><strong className="text-neutral-200">Nikon:</strong> Colok USB → Buka <strong>Nikon NX Tether</strong> / digiCamControl.</li>
+                        </ul>
                       </div>
 
-                      {/* Method 2: Direct USB Cable (Modern Mirrorless) */}
-                      <div className="p-3 rounded-lg bg-white/[0.04] border border-white/[0.08] space-y-1.5">
-                        <p className="font-semibold text-neutral-200 text-xs">🔌 Colok Kabel USB Langsung (Fitur Bawaan Kamera Modern)</p>
-                        <p className="text-[11px] text-neutral-300">Kamera rilisan baru bisa langsung colok kabel USB-C ke laptop tanpa alat tambahan:</p>
-                        <ul className="text-[10px] text-neutral-400 space-y-1 list-disc list-inside">
-                          <li><strong className="text-neutral-200">Sony:</strong> Menu → USB Connection → USB Streaming (A7 IV, ZV-E10, A6700, ZV-1).</li>
-                          <li><strong className="text-neutral-200">Canon:</strong> EOS R50, R10, R8, M200 (Mode Video / UVC) atau EOS Webcam Utility.</li>
-                          <li><strong className="text-neutral-200">Fujifilm:</strong> Menu → Connection Setting → USB Tether / Webcam (X-T4, X-T5, X-S10/20).</li>
-                          <li><strong className="text-neutral-200">Nikon:</strong> Menu → USB Streaming / Nikon Webcam Utility (Z30, Z50, Zfc).</li>
-                        </ul>
+                      {/* Method 2: HDMI Capture Card */}
+                      <div className="p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] space-y-1">
+                        <p className="font-semibold text-neutral-200 text-xs">Dongle USB HDMI Capture (Live View Halus)</p>
+                        <p className="text-[11px] text-neutral-400">Hubungkan kabel HDMI kamera ke dongle USB HDMI Video Capture (Cam Link / USB Capture) untuk preview langsung tamu di layar.</p>
                       </div>
 
                     </div>
@@ -2545,9 +2500,9 @@ export default function TabletStudioPage() {
               {/* Template Frame Foto Cetak */}
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+                  <label className="text-xs font-medium text-neutral-300 flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5 text-neutral-400" />
-                    <span>Bingkai Foto Cetak (.PNG)</span>
+                    <span>Bingkai Foto Cetak</span>
                   </label>
                   <button
                     onClick={() => customFileInputRef.current?.click()}
@@ -2565,7 +2520,7 @@ export default function TabletStudioPage() {
                   />
                 </div>
 
-                <div className="p-3 rounded-xl bg-[#171820] border border-white/[0.08] flex items-center justify-between gap-3">
+                <div className="p-3 rounded-xl bg-[#171820] border border-white/[0.06] flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-14 rounded bg-black/60 border border-white/10 overflow-hidden flex items-center justify-center flex-shrink-0">
                       {activeTemplate?.path && (
@@ -2582,16 +2537,16 @@ export default function TabletStudioPage() {
                         {cleanTemplateName(activeTemplate?.name || 'Template')}
                       </span>
                       <span className="text-[10px] text-neutral-400 mt-0.5 block">
-                        Rasio {activeTemplate?.ratio || '2:3'} • {frameCutouts.length || 2} Slot Lubang Foto
+                        {frameCutouts.length || 2} Foto • Rasio Cetak {activeTemplate?.ratio || '2:3'}
                       </span>
                     </div>
                   </div>
 
                   <button
                     onClick={() => setIsTemplateModalOpen(true)}
-                    className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-xs font-medium text-white transition-colors flex-shrink-0"
+                    className="h-7 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-xs font-medium text-white transition-colors flex-shrink-0 border border-white/[0.08]"
                   >
-                    Ganti
+                    Ubah
                   </button>
                 </div>
               </div>
@@ -2599,9 +2554,9 @@ export default function TabletStudioPage() {
               {/* Template Frame Khusus Animasi GIF */}
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
-                    <Film className="w-3.5 h-3.5 text-white/80" />
-                    <span>Bingkai Animasi GIF (.PNG)</span>
+                  <label className="text-xs font-medium text-neutral-300 flex items-center gap-1.5">
+                    <Film className="w-3.5 h-3.5 text-neutral-400" />
+                    <span>Bingkai Animasi GIF</span>
                   </label>
                   <div className="flex items-center gap-2">
                     {gifOverlayPath && (
@@ -2613,7 +2568,7 @@ export default function TabletStudioPage() {
                             : 'bg-white/[0.04] text-neutral-400 border border-white/[0.06]'
                         }`}
                       >
-                        {isGifOverlayEnabled ? 'Aktif' : 'Polos'}
+                        {isGifOverlayEnabled ? 'Aktif' : 'Nonaktif'}
                       </button>
                     )}
                     <button
@@ -2621,7 +2576,7 @@ export default function TabletStudioPage() {
                       className="text-[11px] text-neutral-400 hover:text-white font-medium flex items-center gap-1 transition-colors"
                     >
                       <Upload className="w-3 h-3" />
-                      <span>Upload Frame GIF</span>
+                      <span>Upload GIF</span>
                     </button>
                     <input
                       ref={customGifFileInputRef}
@@ -2633,7 +2588,7 @@ export default function TabletStudioPage() {
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-[#171820] border border-white/[0.08] flex items-center justify-between gap-3">
+                <div className="p-3 rounded-xl bg-[#171820] border border-white/[0.06] flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-14 rounded bg-black/60 border border-white/10 overflow-hidden flex items-center justify-center flex-shrink-0">
                       {isGifOverlayEnabled && gifOverlayPath ? (
@@ -2653,10 +2608,8 @@ export default function TabletStudioPage() {
                       </span>
                       <span className="text-[10px] text-neutral-400 mt-0.5 block">
                         {isGifOverlayEnabled
-                          ? `Format PNG ${gifDimensions.width}×${gifDimensions.height} • ${
-                              gifCutout ? 'Bentuk Lubang Foto Terdeteksi Presisi' : 'Transparan Penuh'
-                            }`
-                          : 'Animasi GIF akan ditampilkan full frame tanpa border'}
+                          ? `${gifDimensions.width}×${gifDimensions.height} • Frame Aktif`
+                          : 'Animasi GIF ditampilkan full frame'}
                       </span>
                     </div>
                   </div>
@@ -2671,31 +2624,31 @@ export default function TabletStudioPage() {
                         customGifFileInputRef.current?.click();
                       }
                     }}
-                    className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-xs font-medium text-white transition-colors flex-shrink-0"
+                    className="h-7 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-xs font-medium text-white transition-colors flex-shrink-0 border border-white/[0.08]"
                   >
-                    {gifOverlayPath !== '/frames/wedding_gif_frame.png' ? 'Reset' : 'Ganti'}
+                    {gifOverlayPath !== '/frames/wedding_gif_frame.png' ? 'Reset' : 'Ubah'}
                   </button>
                 </div>
 
                 {/* GIF Loop Speed Selector */}
-                <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-[#171820] border border-white/[0.04]">
-                  <span className="text-[11px] text-neutral-400 font-medium">Kecepatan Loop GIF:</span>
-                  <div className="flex items-center gap-1">
+                <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-[#171820] border border-white/[0.06]">
+                  <span className="text-xs text-neutral-300 font-medium">Kecepatan Animasi GIF</span>
+                  <div className="flex items-center p-0.5 rounded-lg bg-black/40 border border-white/[0.06]">
                     {[
                       { label: 'Cepat', val: 500 },
-                      { label: 'Santai', val: 750 },
+                      { label: 'Normal', val: 750 },
                       { label: 'Lambat', val: 950 },
                     ].map((spd) => (
                       <button
                         key={spd.val}
                         onClick={() => setGifSpeedMs(spd.val)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all ${
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
                           gifSpeedMs === spd.val
-                            ? 'bg-white text-black font-semibold shadow-sm'
-                            : 'bg-white/[0.04] text-neutral-400 hover:text-white'
+                            ? 'bg-white/20 text-white shadow-sm font-semibold'
+                            : 'text-neutral-400 hover:text-white'
                         }`}
                       >
-                        {spd.label} ({spd.val}ms)
+                        {spd.label}
                       </button>
                     ))}
                   </div>
@@ -2703,25 +2656,25 @@ export default function TabletStudioPage() {
               </div>
 
               {/* Parameters: Countdown & Pose */}
-              <div className="grid grid-cols-2 gap-3 pt-3 border-t border-white/[0.06]">
+              <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/[0.06]">
                 {/* Countdown Options with OFF */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-medium text-neutral-400 flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
+                  <label className="text-xs font-medium text-neutral-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-neutral-400" />
                     <span>Countdown</span>
                   </label>
-                  <div className="grid grid-cols-4 gap-1">
+                  <div className="p-1 rounded-xl bg-[#171820] border border-white/[0.06] grid grid-cols-4 gap-1">
                     {[0, 3, 5, 10].map((sec) => (
                       <button
                         key={sec}
                         onClick={() => setCountdownSeconds(sec)}
-                        className={`h-8 rounded-lg text-xs font-medium border transition-all ${
+                        className={`h-7 rounded-lg text-xs font-medium transition-all ${
                           countdownSeconds === sec
-                            ? 'bg-white text-black border-white'
-                            : 'bg-[#171820] text-neutral-300 border-white/[0.06] hover:border-white/15'
+                            ? 'bg-white/20 text-white shadow-sm font-semibold'
+                            : 'text-neutral-400 hover:text-white'
                         }`}
                       >
-                        {sec === 0 ? 'OFF' : `${sec}s`}
+                        {sec === 0 ? 'Off' : `${sec}s`}
                       </button>
                     ))}
                   </div>
@@ -2729,19 +2682,19 @@ export default function TabletStudioPage() {
 
                 {/* Shots Count */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-medium text-neutral-400 flex items-center gap-1">
-                    <Camera className="w-3 h-3" />
+                  <label className="text-xs font-medium text-neutral-300 flex items-center gap-1.5">
+                    <Camera className="w-3.5 h-3.5 text-neutral-400" />
                     <span>Jumlah Pose</span>
                   </label>
-                  <div className="grid grid-cols-3 gap-1">
+                  <div className="p-1 rounded-xl bg-[#171820] border border-white/[0.06] grid grid-cols-3 gap-1">
                     {[1, 2, 4].map((shots) => (
                       <button
                         key={shots}
                         onClick={() => setShotsCount(shots)}
-                        className={`h-8 rounded-lg text-xs font-medium border transition-all ${
+                        className={`h-7 rounded-lg text-xs font-medium transition-all ${
                           shotsCount === shots
-                            ? 'bg-white text-black border-white'
-                            : 'bg-[#171820] text-neutral-300 border-white/[0.06] hover:border-white/15'
+                            ? 'bg-white/20 text-white shadow-sm font-semibold'
+                            : 'text-neutral-400 hover:text-white'
                         }`}
                       >
                         {shots} Pose
@@ -2751,78 +2704,65 @@ export default function TabletStudioPage() {
                 </div>
               </div>
 
-              {/* Mode Pemicu Foto (Tap Anywhere vs Tombol Shutter) */}
-              <div className="pt-3 border-t border-white/[0.06] flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-neutral-300 flex items-center gap-1.5">
+              {/* Mode Pemicu Foto (Tap Anywhere Toggle Switch) */}
+              <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-medium text-neutral-200 flex items-center gap-1.5">
                     <Hand className="w-3.5 h-3.5 text-neutral-400" />
-                    <span>Mode Jepret Layar Booth</span>
+                    <span>Sentuh Bebas Layar untuk Shutter</span>
                   </label>
-                  <span className="text-[11px] text-neutral-400">
-                    {tapAnywhereEnabled ? 'Sentuh bebas di layar' : 'Hanya tombol shutter'}
-                  </span>
+                  <p className="text-[11px] text-neutral-400 mt-0.5">
+                    Tamu dapat menyentuh layar mana saja untuk mengambil foto
+                  </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTapAnywhereEnabled(true);
-                      if (typeof window !== 'undefined') localStorage.setItem('mb_tap_anywhere_enabled', 'true');
-                    }}
-                    className={`h-9 px-3 rounded-xl text-xs font-medium border flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={tapAnywhereEnabled}
+                  onClick={() => {
+                    const nextVal = !tapAnywhereEnabled;
+                    setTapAnywhereEnabled(nextVal);
+                    if (typeof window !== 'undefined') localStorage.setItem('mb_tap_anywhere_enabled', String(nextVal));
+                  }}
+                  className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer flex-shrink-0 ${
+                    tapAnywhereEnabled ? 'bg-white' : 'bg-white/[0.12]'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform ${
                       tapAnywhereEnabled
-                        ? 'bg-white text-black border-white shadow-sm font-semibold'
-                        : 'bg-[#171820] text-neutral-400 border-white/[0.06] hover:text-neutral-200 hover:border-white/15'
+                        ? 'translate-x-5 bg-black'
+                        : 'translate-x-0 bg-neutral-400'
                     }`}
-                  >
-                    <span className={`w-2 h-2 rounded-full ${tapAnywhereEnabled ? 'bg-black' : 'bg-neutral-600'}`} />
-                    <span>Sentuh Bebas di Layar (ON)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTapAnywhereEnabled(false);
-                      if (typeof window !== 'undefined') localStorage.setItem('mb_tap_anywhere_enabled', 'false');
-                    }}
-                    className={`h-9 px-3 rounded-xl text-xs font-medium border flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      !tapAnywhereEnabled
-                        ? 'bg-white text-black border-white shadow-sm font-semibold'
-                        : 'bg-[#171820] text-neutral-400 border-white/[0.06] hover:text-neutral-200 hover:border-white/15'
-                    }`}
-                  >
-                    <span className={`w-2 h-2 rounded-full ${!tapAnywhereEnabled ? 'bg-black' : 'bg-neutral-600'}`} />
-                    <span>Hanya Tombol Foto (OFF)</span>
-                  </button>
-                </div>
+                  />
+                </button>
               </div>
 
-              {/* Clean Tablet Storage & Offline Settings Card */}
-              {/* Clean Tablet Storage & External SSD Settings Card */}
-              <div className="p-3 rounded-xl bg-[#14151B] border border-white/[0.08] flex flex-col gap-2.5">
+              {/* Storage & SSD Settings Card */}
+              <div className="p-3.5 rounded-xl bg-[#14151B] border border-white/[0.06] flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
+                    <div className="w-8 h-8 rounded-lg bg-white/[0.05] border border-white/[0.08] text-neutral-300 flex items-center justify-center flex-shrink-0">
                       <HardDrive className="w-4 h-4" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-white">Penyimpanan Tablet &amp; SSD</span>
+                        <span className="text-xs font-semibold text-white">Penyimpanan Lokal &amp; SSD</span>
                         {customFolderName ? (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-400/15 text-emerald-400 border border-emerald-400/30 flex items-center gap-1">
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-white/[0.08] text-neutral-300 border border-white/10 flex items-center gap-1">
                             <FolderCheck className="w-2.5 h-2.5" />
                             SSD Aktif
                           </span>
                         ) : (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">
-                            Offline Ready
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-medium bg-white/[0.05] text-neutral-400 border border-white/10">
+                            Siap Offline
                           </span>
                         )}
                       </div>
                       <span className="text-[10px] text-neutral-400 block mt-0.5">
                         {customFolderName
-                          ? 'Tersimpan otomatis ke folder khusus di SSD & memori tablet'
-                          : 'Tersimpan otomatis di tablet & galeri online'}
+                          ? 'Tersimpan otomatis ke folder khusus di SSD eksternal'
+                          : 'Tersimpan otomatis di penyimpanan lokal & cloud'}
                       </span>
                     </div>
                   </div>
@@ -2830,21 +2770,24 @@ export default function TabletStudioPage() {
                   <button
                     type="button"
                     onClick={() => setAutoSaveToDevice(!autoSaveToDevice)}
-                    className={`h-7 px-3 rounded-lg text-xs font-semibold transition-all flex-shrink-0 ${
+                    className={`h-7 px-2.5 rounded-lg text-[11px] font-medium transition-all flex-shrink-0 border ${
                       autoSaveToDevice
-                        ? 'bg-emerald-500 text-black shadow-sm'
-                        : 'bg-white/[0.08] text-neutral-400 hover:text-white'
+                        ? 'bg-white/[0.1] text-white border-white/20'
+                        : 'bg-white/[0.03] text-neutral-400 border-white/[0.06] hover:text-neutral-200'
                     }`}
                   >
-                    {autoSaveToDevice ? 'Auto Simpan: ON' : 'Auto Simpan: OFF'}
+                    <span className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${autoSaveToDevice ? 'bg-emerald-400' : 'bg-neutral-600'}`} />
+                      <span>{autoSaveToDevice ? 'Auto Simpan' : 'Auto Simpan Mati'}</span>
+                    </span>
                   </button>
                 </div>
 
                 {/* Selected SSD / Folder Display */}
                 {customFolderName && (
-                  <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-black/40 border border-emerald-500/30 text-[11px] text-emerald-300">
+                  <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-black/40 border border-white/[0.08] text-[11px] text-neutral-300">
                     <div className="flex items-center gap-2 truncate">
-                      <Folder className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                      <Folder className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
                       <span className="truncate font-mono">{customFolderName}</span>
                     </div>
                     <button
@@ -2868,19 +2811,19 @@ export default function TabletStudioPage() {
                     type="button"
                     onClick={handlePickStorageDirectory}
                     disabled={isPickingFolder}
-                    className="flex-1 h-8 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                    className="flex-1 h-8 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 text-neutral-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                     title="Pilih drive SSD atau folder eksternal untuk menyimpan foto secara langsung"
                   >
-                    <FolderPlus className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>{customFolderName ? 'Ganti SSD' : 'Pilih Folder / SSD'}</span>
+                    <FolderPlus className="w-3.5 h-3.5 text-neutral-400" />
+                    <span>{customFolderName ? 'Ganti SSD' : 'Pilih Folder SSD'}</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowStorageModal(true)}
-                    className="h-8 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    className="h-8 px-3 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-neutral-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
                     title="Lihat riwayat foto offline tersimpan"
                   >
-                    <HardDrive className="w-3.5 h-3.5 text-neutral-300" />
+                    <HardDrive className="w-3.5 h-3.5 text-neutral-400" />
                     <span className="hidden sm:inline">Riwayat</span>
                   </button>
                   <button
@@ -2890,10 +2833,10 @@ export default function TabletStudioPage() {
                         'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900"><rect width="600" height="900" fill="%23FFFFFF"/><rect x="24" y="24" width="552" height="852" fill="none" stroke="%23000000" stroke-width="4"/><text x="300" y="420" font-family="sans-serif" font-size="28" font-weight="bold" text-anchor="middle" fill="%23000000">MINGLEBOOTH PRINTER TEST</text><text x="300" y="470" font-family="sans-serif" font-size="16" text-anchor="middle" fill="%23666666">Koneksi Cetak Berhasil Siap Pakai</text></svg>';
                       handlePrintPhoto(testSvg);
                     }}
-                    className="h-8 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    className="h-8 px-3 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-neutral-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
                     title="Uji coba printer sebelum acara"
                   >
-                    <Printer className="w-3.5 h-3.5 text-neutral-300" />
+                    <Printer className="w-3.5 h-3.5 text-neutral-400" />
                     <span>Tes Cetak</span>
                   </button>
                 </div>
@@ -2905,14 +2848,14 @@ export default function TabletStudioPage() {
                   handleResetKiosk();
                   setPhase('kiosk');
                 }}
-                className="w-full h-12 mt-1 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-lg transition-all active:scale-[0.99]"
+                className="w-full h-11 mt-1 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.99]"
               >
-                <Play className="w-4 h-4 fill-black" />
+                <Play className="w-3.5 h-3.5 fill-black" />
                 <span>Mulai Photobooth</span>
               </button>
 
-              <p className="text-[11px] text-neutral-500 text-center leading-relaxed">
-                Mode full layar 1 tablet: kamera bersih tanpa frame saat memotret, foto berbingkai otomatis tampil di samping setelah selesai.
+              <p className="text-[11px] text-neutral-500 text-center">
+                Mode Kiosk Siap • Sentuh layar photobooth untuk mulai memotret
               </p>
             </div>
           </div>

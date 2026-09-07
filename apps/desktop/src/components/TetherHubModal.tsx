@@ -199,23 +199,52 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
           </button>
         </div>
 
-        {/* Panduan Cepat untuk Vendor */}
-        <div className="text-[11px] text-neutral-400 space-y-2 bg-black/30 p-3.5 rounded-xl border border-white/[0.04] leading-relaxed">
-          <p className="font-semibold text-neutral-300 flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Cara Sambungkan ke iPad / Tablet:</span>
-          </p>
-          <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px]">
-            <strong>Cara Paling Cepat &amp; Bebas Hambatan:</strong>
-            <br />
-            Buka browser di iPad / Tablet, lalu ketik alamat ini langsung:
-            <br />
-            <span className="font-mono text-xs font-bold text-white select-all">{hubUrl}</span>
+        {/* Panduan Shutter Fisik Kamera & Hot Folder */}
+        <div className="text-[11px] text-neutral-400 space-y-2.5 bg-black/40 p-4 rounded-xl border border-white/[0.06] leading-relaxed">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-emerald-300 flex items-center gap-1.5 text-xs">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Cara Sambungkan Shutter Kamera Fisik (PC Remote):</span>
+            </span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono">
+              Auto-Jepret Aktif
+            </span>
           </div>
-          <p>1. Buka <strong>Mode Tab</strong> di browser iPad / Tablet.</p>
-          <p>2. Pada pilihan kamera, pilih: <strong>Kamera Sony / DSLR di Laptop</strong>.</p>
-          <p>3. Masukkan kode alamat di atas: <code className="text-emerald-400">{hubUrl}</code></p>
-          <p>4. Tekan jepret di Tablet: Shutter Sony + Flash studio langsung jepret dan foto kualitas penuh masuk ke tablet!</p>
+
+          <p className="text-neutral-300 text-[11px]">
+            Colok kabel USB kamera ke laptop. Buka software bawaan kamera (gratis), lalu arahkan folder simpan (Save Destination) ke folder <code className="text-emerald-400 font-mono font-bold">data/tether-inbox</code> di atas:
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
+            <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+              <strong className="text-white block mb-0.5">📸 Sony Alpha / ZV / FX:</strong>
+              <span>Menu → USB Connection → <strong>PC Remote</strong>. Buka <em>Sony Imaging Edge Desktop (Remote)</em>.</span>
+            </div>
+            <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+              <strong className="text-white block mb-0.5">📸 Canon EOS DSLR &amp; R-Series:</strong>
+              <span>Buka software resmi <em>Canon EOS Utility</em> → Destination Folder ke <code className="text-emerald-300">tether-inbox</code>.</span>
+            </div>
+            <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+              <strong className="text-white block mb-0.5">📸 Fujifilm X-Series:</strong>
+              <span>Menu Connection → <strong>PC Shoot Auto</strong>. Buka software gratis <em>Fujifilm X Acquire</em>.</span>
+            </div>
+            <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+              <strong className="text-white block mb-0.5">📸 Nikon D &amp; Z-Series:</strong>
+              <span>Buka software resmi <em>Nikon NX Tether</em> atau <em>digiCamControl</em> ke folder <code className="text-emerald-300">tether-inbox</code>.</span>
+            </div>
+          </div>
+
+          <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[11px] flex items-start gap-2">
+            <Check className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+            <span>
+              <strong>Hasil:</strong> Tekan tombol jepret di bodi kamera atau remote wireless di tangan ➔ Flash studio nyala ➔ Foto asli 24MP+ langsung masuk ke template photobooth &amp; otomatis ganti pose tanpa perlu sentuh layar!
+            </span>
+          </div>
+
+          {/* Sambungkan ke Tablet info */}
+          <div className="pt-2 border-t border-white/[0.06] text-[10px] text-neutral-400">
+            <span className="text-neutral-300 font-semibold">Mode Layar Tablet (Opsional):</span> Jika ingin mengontrol photobooth dari iPad / Tablet, buka browser di tablet dan ketik alamat: <code className="text-white font-mono bg-black/60 px-1.5 py-0.5 rounded">{hubUrl}</code>
+          </div>
         </div>
 
         {/* Test Shutter Trigger Button */}

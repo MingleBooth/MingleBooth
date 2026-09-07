@@ -5,6 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { exec } = require('child_process');
 const { getTetherServer } = require('./tether-server.cjs');
+const { getNativeCameraService } = require('./native-camera.cjs');
 
 // ── Configure full media (camera/mic/device) permissions for WebContents session ──
 function configureSessionPermissions(ses) {
@@ -108,35 +109,50 @@ function createWindow() {
   mainWindow.maximize();
 
   const tetherServer = getTetherServer(4848);
-  const ips = tetherServer.getLocalIPs();
-  const localIp = ips.find(ip => ip !== '127.0.0.1') || '127.0.0.1';
-  const hubParam = encodeURIComponent(`http://${localIp}:4848`);
-
-  const tabletRemoteUrl = `https://minglebooth.id/tablet?hub=${hubParam}&platform=desktop`;
-  const tabletLocalDevUrl = `http://localhost:3000/tablet?hub=${hubParam}&platform=desktop`;
-
-  const http = require('http');
-  const checkLocalServer = () => new Promise((resolve) => {
-    const req = http.get('http://localhost:3000', (res) => resolve(res.statusCode < 500));
-    req.on('error', () => resolve(false));
-    req.setTimeout(800, () => { req.destroy(); resolve(false); });
-  });
-
-  checkLocalServer().then((isLocal) => {
-    const targetUrl = isLocal ? tabletLocalDevUrl : tabletRemoteUrl;
-    console.log('[Electron] Loading target URL:', targetUrl);
-    mainWindow.loadURL(targetUrl).catch(() => {
-      mainWindow.loadURL(tabletRemoteUrl);
-    });
-  });
-
-  // If local dev server fails to load, fallback to production remote
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    console.warn('[Electron] Page load warning:', validatedURL, errorCode, errorDescription);
-    if (errorCode !== -3 && validatedURL !== tabletRemoteUrl) {
-      mainWindow.loadURL(tabletRemoteUrl);
+  tetherServer.removeAllListeners('photo');
+  tetherServer.on('photo', (payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      console.log('[Electron] 📸 Forwarding tether photo to photobooth UI:', payload.filename);
+      mainWindow.webContents.send('tether:photo-captured', payload);
     }
   });
+
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  nativeCamera.removeAllListeners('installLog');
+  nativeCamera.on('installLog', (logMsg) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('camera:driver-install-log', logMsg);
+    }
+  });
+
+  const devUrl = 'http://localhost:5173';
+  const prodIndex = path.join(__dirname, '../dist/index.html');
+
+  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+    const http = require('http');
+    const checkViteServer = () => new Promise((resolve) => {
+      const req = http.get(devUrl, (res) => resolve(res.statusCode < 500));
+      req.on('error', () => resolve(false));
+      req.setTimeout(800, () => { req.destroy(); resolve(false); });
+    });
+
+    checkViteServer().then((isViteRunning) => {
+      if (isViteRunning) {
+        console.log('[Electron] Loading local Vite Dev Server:', devUrl);
+        mainWindow.loadURL(devUrl);
+      } else if (fs.existsSync(prodIndex)) {
+        console.log('[Electron] Vite dev offline, loading built dist:', prodIndex);
+        mainWindow.loadFile(prodIndex);
+      } else {
+        console.log('[Electron] Loading dev URL:', devUrl);
+        mainWindow.loadURL(devUrl).catch(() => {
+          if (fs.existsSync(prodIndex)) mainWindow.loadFile(prodIndex);
+        });
+      }
+    });
+  } else {
+    mainWindow.loadFile(prodIndex);
+  }
 
   // Handle external links in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -228,6 +244,60 @@ ipcMain.handle('camera:trigger-shutter', async () => {
   const tetherServer = getTetherServer(4848);
   const result = await triggerSonyShutter(tetherServer.tetherDir);
   return result;
+});
+
+ipcMain.handle('tether:set-folder', async (event, folderPath) => {
+  const tetherServer = getTetherServer(4848);
+  tetherServer.setTetherDirectory(folderPath);
+  return { success: true, tetherDir: tetherServer.tetherDir };
+});
+
+// ── Native Direct USB Camera Operations (No 3rd Party App Required) ──
+ipcMain.handle('camera:get-native-status', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.checkDriverStatus();
+});
+
+ipcMain.handle('camera:install-driver', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.installDriver((logMsg) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('camera:driver-install-log', logMsg);
+    }
+  });
+});
+
+ipcMain.handle('camera:release-usb-lock', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.releaseMacOSUsbLock();
+});
+
+ipcMain.handle('camera:detect-cameras', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.detectConnectedCameras();
+});
+
+ipcMain.handle('camera:start-native-tether', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.startNativeTether();
+});
+
+ipcMain.handle('camera:stop-native-tether', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  nativeCamera.stopNativeTether();
+  return { success: true };
+});
+
+ipcMain.handle('camera:direct-capture', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.triggerDirectCapture();
 });
 
 ipcMain.handle('system:get-hwid', () => {

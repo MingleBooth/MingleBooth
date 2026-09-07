@@ -14,6 +14,11 @@ import {
   SlidersHorizontal,
   LogOut,
   FolderOpen,
+  Usb,
+  Download,
+  CheckCircle2,
+  AlertTriangle,
+  Cpu,
 } from 'lucide-react';
 import { QRGenerator } from '@minglebooth/photo-engine';
 import { LicenseVerifier } from '@minglebooth/license';
@@ -31,6 +36,16 @@ export const AdminTestingModal: React.FC = () => {
     currentEvent,
     toggleStorageModal,
     customStorageDir,
+    isNativeDriverInstalled,
+    nativeDriverVersion,
+    detectedNativeCameras,
+    activeNativeCameraModel,
+    isInstallingDriver,
+    driverInstallLogs,
+    installNativeDriver,
+    detectNativeCameras,
+    releaseUsbLock,
+    triggerNativeDirectCapture,
   } = usePhotoboothStore();
 
   const [testLogs, setTestLogs] = useState<string[]>([]);
@@ -239,6 +254,119 @@ export const AdminTestingModal: React.FC = () => {
             <Trash2 className="w-3.5 h-3.5 text-rose-400" />
             <span>Test Cleanup</span>
           </button>
+        </div>
+
+        {/* Direct Native USB Camera Driver Panel */}
+        <div className="p-4 rounded-xl bg-[#14161C] border border-white/[0.08] flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                <Usb className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-white block">Direct Native USB Driver (Tanpa Software Pihak Ke-3)</span>
+                <span className="text-[11px] text-neutral-400">Hubungkan Sony / Canon / DSLR langsung ke MingleBooth via kabel USB</span>
+              </div>
+            </div>
+            <span className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold border flex items-center gap-1.5 ${
+              isNativeDriverInstalled
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+            }`}>
+              {isNativeDriverInstalled ? (
+                <>
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  <span>Driver Universal: AKTIF</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-3 h-3 text-amber-400" />
+                  <span>Driver Belum Terpasang</span>
+                </>
+              )}
+            </span>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {!isNativeDriverInstalled ? (
+              <button
+                disabled={isInstallingDriver}
+                onClick={async () => {
+                  addLog('Memulai pemasangan driver universal gphoto2 via Homebrew...');
+                  const ok = await installNativeDriver();
+                  addLog(ok ? 'Driver gphoto2 berhasil terpasang!' : 'Instalasi driver gagal.');
+                }}
+                className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{isInstallingDriver ? 'Sedang Memasang Driver...' : 'Pasang Driver Otomatis (1-Klik via Homebrew)'}</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={async () => {
+                    addLog('Memindai kamera USB yang terhubung...');
+                    await detectNativeCameras();
+                    addLog(`Hasil pemindaian: ${detectedNativeCameras.length} kamera terdeteksi.`);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-neutral-400" />
+                  <span>Pindai Kamera USB</span>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    addLog('Melepaskan port USB dari Apple PTPCamera...');
+                    await releaseUsbLock();
+                    addLog('Port USB berhasil dibebaskan!');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
+                >
+                  <Cpu className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Bebaskan Port USB (Kill PTPCamera)</span>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    addLog('Menguji sinyal jepret langsung via kabel USB...');
+                    await triggerNativeDirectCapture();
+                    addLog('Perintah jepret terkirim ke kamera fisik!');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition-colors ml-auto"
+                >
+                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Tes Jepret Langsung USB</span>
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Detected Cameras Status List */}
+          {detectedNativeCameras.length > 0 && (
+            <div className="p-2.5 rounded-lg bg-black/50 border border-white/[0.04] flex flex-col gap-1 text-[11px]">
+              <span className="text-neutral-400 font-semibold">Kamera Fisik Terdeteksi di Port USB:</span>
+              {detectedNativeCameras.map((cam, idx) => (
+                <div key={idx} className="flex items-center justify-between text-white font-mono">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <strong>{cam.model}</strong>
+                  </span>
+                  <span className="text-neutral-500 text-[10px]">{cam.port}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Live Install Logs */}
+          {isInstallingDriver && driverInstallLogs.length > 0 && (
+            <div className="p-2.5 rounded-lg bg-black border border-white/[0.08] text-[10px] font-mono text-neutral-300 max-h-24 overflow-y-auto flex flex-col gap-0.5">
+              {driverInstallLogs.slice(-6).map((log, i) => (
+                <div key={i} className="truncate">{log}</div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Storage Management Shortcut */}

@@ -54,6 +54,9 @@ export const OperatorControls: React.FC = () => {
     captureMode,
     setCaptureMode,
     selectedTemplate,
+    isHotFolderActive,
+    hotFolderDir,
+    activeNativeCameraModel,
   } = usePhotoboothStore();
 
   const [isFormatDropdownOpen, setIsFormatDropdownOpen] = useState(false);
@@ -219,19 +222,19 @@ export const OperatorControls: React.FC = () => {
               }}
               className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl border text-[11px] sm:text-xs font-medium transition-all shadow-sm active:scale-98 ${
                 isFormatDropdownOpen
-                  ? 'bg-[#1E222A] border-emerald-500/50 text-white shadow-lg'
+                  ? 'bg-[#1E222A] border-white/20 text-white shadow-lg'
                   : 'bg-[#14161A] hover:bg-[#1E222A] border-white/[0.08] text-neutral-200 hover:text-white'
               } disabled:opacity-50 cursor-pointer`}
               title="Pilih Format Canvas (4R, 2R, Strip, Digital, Kustom)"
             >
-              <Layers className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+              <Layers className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
               <span className="text-neutral-400 text-[10px] sm:text-[11px] font-medium hidden xs:inline">Format:</span>
               <span className="font-semibold text-white bg-white/10 px-1.5 py-0.5 rounded text-[10px] sm:text-[11px] tracking-tight">
                 {activeFormat.label}
               </span>
               <ChevronDown
                 className={`w-3 h-3 text-neutral-400 transition-transform duration-200 ${
-                  isFormatDropdownOpen ? 'rotate-180 text-emerald-400' : ''
+                  isFormatDropdownOpen ? 'rotate-180 text-white' : ''
                 }`}
               />
             </button>
@@ -419,13 +422,13 @@ export const OperatorControls: React.FC = () => {
           {/* Frame Cetak */}
           {activeFrameOverlay ? (
             <div className="flex items-center gap-1.5">
-              <div className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] sm:text-[11px] font-medium">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.08] border border-white/15 text-neutral-200 text-xs font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
                 <span className="max-w-[80px] sm:max-w-[120px] truncate">{activeFrameOverlay.name}</span>
                 <button
                   type="button"
                   onClick={() => setActiveFrameOverlay(null)}
-                  className="text-neutral-400 hover:text-rose-400 ml-0.5 p-0.5 rounded"
+                  className="text-neutral-400 hover:text-rose-400 ml-0.5 p-0.5 rounded transition-colors"
                   title="Hapus Bingkai Cetak"
                 >
                   <Trash2 className="w-3 h-3" />
@@ -436,16 +439,16 @@ export const OperatorControls: React.FC = () => {
               <button
                 type="button"
                 onClick={toggleLiveFrameVisibility}
-                className={`px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-medium flex items-center gap-1 transition-all ${
+                className={`px-2 py-1 rounded-lg border text-xs font-medium flex items-center gap-1 transition-all ${
                   isLiveFrameVisible
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    ? 'bg-white/15 text-white border-white/20'
                     : 'bg-[#181B20] text-neutral-400 border-white/[0.08] hover:text-white'
                 }`}
                 title="Sembunyikan/Tampilkan bingkai pada viewfinder kamera"
               >
                 {isLiveFrameVisible ? (
                   <>
-                    <Eye className="w-3 h-3 text-emerald-400" />
+                    <Eye className="w-3 h-3 text-neutral-300" />
                     <span className="hidden xs:inline">Live On</span>
                   </>
                 ) : (
@@ -461,14 +464,14 @@ export const OperatorControls: React.FC = () => {
               <button
                 type="button"
                 onClick={handleOpenTemplateLibrary}
-                className="px-2.5 py-1 rounded-lg bg-[#181B20] hover:bg-[#22262E] text-neutral-200 hover:text-white border border-white/[0.08] text-[10px] sm:text-[11px] font-medium flex items-center gap-1.5 transition-colors"
+                className="px-2.5 py-1 rounded-lg bg-[#181B20] hover:bg-[#22262E] text-neutral-200 hover:text-white border border-white/[0.08] text-xs font-medium flex items-center gap-1.5 transition-colors"
                 title="Pilih dari koleksi template siap pakai"
               >
-                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                <Sparkles className="w-3.5 h-3.5 text-neutral-400" />
                 <span>Template</span>
               </button>
 
-              <label className="px-2.5 py-1 rounded-lg bg-[#181B20] hover:bg-[#22262E] text-neutral-300 hover:text-white border border-white/[0.08] text-[10px] sm:text-[11px] font-medium cursor-pointer flex items-center gap-1.5 transition-colors">
+              <label className="px-2.5 py-1 rounded-lg bg-[#181B20] hover:bg-[#22262E] text-neutral-300 hover:text-white border border-white/[0.08] text-xs font-medium cursor-pointer flex items-center gap-1.5 transition-colors">
                 <ImageIcon className="w-3.5 h-3.5 text-neutral-400" />
                 <span>+ Frame Sendiri</span>
                 <input
@@ -483,20 +486,20 @@ export const OperatorControls: React.FC = () => {
 
           {/* Frame Khusus GIF */}
           {activeGifFrameOverlay ? (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-300 text-[10px] sm:text-[11px] font-medium">
-              <Film className="w-3 h-3 text-sky-400 flex-shrink-0" />
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.08] border border-white/15 text-neutral-200 text-xs font-medium">
+              <Film className="w-3 h-3 text-neutral-400 flex-shrink-0" />
               <span className="max-w-[70px] sm:max-w-[110px] truncate">{activeGifFrameOverlay.name}</span>
               <button
                 type="button"
                 onClick={() => setActiveGifFrameOverlay(null)}
-                className="text-neutral-400 hover:text-rose-400 ml-0.5 p-0.5 rounded"
-                title="Hapus Bingkai Khusus GIF (akan memakai frame cetak)"
+                className="text-neutral-400 hover:text-rose-400 ml-0.5 p-0.5 rounded transition-colors"
+                title="Hapus Bingkai Khusus GIF"
               >
                 <Trash2 className="w-3 h-3" />
               </button>
             </div>
           ) : (
-            <label className="px-2.5 py-1 rounded-lg bg-[#181B20] hover:bg-[#22262E] text-neutral-400 hover:text-neutral-200 border border-white/[0.06] text-[10px] sm:text-[11px] font-medium cursor-pointer flex items-center gap-1.5 transition-colors">
+            <label className="px-2.5 py-1 rounded-lg bg-[#181B20] hover:bg-[#22262E] text-neutral-400 hover:text-neutral-200 border border-white/[0.06] text-xs font-medium cursor-pointer flex items-center gap-1.5 transition-colors">
               <Film className="w-3 h-3 text-neutral-400" />
               <span>+ Frame GIF</span>
               <input
@@ -617,15 +620,31 @@ export const OperatorControls: React.FC = () => {
             </div>
           </div>
 
+          {/* Hot Folder Camera Shutter Status Badge */}
+          {isHotFolderActive && (
+            <div
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[10px] sm:text-[11px] font-mono text-emerald-300"
+              title={`Hot Folder aktif (${hotFolderDir}). Tekan tombol jepret di bodi kamera atau wireless remote untuk jepret otomatis.`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              <span className="hidden xl:inline">Shutter Kamera Fisik:</span>
+              <span className="font-semibold text-emerald-300">SIAP JEPRET</span>
+            </div>
+          )}
+
           {/* Camera Source Selector */}
           <select
             disabled={isCapturing}
             value={currentBrand}
             onChange={(e) => switchCameraBrand(e.target.value as CameraBrand)}
-            className="bg-[#14161A] border border-white/[0.08] text-neutral-200 text-[10px] sm:text-xs rounded-lg px-2 py-1 sm:py-1.5 outline-none focus:border-white/20 transition-colors max-w-[120px] sm:max-w-[150px] truncate"
+            title="Pilih mode koneksi kamera"
+            className="bg-[#14161A] border border-white/[0.08] text-neutral-200 text-[10px] sm:text-xs rounded-lg px-2 py-1 sm:py-1.5 outline-none focus:border-white/20 transition-colors max-w-[150px] sm:max-w-[210px] truncate"
           >
-            <option value="webcam">Webcam UVC</option>
-            <option value="mock">Sony Cinema FX3</option>
+            <option value="device">
+              {activeNativeCameraModel ? `Direct USB: ${activeNativeCameraModel}` : 'Direct USB: Sony/DSLR (Tanpa Software)'}
+            </option>
+            <option value="webcam">Webcam / HDMI Capture</option>
+            <option value="mock">Simulasi: Sony FX3 Demo</option>
           </select>
         </div>
       </div>
