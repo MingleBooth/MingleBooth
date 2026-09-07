@@ -67,7 +67,7 @@ export default function DashboardPage() {
 
   // Download Modal
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
-  const [downloadModalTab, setDownloadModalTab] = useState<'tablet' | 'desktop'>('tablet');
+  const [downloadModalTab, setDownloadModalTab] = useState<'tablet' | 'desktop'>('desktop');
   const [tabletQrDataUrl, setTabletQrDataUrl] = useState<string>('');
 
   useEffect(() => {
@@ -1071,17 +1071,6 @@ export default function DashboardPage() {
             {/* Tab Selector */}
             <div className="grid grid-cols-2 p-1 rounded-xl bg-black/40 border border-white/[0.06]">
               <button
-                onClick={() => setDownloadModalTab('tablet')}
-                className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                  downloadModalTab === 'tablet'
-                    ? 'bg-white text-black shadow-sm'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>📱 iPad &amp; Android Tab</span>
-              </button>
-              <button
                 onClick={() => setDownloadModalTab('desktop')}
                 className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
                   downloadModalTab === 'desktop'
@@ -1091,6 +1080,17 @@ export default function DashboardPage() {
               >
                 <Laptop className="w-3.5 h-3.5" />
                 <span>💻 Laptop (Mac / Win)</span>
+              </button>
+              <button
+                onClick={() => setDownloadModalTab('tablet')}
+                className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                  downloadModalTab === 'tablet'
+                    ? 'bg-white text-black shadow-sm'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>📱 iPad &amp; Android Tab</span>
               </button>
             </div>
 
@@ -1111,9 +1111,9 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="flex-1 text-center sm:text-left">
-                    <span className="text-xs font-bold text-white block">Arahkan Kamera iPad / Tablet ke QR Ini</span>
+                    <span className="text-xs font-bold text-white block">Gunakan iPad / Tablet Sebagai Touch Display</span>
                     <p className="text-[11px] text-neutral-400 mt-1 leading-relaxed">
-                      Buka langsung di Safari iPad atau Chrome Android Tab. Aplikasi akan otomatis menyesuaikan layar sentuh dan mendeteksi kamera eksternal Sony.
+                      Jadikan iPad atau tablet sebagai layar display tamu dengan menghubungkannya ke laptop via Sidecar (Mac) atau Spacedesk (Windows). Engine photobooth tetap berjalan di MingleBooth Studio Desktop untuk performa kamera dan printer maksimal.
                     </p>
                     <div className="mt-3 flex items-center gap-2">
                       <Link
@@ -1121,7 +1121,7 @@ export default function DashboardPage() {
                         className="h-8 px-4 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
-                        <span>Buka Studio di Tab Ini</span>
+                        <span>Buka Panduan &amp; Unduh Lengkap</span>
                       </Link>
                     </div>
                   </div>
@@ -1129,20 +1129,16 @@ export default function DashboardPage() {
 
                 {/* 3 Step Instruction */}
                 <div className="p-4 rounded-xl bg-black/40 border border-white/[0.04] flex flex-col gap-2">
-                  <span className="text-xs font-semibold text-neutral-200">Cara Pasang Aplikasi di iPad / Tablet:</span>
-                  <ol className="text-xs text-neutral-400 space-y-2 list-decimal list-inside leading-relaxed">
+                  <span className="text-xs font-semibold text-neutral-200">Panduan Penggunaan Layar Tablet:</span>
+                  <ol className="text-xs text-neutral-400 space-y-1.5 list-decimal list-inside leading-relaxed">
                     <li>
-                      <strong className="text-white">Buka di Browser:</strong> Scan QR di atas atau buka link di Safari (iPad) / Chrome (Android).
+                      <strong className="text-white">Install MingleBooth Studio di Laptop:</strong> Pastikan software desktop sudah berjalan di laptop operator.
                     </li>
                     <li>
-                      <strong className="text-white">Tambahkan ke Layar Utama:</strong>
-                      <span className="block text-[11px] text-neutral-400 ml-4 mt-0.5">
-                        • Di Safari iPad: Tekan ikon Share ⎋ lalu pilih <em>&ldquo;Add to Home Screen&rdquo;</em>.<br />
-                        • Di Chrome Android: Tekan menu titik tiga ⋮ lalu pilih <em>&ldquo;Install App&rdquo;</em>.
-                      </span>
+                      <strong className="text-white">Hubungkan Tablet sebagai Monitor Eksternal:</strong> Gunakan Apple Sidecar (iPad + Mac) atau Spacedesk (Android/iPad + Windows).
                     </li>
                     <li>
-                      <strong className="text-white">Koneksikan Sony &amp; Mulai:</strong> Colok kamera Sony ke port USB-C tablet (via USB Video Capture Card ~Rp 60rb) atau gunakan kamera bawaan tablet. MingleBooth siap beroperasi 100% offline!
+                      <strong className="text-white">Siap Digunakan:</strong> Tamu dapat melihat live view dan menekan tombol sentuh langsung dari layar tablet.
                     </li>
                   </ol>
                 </div>
