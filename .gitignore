@@ -6,6 +6,7 @@ node_modules
 # Production / Build
 dist
 build
+!apps/desktop/build/**
 out
 .next
 .turbo

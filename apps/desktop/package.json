@@ -30,6 +30,10 @@
     "mac": {
       "category": "public.app-category.photography",
       "icon": "build/icon.icns",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
       "extendInfo": {
         "NSCameraUsageDescription": "MingleBooth memerlukan akses kamera untuk live view photobooth dan memotret foto tamu.",
         "NSMicrophoneUsageDescription": "MingleBooth memerlukan akses mikrofon untuk efek suara photobooth."

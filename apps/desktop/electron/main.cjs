@@ -467,10 +467,6 @@ app.whenReady().then(() => {
     } catch (e) {
       console.warn('Could not set dock icon:', e);
     }
-  }
-
-  createWindow();
-
   // Auto-grant media (camera / microphone) permissions globally
   if (session && session.defaultSession) {
     configureSessionPermissions(session.defaultSession);
@@ -478,13 +474,20 @@ app.whenReady().then(() => {
 
   // Request native OS camera / microphone permissions on macOS explicitly
   if (process.platform === 'darwin' && systemPreferences?.askForMediaAccess) {
-    systemPreferences.askForMediaAccess('camera').then((granted) => {
-      console.log('[Electron] macOS Camera access granted:', granted);
-    }).catch((e) => {
-      console.warn('[Electron] macOS Camera access check:', e);
-    });
+    try {
+      const cameraStatus = systemPreferences.getMediaAccessStatus('camera');
+      if (cameraStatus !== 'granted') {
+        systemPreferences.askForMediaAccess('camera').then((granted) => {
+          console.log('[Electron] macOS Camera access granted:', granted);
+        }).catch((e) => console.warn('[Electron] Camera permission error:', e));
+      }
+    } catch (e) {
+      console.warn('Media access check failed:', e);
+    }
     systemPreferences.askForMediaAccess('microphone').catch(() => {});
   }
+
+  createWindow();
 
 
 
