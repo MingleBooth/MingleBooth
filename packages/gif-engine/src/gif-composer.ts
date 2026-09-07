@@ -24,6 +24,7 @@ export interface GifCompositionOptions {
   height?: number;
   frameOverlayBase64?: string | null;
   cutoutSlot?: { x: number; y: number; width: number; height: number } | null;
+  cutoutSlots?: Array<{ x: number; y: number; width: number; height: number }> | null;
 }
 
 export interface GifCompositionResult {
@@ -125,59 +126,115 @@ export class GifComposer {
       throw new Error('Canvas 2D context not available');
     }
 
-    // 3. Detect or use explicit transparent cutout hole from PNG
-    const slot = options.cutoutSlot
-      ? {
-          x: Math.round((options.cutoutSlot.x * targetWidth) / (options.width || targetWidth)),
-          y: Math.round((options.cutoutSlot.y * targetHeight) / (options.height || targetHeight)),
-          width: Math.round((options.cutoutSlot.width * targetWidth) / (options.width || targetWidth)),
-          height: Math.round((options.cutoutSlot.height * targetHeight) / (options.height || targetHeight)),
-        }
-      : overlayImg
-      ? this.detectCutoutArea(overlayImg, targetWidth, targetHeight)
-      : { x: 0, y: 0, width: targetWidth, height: targetHeight };
+    // 3. Detect or use explicit transparent cutout holes from PNG
+    const slots: Array<{ x: number; y: number; width: number; height: number }> =
+      options.cutoutSlots && options.cutoutSlots.length > 0
+        ? options.cutoutSlots.map((s) => ({
+            x: Math.round((s.x * targetWidth) / (options.width || targetWidth)),
+            y: Math.round((s.y * targetHeight) / (options.height || targetHeight)),
+            width: Math.round((s.width * targetWidth) / (options.width || targetWidth)),
+            height: Math.round((s.height * targetHeight) / (options.height || targetHeight)),
+          }))
+        : [
+            options.cutoutSlot
+              ? {
+                  x: Math.round((options.cutoutSlot.x * targetWidth) / (options.width || targetWidth)),
+                  y: Math.round((options.cutoutSlot.y * targetHeight) / (options.height || targetHeight)),
+                  width: Math.round((options.cutoutSlot.width * targetWidth) / (options.width || targetWidth)),
+                  height: Math.round((options.cutoutSlot.height * targetHeight) / (options.height || targetHeight)),
+                }
+              : overlayImg
+              ? this.detectCutoutArea(overlayImg, targetWidth, targetHeight)
+              : { x: 0, y: 0, width: targetWidth, height: targetHeight },
+          ];
+
+    // Preload frame images for multi-cutout composite animation
+    const loadedImages: HTMLImageElement[] = [];
+    for (const frameSrc of frames) {
+      try {
+        const img = await this.loadImage(frameSrc);
+        loadedImages.push(img);
+      } catch (e) {
+        console.warn('[GifComposer] Failed to load frame:', e);
+      }
+    }
 
     // 4. Initialize GIFEncoder
     const gif = GIFEncoder();
 
-    // 5. Render and encode each frame inside cutout aperture
-    for (const frameSrc of sequence) {
+    // 5. Render and encode each frame inside cutout apertures
+    for (let fIdx = 0; fIdx < sequence.length; fIdx++) {
+      const frameSrc = sequence[fIdx];
       ctx.clearRect(0, 0, targetWidth, targetHeight);
 
-      // Fill clean white background (matches real photo paper and prevents dark dirty bleed)
+      // Fill clean white background (matches real photo paper)
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, targetWidth, targetHeight);
 
-      try {
-        const img = await this.loadImage(frameSrc);
+      if (slots.length > 1 && loadedImages.length > 0) {
+        // Multi-cutout frame: fill ALL slots with photos so NO slot is ever empty
+        for (let sIdx = 0; sIdx < slots.length; sIdx++) {
+          const slot = slots[sIdx];
+          // Cycle photos across slots per animation frame
+          const imgIndex = (sIdx + fIdx) % loadedImages.length;
+          const img = loadedImages[imgIndex] || loadedImages[0];
 
-        // Aspect Fill / Center Crop the photo precisely inside the cutout hole
-        const imgAspect = img.width / img.height;
-        const slotAspect = slot.width / slot.height;
+          if (img) {
+            const imgAspect = img.width / img.height;
+            const slotAspect = slot.width / slot.height;
 
-        let drawW = slot.width;
-        let drawH = slot.height;
-        let drawX = slot.x;
-        let drawY = slot.y;
+            let drawW = slot.width;
+            let drawH = slot.height;
+            let drawX = slot.x;
+            let drawY = slot.y;
 
-        if (imgAspect > slotAspect) {
-          drawW = slot.height * imgAspect;
-          drawX = slot.x + (slot.width - drawW) / 2;
-        } else {
-          drawH = slot.width / imgAspect;
-          drawY = slot.y + (slot.height - drawH) / 2;
+            if (imgAspect > slotAspect) {
+              drawW = slot.height * imgAspect;
+              drawX = slot.x + (slot.width - drawW) / 2;
+            } else {
+              drawH = slot.width / imgAspect;
+              drawY = slot.y + (slot.height - drawH) / 2;
+            }
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(slot.x, slot.y, slot.width, slot.height);
+            ctx.clip();
+            ctx.drawImage(img, drawX, drawY, drawW, drawH);
+            ctx.restore();
+          }
         }
+      } else {
+        // Single cutout (classic Boomerang GIF)
+        const slot = slots[0];
+        try {
+          const img = await this.loadImage(frameSrc);
+          const imgAspect = img.width / img.height;
+          const slotAspect = slot.width / slot.height;
 
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(slot.x, slot.y, slot.width, slot.height);
-        ctx.clip();
-        ctx.drawImage(img, drawX, drawY, drawW, drawH);
-        ctx.restore();
-      } catch (err) {
-        console.warn('[GifComposer] Error loading frame image, drawing placeholder', err);
-        ctx.fillStyle = '#181B20';
-        ctx.fillRect(slot.x, slot.y, slot.width, slot.height);
+          let drawW = slot.width;
+          let drawH = slot.height;
+          let drawX = slot.x;
+          let drawY = slot.y;
+
+          if (imgAspect > slotAspect) {
+            drawW = slot.height * imgAspect;
+            drawX = slot.x + (slot.width - drawW) / 2;
+          } else {
+            drawH = slot.width / imgAspect;
+            drawY = slot.y + (slot.height - drawH) / 2;
+          }
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(slot.x, slot.y, slot.width, slot.height);
+          ctx.clip();
+          ctx.drawImage(img, drawX, drawY, drawW, drawH);
+          ctx.restore();
+        } catch (err) {
+          ctx.fillStyle = '#181B20';
+          ctx.fillRect(slot.x, slot.y, slot.width, slot.height);
+        }
       }
 
       // Draw custom GIF PNG frame overlay on top
