@@ -67,17 +67,6 @@ export default function DashboardPage() {
 
   // Download Modal
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
-  const [downloadModalTab, setDownloadModalTab] = useState<'tablet' | 'desktop'>('desktop');
-  const [tabletQrDataUrl, setTabletQrDataUrl] = useState<string>('');
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const tabletUrl = `${window.location.origin}/tablet`;
-      QRCode.toDataURL(tabletUrl, { margin: 1, width: 260 })
-        .then(setTabletQrDataUrl)
-        .catch(() => {});
-    }
-  }, []);
 
   useEffect(() => {
     // Auth Session Guard
@@ -1056,8 +1045,8 @@ export default function DashboardPage() {
                   />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-white">MingleBooth Studio Multi-Device</h2>
-                  <p className="text-xs text-neutral-400">Pilih perangkat yang ingin Anda gunakan untuk menjalankan photobooth.</p>
+                  <h2 className="text-base font-bold text-white">Unduh MingleBooth Studio Desktop</h2>
+                  <p className="text-xs text-neutral-400">Aplikasi native photobooth kiosk untuk laptop atau komputer booth Anda.</p>
                 </div>
               </div>
               <button
@@ -1068,169 +1057,90 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* Tab Selector */}
-            <div className="grid grid-cols-2 p-1 rounded-xl bg-black/40 border border-white/[0.06]">
-              <button
-                onClick={() => setDownloadModalTab('desktop')}
-                className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                  downloadModalTab === 'desktop'
-                    ? 'bg-white text-black shadow-sm'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                <Laptop className="w-3.5 h-3.5" />
-                <span>💻 Laptop (Mac / Win)</span>
-              </button>
-              <button
-                onClick={() => setDownloadModalTab('tablet')}
-                className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                  downloadModalTab === 'tablet'
-                    ? 'bg-white text-black shadow-sm'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>📱 iPad &amp; Android Tab</span>
-              </button>
+            {/* DIRECT DESKTOP DOWNLOADS: MAC (.DMG) & WINDOWS (.EXE) */}
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3">
+                {/* Option 1: macOS (.dmg) */}
+                <div className="p-4 rounded-xl bg-[#181A1E] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-9 h-9 rounded-lg bg-white/[0.06] flex items-center justify-center text-white">
+                      <Laptop className="w-5 h-5 text-neutral-200" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-white">macOS (Apple Silicon &amp; Intel)</span>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          .dmg
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-neutral-400 mt-0.5">
+                        macOS 12+ (Monterey, Ventura, Sonoma, Sequoia)
+                      </p>
+                    </div>
+                  </div>
+
+                  <a
+                    href={
+                      process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
+                      !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('1Zveihx99200')
+                        ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
+                        : 'https://drive.google.com/file/d/1hRJ4X9UGSYql2dsWYYyH5TO2fmZ0PHBk/view?usp=share_link'
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="h-8 px-3.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm flex-shrink-0"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh .dmg (Mac)</span>
+                  </a>
+                </div>
+
+                {/* Option 2: Windows (.exe) */}
+                <div className="p-4 rounded-xl bg-[#181A1E] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-9 h-9 rounded-lg bg-white/[0.06] flex items-center justify-center text-white">
+                      <Laptop className="w-5 h-5 text-white/80" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-white">Windows 64-bit</span>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-white/[0.08] text-neutral-300 border border-white/10">
+                          .exe
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-neutral-400 mt-0.5">
+                        Windows 10 &amp; 11 (Driver DNP, HiTi, Citizen Ready)
+                      </p>
+                    </div>
+                  </div>
+
+                  <a
+                    href={
+                      process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
+                      !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('11yqBITrjKw')
+                        ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
+                        : 'https://drive.google.com/file/d/1ybYDGImhyVp1CFBfvXyDoLKI3XW0CLS3/view?usp=share_link'
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="h-8 px-3.5 rounded-lg bg-[#22262E] hover:bg-[#2C313C] border border-white/[0.1] text-white font-medium text-xs flex items-center gap-1.5 transition-colors flex-shrink-0"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh .exe (Windows)</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* Step-by-Step Instructions */}
+              <div className="p-4 rounded-xl bg-black/40 border border-white/[0.04] flex flex-col gap-2">
+                <span className="text-xs font-semibold text-neutral-200">Cara Memulai Photobooth di Laptop:</span>
+                <ol className="text-xs text-neutral-400 space-y-1 list-decimal list-inside leading-relaxed">
+                  <li>Unduh file installer sesuai OS laptop booth Anda (.dmg untuk Mac atau .exe untuk Windows).</li>
+                  <li>Buka aplikasi MingleBooth Studio dan login menggunakan email vendor: <strong className="text-white">{currentUser?.email || 'email-anda'}</strong>.</li>
+                  <li>Sambungkan kabel USB kamera &amp; printer. Mode Kiosk Photobooth langsung siap beroperasi 100% offline!</li>
+                </ol>
+              </div>
             </div>
-
-            {/* TAB 1: TABLET (IPAD & ANDROID TAB) */}
-            {downloadModalTab === 'tablet' && (
-              <div className="flex flex-col gap-4">
-                <div className="p-4 rounded-xl bg-[#181A22] border border-white/[0.08] flex flex-col sm:flex-row items-center gap-4">
-                  {/* QR Code Container */}
-                  <div className="p-2 bg-white rounded-xl shadow-md flex-shrink-0">
-                    {tabletQrDataUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={tabletQrDataUrl} alt="Scan QR iPad" className="w-28 h-28 object-contain" />
-                    ) : (
-                      <div className="w-28 h-28 bg-neutral-200 flex items-center justify-center text-[10px] text-black">
-                        Memuat QR...
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex-1 text-center sm:text-left">
-                    <span className="text-xs font-bold text-white block">Gunakan iPad / Tablet Sebagai Touch Display</span>
-                    <p className="text-[11px] text-neutral-400 mt-1 leading-relaxed">
-                      Jadikan iPad atau tablet sebagai layar display tamu dengan menghubungkannya ke laptop via Sidecar (Mac) atau Spacedesk (Windows). Engine photobooth tetap berjalan di MingleBooth Studio Desktop untuk performa kamera dan printer maksimal.
-                    </p>
-                    <div className="mt-3 flex items-center gap-2">
-                      <Link
-                        href="/tablet"
-                        className="h-8 px-4 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>Buka Panduan &amp; Unduh Lengkap</span>
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3 Step Instruction */}
-                <div className="p-4 rounded-xl bg-black/40 border border-white/[0.04] flex flex-col gap-2">
-                  <span className="text-xs font-semibold text-neutral-200">Panduan Penggunaan Layar Tablet:</span>
-                  <ol className="text-xs text-neutral-400 space-y-1.5 list-decimal list-inside leading-relaxed">
-                    <li>
-                      <strong className="text-white">Install MingleBooth Studio di Laptop:</strong> Pastikan software desktop sudah berjalan di laptop operator.
-                    </li>
-                    <li>
-                      <strong className="text-white">Hubungkan Tablet sebagai Monitor Eksternal:</strong> Gunakan Apple Sidecar (iPad + Mac) atau Spacedesk (Android/iPad + Windows).
-                    </li>
-                    <li>
-                      <strong className="text-white">Siap Digunakan:</strong> Tamu dapat melihat live view dan menekan tombol sentuh langsung dari layar tablet.
-                    </li>
-                  </ol>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: LAPTOP / DESKTOP (MAC & WINDOWS) */}
-            {downloadModalTab === 'desktop' && (
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-3">
-                  {/* Option 1: macOS */}
-                  <div className="p-4 rounded-xl bg-[#181A1E] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3.5">
-                      <div className="w-9 h-9 rounded-lg bg-white/[0.06] flex items-center justify-center text-white">
-                        <Laptop className="w-5 h-5 text-neutral-200" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-white">macOS (Apple Silicon &amp; Intel)</span>
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            .dmg
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-neutral-400 mt-0.5">
-                          macOS 12+ (Monterey, Ventura, Sonoma, Sequoia)
-                        </p>
-                      </div>
-                    </div>
-
-                    <a
-                      href={
-                        process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
-                        !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('1Zveihx99200')
-                          ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
-                          : 'https://drive.google.com/file/d/1hRJ4X9UGSYql2dsWYYyH5TO2fmZ0PHBk/view?usp=share_link'
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="h-8 px-3.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm flex-shrink-0"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Unduh .dmg</span>
-                    </a>
-                  </div>
-
-                  {/* Option 2: Windows */}
-                  <div className="p-4 rounded-xl bg-[#181A1E] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3.5">
-                      <div className="w-9 h-9 rounded-lg bg-white/[0.06] flex items-center justify-center text-white">
-                        <Laptop className="w-5 h-5 text-white/80" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-white">Windows 64-bit</span>
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-white/[0.08] text-neutral-300 border border-white/10">
-                            .exe
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-neutral-400 mt-0.5">
-                          Windows 10 / 11 (Driver DNP, HiTi, Citizen Ready)
-                        </p>
-                      </div>
-                    </div>
-
-                    <a
-                      href={
-                        process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
-                        !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('11yqBITrjKw')
-                          ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
-                          : 'https://drive.google.com/file/d/1ybYDGImhyVp1CFBfvXyDoLKI3XW0CLS3/view?usp=share_link'
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="h-8 px-3.5 rounded-lg bg-[#22262E] hover:bg-[#2C313C] border border-white/[0.1] text-white font-medium text-xs flex items-center gap-1.5 transition-colors flex-shrink-0"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Unduh .exe</span>
-                    </a>
-                  </div>
-                </div>
-
-                {/* Step-by-Step Instructions */}
-                <div className="p-4 rounded-xl bg-black/40 border border-white/[0.04] flex flex-col gap-2">
-                  <span className="text-xs font-semibold text-neutral-200">Cara Aktivasi di Laptop Booth:</span>
-                  <ol className="text-xs text-neutral-400 space-y-1 list-decimal list-inside leading-relaxed">
-                    <li>Buka aplikasi MingleBooth Studio yang telah diinstal.</li>
-                    <li>Masuk menggunakan email akun vendor Anda: <strong className="text-white">{currentUser?.email || 'email-anda'}</strong>.</li>
-                    <li>Lisensi laptop otomatis aktif dan langsung siap beroperasi 100% offline di lokasi acara.</li>
-                  </ol>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}

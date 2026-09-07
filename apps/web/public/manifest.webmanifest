@@ -1,7 +1,7 @@
 {
-  "name": "MingleBooth Tablet Studio",
+  "name": "MingleBooth Studio",
   "short_name": "MingleBooth",
-  "description": "Professional Photobooth Operating System for iPad & Android Tablet",
+  "description": "Professional Photobooth Software for macOS & Windows",
   "start_url": "/tablet",
   "scope": "/tablet",
   "display": "standalone",

@@ -12,7 +12,6 @@ import {
   Camera,
   Printer,
   ShieldCheck,
-  Tablet,
   ExternalLink,
 } from 'lucide-react';
 
@@ -165,21 +164,6 @@ export default function TabletStudioPage() {
                 Login akun vendor Anda. Template dan konfigurasi acara otomatis tersinkronisasi.
               </p>
             </div>
-          </div>
-        </div>
-
-        {/* Tablet / iPad Display Info */}
-        <div className="w-full max-w-2xl p-5 rounded-2xl bg-white/[0.02] border border-white/[0.04] text-left flex items-start gap-4">
-          <div className="w-9 h-9 rounded-xl bg-white/[0.05] border border-white/10 flex items-center justify-center flex-shrink-0 text-neutral-300 mt-0.5">
-            <Tablet className="w-4 h-4" />
-          </div>
-          <div>
-            <h4 className="text-xs font-semibold text-white mb-1">
-              Ingin menggunakan iPad atau Tablet sebagai Display Kiosk?
-            </h4>
-            <p className="text-[11px] text-neutral-400 leading-relaxed">
-              Anda dapat menghubungkan iPad atau tablet Android sebagai layar sentuh kedua (menggunakan fitur <em>Sidecar</em> bawaan Mac atau software display nirkabel seperti <em>Spacedesk</em> di Windows). Dengan metode ini, pemrosesan kamera dan pencetakan foto tetap berjalan cepat dan stabil 100% di laptop.
-            </p>
           </div>
         </div>
       </main>

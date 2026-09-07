@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import '../globals.css';
 
 export const metadata: Metadata = {
-  title: 'MingleBooth Tablet Studio — Operator Photobooth',
-  description: 'Sistem Operasi Photobooth Profesional untuk iPad dan Android Tablet.',
+  title: 'MingleBooth Studio — Unduh Software Photobooth Kiosk',
+  description: 'Unduh MingleBooth Studio Desktop untuk macOS (.dmg) dan Windows (.exe).',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
