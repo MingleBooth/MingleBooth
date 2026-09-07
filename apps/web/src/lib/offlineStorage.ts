@@ -148,3 +148,35 @@ export async function clearOfflineCaptures(eventId?: string): Promise<void> {
     console.warn('IndexedDB clear error:', err);
   }
 }
+
+/**
+ * Automatically clean up offline captures older than retention period (default 30 days)
+ */
+export async function cleanupExpiredOfflineCaptures(retentionDays: number = 30): Promise<number> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.getAll();
+
+      req.onsuccess = () => {
+        const items: OfflineCaptureItem[] = req.result || [];
+        const threshold = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+        let count = 0;
+
+        for (const item of items) {
+          if (item.createdAt && new Date(item.createdAt).getTime() < threshold) {
+            store.delete(item.photoId);
+            count++;
+          }
+        }
+        resolve(count);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn('cleanupExpiredOfflineCaptures error:', err);
+    return 0;
+  }
+}

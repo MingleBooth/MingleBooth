@@ -55,17 +55,38 @@ export async function GET(req: NextRequest) {
 
     if (expiredPhotos && expiredPhotos.length > 0) {
       for (const p of expiredPhotos) {
-        // Delete cloud gallery file
+        // Delete local cloud gallery files (composite & raw shots)
         try {
-          const cloudFilePath = path.join(
-            dataRoot,
-            'cloud-storage/public-gallery/events',
-            p.event_id,
-            `${p.id}.jpg`
-          );
+          const eventCloudDir = path.join(dataRoot, 'cloud-storage/public-gallery/events', p.event_id);
+          const cloudFilePath = path.join(eventCloudDir, `${p.id}.jpg`);
           await fs.unlink(cloudFilePath).catch(() => {});
+
+          // Clean up raw shots if present
+          const rawCloudDir = path.join(eventCloudDir, 'raw');
+          try {
+            const rawFiles = await fs.readdir(rawCloudDir);
+            for (const rf of rawFiles) {
+              if (rf.startsWith(`${p.id}_raw_`)) {
+                await fs.unlink(path.join(rawCloudDir, rf)).catch(() => {});
+              }
+            }
+          } catch {}
         } catch (e) {
-          console.warn('[Cron Cleanup] File deletion notice:', e);
+          console.warn('[Cron Cleanup] Local cloud file deletion notice:', e);
+        }
+
+        // Delete from Supabase Storage bucket
+        try {
+          const filesToDelete = [
+            p.cloud_storage_path || `events/${p.event_id}/${p.id}.jpg`,
+            `events/${p.event_id}/raw/${p.id}_raw_1.jpg`,
+            `events/${p.event_id}/raw/${p.id}_raw_2.jpg`,
+            `events/${p.event_id}/raw/${p.id}_raw_3.jpg`,
+            `events/${p.event_id}/raw/${p.id}_raw_4.jpg`,
+          ];
+          await client.storage.from('minglebooth-storage').remove(filesToDelete);
+        } catch (stErr) {
+          console.warn('[Cron Cleanup] Storage bucket removal notice:', stErr);
         }
 
         // Mark as cloud deleted in Supabase
@@ -98,6 +119,14 @@ export async function GET(req: NextRequest) {
           await fs.unlink(cloudFilePath).catch(() => {});
         } catch (e) {
           console.warn('[Cron Cleanup] File deletion notice:', e);
+        }
+
+        // Delete from Supabase Storage bucket
+        try {
+          const gifStoragePath = g.cloud_storage_path || `events/${g.event_id}/${g.id}.gif`;
+          await client.storage.from('minglebooth-storage').remove([gifStoragePath]);
+        } catch (stErr) {
+          console.warn('[Cron Cleanup] GIF storage bucket removal notice:', stErr);
         }
 
         await client
