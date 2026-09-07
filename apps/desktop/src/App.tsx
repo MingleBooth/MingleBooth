@@ -17,6 +17,8 @@ import {
   FolderCheck,
   Folder,
   FolderOpen,
+  FolderPlus,
+  Archive,
   ArrowLeft,
   ChevronLeft,
   Monitor,
@@ -151,9 +153,12 @@ const TabletStudioContent: React.FC = () => {
   const [countdownSeconds, setCountdownSeconds] = useState<number>(3); // 0, 3, 5, 10
   const [shotsCount, setShotsCount] = useState<number>(2); // 1, 2, 3, 4, 5, 6
   const [enableGif, setEnableGif] = useState<boolean>(true);
-  const [gifOverlayPath, setGifOverlayPath] = useState<string | null>('frames/wedding_gif_frame.png');
+  const [gifOverlayPath, setGifOverlayPath] = useState<string | null>(null);
   const [customPhotoFileName, setCustomPhotoFileName] = useState<string>('');
   const [customGifFileName, setCustomGifFileName] = useState<string>('');
+  const [customStorageDir, setCustomStorageDir] = useState<string>(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('mb_custom_storage_dir') || '' : ''
+  );
   const [isLoadingVendorData, setIsLoadingVendorData] = useState<boolean>(false);
 
   // Kiosk Session Running State
@@ -594,11 +599,32 @@ const TabletStudioContent: React.FC = () => {
     }
   }, [phase, showEventGalleryModal, selectedEventId, loadGalleryData]);
 
+  // Handle choose or create a new custom folder on laptop/SSD
+  const handleChooseOrNewFolder = async () => {
+    try {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.selectFolder) {
+        const res = await (window as any).electronAPI.selectFolder(customStorageDir || undefined);
+        if (!res.canceled && res.selectedPath) {
+          setCustomStorageDir(res.selectedPath);
+          localStorage.setItem('mb_custom_storage_dir', res.selectedPath);
+          alert(`Folder penyimpanan foto berhasil diatur ke:\n${res.selectedPath}`);
+        }
+      } else {
+        alert('Fitur pemilihan folder aktif di aplikasi desktop MingleBooth.');
+      }
+    } catch (e: any) {
+      alert(`Gagal memilih folder: ${e?.message || e}`);
+    }
+  };
+
   // Handle open storage folder directly in Finder / File Explorer
   const handleOpenEventStorageFolder = async () => {
     try {
       if (typeof window !== 'undefined' && (window as any).electronAPI?.openEventFolder) {
-        const res = await (window as any).electronAPI.openEventFolder(currentEvent.name);
+        const res = await (window as any).electronAPI.openEventFolder({
+          eventName: currentEvent.name,
+          customBasePath: customStorageDir || undefined,
+        });
         if (res && !res.success && res.error) {
           alert(`Gagal membuka folder: ${res.error}`);
         }
@@ -929,10 +955,11 @@ const TabletStudioContent: React.FC = () => {
         createdAt: new Date().toISOString(),
       }).catch(() => {});
 
-      // Save directly to local SSD folder ~/Pictures/MingleBooth/[Nama Acara]
+      // Save directly to local SSD folder ~/Pictures/MingleBooth/[Nama Acara] or custom folder
       if (typeof window !== 'undefined' && (window as any).electronAPI?.saveCaptureFiles) {
         (window as any).electronAPI.saveCaptureFiles({
           eventName: currentEvent.name,
+          customBasePath: customStorageDir || undefined,
           photoId,
           photoBase64: compositeDataUrl,
           gifBase64: gifDataUrl,
@@ -1047,6 +1074,57 @@ const TabletStudioContent: React.FC = () => {
     setSessionStep('idle');
   };
 
+  // Download all assets for a session (Framed photo + GIF + All raw poses)
+  const handleDownloadAllAssets = async () => {
+    if (!selectedGalleryPreviewItem) return;
+    const item = selectedGalleryPreviewItem;
+    const downloads: Array<{ url: string; filename: string }> = [];
+
+    // 1. Framed composite photo
+    if (item.photoDataUrl) {
+      downloads.push({
+        url: item.photoDataUrl,
+        filename: `${item.photoId}_Foto_Bingkai.jpg`,
+      });
+    }
+
+    // 2. Animated GIF
+    if (item.hasGif && item.gifDataUrl) {
+      downloads.push({
+        url: item.gifDataUrl,
+        filename: `${item.photoId}_Animasi.gif`,
+      });
+    }
+
+    // 3. Raw original shots
+    if (item.rawShots && item.rawShots.length > 0) {
+      item.rawShots.forEach((shot, sIdx) => {
+        downloads.push({
+          url: shot.dataUrl,
+          filename: `${item.photoId}_Foto_Original_Pose${shot.index || sIdx + 1}.jpg`,
+        });
+      });
+    } else if (item.photoDataUrl && !item.hasGif) {
+      downloads.push({
+        url: item.photoDataUrl,
+        filename: `${item.photoId}_Foto_Original.jpg`,
+      });
+    }
+
+    for (let i = 0; i < downloads.length; i++) {
+      const d = downloads[i];
+      const link = document.createElement('a');
+      link.href = d.url;
+      link.download = d.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      if (downloads.length > 1 && i < downloads.length - 1) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE: DEDICATED FULL-PAGE EVENT GALLERY
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1068,52 +1146,56 @@ const TabletStudioContent: React.FC = () => {
 
     return (
       <div className="flex flex-col h-screen w-screen bg-[#090A0C] text-[#EDEDED] font-sans select-none overflow-hidden antialiased">
-        {/* Top Minimal Header */}
-        <header className="h-16 px-6 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-4">
+        {/* Top Minimal Header (Responsive & Proportional) */}
+        <header className="px-6 py-2.5 border-b border-white/[0.08] bg-[#0F1014] flex flex-wrap items-center justify-between gap-3 flex-shrink-0 min-h-[64px]">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setPhase(previousPhase || 'setup')}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer flex-shrink-0"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Kembali ke Studio</span>
             </button>
 
-            <div className="h-4 w-[1px] bg-white/10 hidden sm:block" />
+            <div className="h-4 w-[1px] bg-white/10 hidden sm:block flex-shrink-0" />
 
-            <div className="flex items-center gap-2.5">
-              <img
-                src={logoHeader}
-                alt="MingleBooth"
-                className="h-7 w-auto object-contain hidden sm:block"
-              />
-              <div>
-                <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <span>Galeri Foto: {currentEvent.name}</span>
-                  <span className="px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-medium text-neutral-300">
-                    Khusus Acara Terpilih
-                  </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm font-semibold text-white truncate max-w-[220px] sm:max-w-md">
+                  Galeri Foto: {currentEvent.name}
                 </h2>
-                <p className="text-[11px] text-neutral-400">
-                  {totalSessions} sesi foto tersimpan di laptop & cloud
-                </p>
+                <span className="px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-medium text-neutral-300 flex-shrink-0">
+                  Khusus Acara Terpilih
+                </span>
               </div>
+              <p className="text-[11px] text-neutral-400 truncate">
+                {totalSessions} sesi foto tersimpan • {customStorageDir ? `Folder: ${customStorageDir}` : 'Penyimpanan Laptop Aktif'}
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+            <button
+              onClick={handleChooseOrNewFolder}
+              className="h-9 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Pilih atau buat folder baru di laptop untuk meletakkan foto"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-neutral-300" />
+              <span>Atur / Buat Folder</span>
+            </button>
+
             <button
               onClick={handleOpenEventStorageFolder}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+              className="h-9 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
               title="Buka folder foto acara ini di Finder / File Explorer"
             >
               <FolderOpen className="w-3.5 h-3.5 text-neutral-300" />
-              <span>Buka Folder di Laptop</span>
+              <span>Buka Folder</span>
             </button>
 
             <button
               onClick={() => loadGalleryData()}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+              className="h-9 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
               title="Muat ulang galeri"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isEventGalleryLoading ? 'animate-spin' : ''}`} />
@@ -1123,8 +1205,8 @@ const TabletStudioContent: React.FC = () => {
         </header>
 
         {/* Filter Navigation Bar */}
-        <div className="px-6 py-3 border-b border-white/[0.06] bg-[#0C0D10] flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-1.5 bg-[#141519] p-1 rounded-xl border border-white/[0.08]">
+        <div className="px-6 py-2.5 border-b border-white/[0.06] bg-[#0C0D10] flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-1.5 bg-[#141519] p-1 rounded-xl border border-white/[0.08] flex-wrap">
             <button
               onClick={() => setGalleryFilterTab('all')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
@@ -1169,12 +1251,12 @@ const TabletStudioContent: React.FC = () => {
             </button>
           </div>
 
-          <div className="text-xs text-neutral-400 hidden md:block">
+          <div className="text-xs text-neutral-400 hidden lg:block">
             Acara aktif: <span className="text-white font-medium">{currentEvent.name}</span>
           </div>
         </div>
 
-        {/* Gallery Grid Body */}
+        {/* Gallery Grid Body (Proportional and Uncropped) */}
         <main className="flex-1 overflow-y-auto p-6 min-h-0">
           {isEventGalleryLoading ? (
             <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-xs text-neutral-400 gap-3">
@@ -1215,8 +1297,9 @@ const TabletStudioContent: React.FC = () => {
                     );
                     setLightboxRawIndex(0);
                   }}
-                  className="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-black border border-white/[0.08] hover:border-white/30 transition-all cursor-pointer shadow-lg hover:shadow-2xl"
+                  className="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-[#0A0B0E] border border-white/[0.08] hover:border-white/30 transition-all cursor-pointer shadow-lg hover:shadow-2xl flex items-center justify-center p-1"
                 >
+                  {/* Proportional object-contain so frame is 100% visible without cropping */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={
@@ -1225,7 +1308,7 @@ const TabletStudioContent: React.FC = () => {
                         : item.photoDataUrl
                     }
                     alt={item.photoId}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-contain rounded-xl group-hover:scale-[1.02] transition-transform duration-300"
                   />
 
                   {/* Badges Top */}
@@ -1258,7 +1341,7 @@ const TabletStudioContent: React.FC = () => {
           )}
         </main>
 
-        {/* Lightbox / Detail Modal */}
+        {/* Lightbox / Detail Modal (Unified All-in-One Package) */}
         {selectedGalleryPreviewItem && (
           <div
             onClick={() => setSelectedGalleryPreviewItem(null)}
@@ -1269,7 +1352,7 @@ const TabletStudioContent: React.FC = () => {
               className="max-w-3xl w-full bg-[#121316] border border-white/15 rounded-3xl p-5 flex flex-col gap-4 shadow-2xl max-h-[92vh] overflow-hidden"
             >
               <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-mono text-neutral-300">
                     ID: {selectedGalleryPreviewItem.photoId}
                   </span>
@@ -1288,9 +1371,9 @@ const TabletStudioContent: React.FC = () => {
                 </button>
               </div>
 
-              {/* Mode Switcher Tabs: Foto Cetak | Animasi GIF | Foto Original */}
+              {/* Mode Switcher Tabs: 1. Foto Cetak | 2. Animasi GIF | 3. Foto Original (All-in-One) */}
               <div className="flex flex-col items-center gap-2">
-                <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.08]">
+                <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.08] flex-wrap justify-center">
                   <button
                     type="button"
                     onClick={() => setGalleryLightboxTab('photo')}
@@ -1300,46 +1383,48 @@ const TabletStudioContent: React.FC = () => {
                         : 'text-neutral-400 hover:text-white'
                     }`}
                   >
-                    Foto Cetak
+                    1. Foto Bingkai (Cetak)
                   </button>
 
-                  {selectedGalleryPreviewItem.hasGif && selectedGalleryPreviewItem.gifDataUrl && (
-                    <button
-                      type="button"
-                      onClick={() => setGalleryLightboxTab('gif')}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                        galleryLightboxTab === 'gif'
-                          ? 'bg-white text-black shadow-sm'
-                          : 'text-neutral-400 hover:text-white'
-                      }`}
-                    >
-                      <Film className="w-3.5 h-3.5" />
-                      <span>Animasi GIF</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedGalleryPreviewItem.hasGif && selectedGalleryPreviewItem.gifDataUrl) {
+                        setGalleryLightboxTab('gif');
+                      }
+                    }}
+                    disabled={!selectedGalleryPreviewItem.hasGif || !selectedGalleryPreviewItem.gifDataUrl}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      !selectedGalleryPreviewItem.hasGif || !selectedGalleryPreviewItem.gifDataUrl
+                        ? 'opacity-40 cursor-not-allowed text-neutral-500'
+                        : galleryLightboxTab === 'gif'
+                        ? 'bg-white text-black shadow-sm cursor-pointer'
+                        : 'text-neutral-400 hover:text-white cursor-pointer'
+                    }`}
+                  >
+                    <Film className="w-3.5 h-3.5" />
+                    <span>2. Animasi GIF</span>
+                  </button>
 
-                  {selectedGalleryPreviewItem.rawShots && selectedGalleryPreviewItem.rawShots.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setGalleryLightboxTab('original')}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                        galleryLightboxTab === 'original'
-                          ? 'bg-white text-black shadow-sm'
-                          : 'text-neutral-400 hover:text-white'
-                      }`}
-                    >
-                      <Camera className="w-3.5 h-3.5" />
-                      <span>Foto Original</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setGalleryLightboxTab('original')}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      galleryLightboxTab === 'original'
+                        ? 'bg-white text-black shadow-sm'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>3. Foto Original Mentah</span>
+                  </button>
                 </div>
 
                 {/* Sub-selector for raw poses if original tab is selected */}
-                {galleryLightboxTab === 'original' &&
-                  selectedGalleryPreviewItem.rawShots &&
-                  selectedGalleryPreviewItem.rawShots.length > 1 && (
-                    <div className="flex items-center gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.06]">
-                      {selectedGalleryPreviewItem.rawShots.map((shot, sIdx) => (
+                {galleryLightboxTab === 'original' && (
+                  <div className="flex items-center gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.06] flex-wrap justify-center">
+                    {selectedGalleryPreviewItem.rawShots && selectedGalleryPreviewItem.rawShots.length > 0 ? (
+                      selectedGalleryPreviewItem.rawShots.map((shot, sIdx) => (
                         <button
                           key={sIdx}
                           type="button"
@@ -1352,9 +1437,14 @@ const TabletStudioContent: React.FC = () => {
                         >
                           Pose {shot.index || sIdx + 1}
                         </button>
-                      ))}
-                    </div>
-                  )}
+                      ))
+                    ) : (
+                      <span className="text-[11px] text-neutral-400 px-2 py-0.5">
+                        Foto Asli Kamera Sesi Ini
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Preview Image Display */}
@@ -1376,9 +1466,20 @@ const TabletStudioContent: React.FC = () => {
                 />
               </div>
 
-              {/* Actions Bottom Bar */}
-              <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/[0.08]">
-                <div className="flex items-center gap-2">
+              {/* Actions Bottom Bar: Download All-in-One + Individual Options */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/[0.08]">
+                {/* Primary Button: Download All Assets at Once */}
+                <button
+                  type="button"
+                  onClick={handleDownloadAllAssets}
+                  className="h-10 px-4 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
+                  title="Unduh seluruh foto berbingkai, animasi GIF, dan seluruh foto original dalam 1 klik"
+                >
+                  <Archive className="w-4 h-4 text-black" />
+                  <span>Unduh Semua (Bingkai + GIF + Original)</span>
+                </button>
+
+                <div className="flex items-center gap-2 flex-wrap">
                   <a
                     href={
                       galleryLightboxTab === 'gif' && selectedGalleryPreviewItem.gifDataUrl
@@ -1393,23 +1494,22 @@ const TabletStudioContent: React.FC = () => {
                     download={`${selectedGalleryPreviewItem.photoId}_${galleryLightboxTab}${
                       galleryLightboxTab === 'original' ? `_pose${lightboxRawIndex + 1}` : ''
                     }.${galleryLightboxTab === 'gif' ? 'gif' : 'jpg'}`}
-                    className="h-10 px-4 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-semibold text-white flex items-center gap-2 transition-colors cursor-pointer"
+                    className="h-10 px-3.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-semibold text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Unduh hanya file yang sedang dilihat"
                   >
-                    <Download className="w-4 h-4" />
-                    <span>Unduh File</span>
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh File Ini</span>
                   </a>
 
                   <button
                     type="button"
                     onClick={handleOpenEventStorageFolder}
-                    className="h-10 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                    className="h-10 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <FolderOpen className="w-3.5 h-3.5 text-neutral-300" />
-                    <span>Buka di Folder Laptop</span>
+                    <span>Buka Folder</span>
                   </button>
-                </div>
 
-                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={async () => {
@@ -1434,10 +1534,10 @@ const TabletStudioContent: React.FC = () => {
                         alert(`Gagal mencetak: ${e.message}`);
                       }
                     }}
-                    className="h-10 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
+                    className="h-10 px-4 rounded-xl bg-white/[0.12] hover:bg-white/[0.2] border border-white/20 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
                   >
-                    <Printer className="w-4 h-4" />
-                    <span>Cetak Foto Ini</span>
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Cetak Foto</span>
                   </button>
                 </div>
               </div>
@@ -1469,6 +1569,15 @@ const TabletStudioContent: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2.5">
+            <button
+              onClick={handleChooseOrNewFolder}
+              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+              title="Pilih atau buat folder baru di laptop untuk meletakkan foto"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-neutral-300" />
+              <span>Atur Folder</span>
+            </button>
+
             <button
               onClick={handleOpenEventStorageFolder}
               className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
@@ -1792,7 +1901,7 @@ const TabletStudioContent: React.FC = () => {
                       <Film className="w-3.5 h-3.5 text-neutral-300 flex-shrink-0" />
                       <div className="truncate text-neutral-300">
                         <span className="truncate">
-                          {customGifFileName ? `GIF: ${customGifFileName}` : 'GIF Boomerang Bawaan'}
+                          {customGifFileName ? `GIF: ${customGifFileName}` : 'GIF: Kosongan Murni (Tanpa Bingkai/Watermark)'}
                         </span>
                         {customGifCutouts.length > 1 && (
                           <span className="ml-1 text-[10px] text-neutral-400">
@@ -1806,12 +1915,12 @@ const TabletStudioContent: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            setGifOverlayPath('frames/wedding_gif_frame.png');
+                            setGifOverlayPath(null);
                             setCustomGifFileName('');
                             setCustomGifCutouts([]);
                           }}
                           className="px-2 py-0.5 rounded text-[10px] text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                          title="Kembalikan ke bingkai GIF boomerang 1-frame bawaan"
+                          title="Hapus bingkai GIF khusus dan kembalikan ke video kosongan murni"
                         >
                           Reset
                         </button>

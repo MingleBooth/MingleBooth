@@ -354,18 +354,23 @@ ipcMain.handle('storage:open-folder', async (event, folderPath) => {
   }
 });
 
-function getEventStorageDir(eventName) {
-  const sanitized = (eventName || 'Acara_Photobooth')
-    .replace(/[<>:"/\\|?*]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim();
-  let basePictures;
-  try {
-    basePictures = app.getPath('pictures');
-  } catch (e) {
-    basePictures = path.join(os.homedir(), 'Pictures');
+function getEventStorageDir(eventName, customBasePath) {
+  let baseDir;
+  if (customBasePath && typeof customBasePath === 'string' && customBasePath.trim() !== '') {
+    baseDir = customBasePath.trim();
+  } else {
+    const sanitized = (eventName || 'Acara_Photobooth')
+      .replace(/[<>:"/\\|?*]/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim();
+    let basePictures;
+    try {
+      basePictures = app.getPath('pictures');
+    } catch (e) {
+      basePictures = path.join(os.homedir(), 'Pictures');
+    }
+    baseDir = path.join(basePictures, 'MingleBooth', sanitized);
   }
-  const baseDir = path.join(basePictures, 'MingleBooth', sanitized);
   const subdirs = ['processed', 'gifs', 'raw'];
   for (const sub of subdirs) {
     const p = path.join(baseDir, sub);
@@ -376,9 +381,11 @@ function getEventStorageDir(eventName) {
   return baseDir;
 }
 
-ipcMain.handle('storage:open-event-folder', async (event, eventName) => {
+ipcMain.handle('storage:open-event-folder', async (event, payload) => {
   try {
-    const dir = getEventStorageDir(eventName);
+    const eventName = typeof payload === 'string' ? payload : payload?.eventName;
+    const customBasePath = typeof payload === 'object' ? payload?.customBasePath : undefined;
+    const dir = getEventStorageDir(eventName, customBasePath);
     const openResult = await shell.openPath(dir);
     if (openResult) {
       return { success: false, error: openResult, path: dir };
@@ -389,9 +396,9 @@ ipcMain.handle('storage:open-event-folder', async (event, eventName) => {
   }
 });
 
-ipcMain.handle('storage:save-capture-files', async (event, { eventName, photoId, photoBase64, gifBase64, rawShots }) => {
+ipcMain.handle('storage:save-capture-files', async (event, { eventName, customBasePath, photoId, photoBase64, gifBase64, rawShots }) => {
   try {
-    const eventDir = getEventStorageDir(eventName);
+    const eventDir = getEventStorageDir(eventName, customBasePath);
     
     // 1. Save processed composite photo (JPG)
     if (photoBase64) {
