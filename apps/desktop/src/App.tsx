@@ -267,6 +267,13 @@ const TabletStudioContent: React.FC = () => {
     }
     return '';
   });
+  const [wallpaperFitMode, setWallpaperFitMode] = useState<'cover' | 'contain'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mb_wallpaper_fit_mode');
+      return saved === 'contain' ? 'contain' : 'cover';
+    }
+    return 'cover';
+  });
   const [isScreensaverActive, setIsScreensaverActive] = useState<boolean>(false);
   const [showWallpaperSettingModal, setShowWallpaperSettingModal] = useState<boolean>(false);
 
@@ -818,6 +825,11 @@ const TabletStudioContent: React.FC = () => {
   const handleSelectWallpaperPreset = (presetId: string) => {
     setSelectedWallpaperId(presetId);
     localStorage.setItem('mb_selected_wallpaper_id', presetId);
+  };
+
+  const handleUpdateWallpaperFitMode = (mode: 'cover' | 'contain') => {
+    setWallpaperFitMode(mode);
+    localStorage.setItem('mb_wallpaper_fit_mode', mode);
   };
 
   // Idle Activity Tracker in Kiosk Mode for Standby Wallpaper
@@ -1452,7 +1464,7 @@ const TabletStudioContent: React.FC = () => {
               </span>
             </div>
 
-            {/* Presets Grid */}
+            {/* Presets Grid (Landscape 16:10 Preview) */}
             <div className="grid grid-cols-3 gap-2.5">
               {DEFAULT_WALLPAPERS.map((preset) => {
                 const isSelected = selectedWallpaperId === preset.id;
@@ -1467,7 +1479,7 @@ const TabletStudioContent: React.FC = () => {
                         : 'border-white/10 hover:border-white/30 opacity-70 hover:opacity-100'
                     }`}
                   >
-                    <div className="aspect-[9/14] w-full bg-black/40 overflow-hidden">
+                    <div className="aspect-[16/10] w-full bg-black/40 overflow-hidden">
                       <img
                         src={preset.path}
                         alt={preset.name}
@@ -1542,6 +1554,56 @@ const TabletStudioContent: React.FC = () => {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* 4. Gaya Tampilan Wallpaper (Crop / Penuh vs Utuh Tanpa Potong) */}
+          <div className="space-y-2.5 p-3.5 rounded-2xl bg-[#171920] border border-white/[0.06]">
+            <div>
+              <span className="text-xs font-semibold text-white block">
+                Gaya Tampilan / Pemotongan Wallpaper
+              </span>
+              <span className="text-[11px] text-neutral-400">
+                Pilih apakah gambar dipotong memenuhi layar penuh atau ditampilkan utuh di layar
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => handleUpdateWallpaperFitMode('cover')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  wallpaperFitMode === 'cover'
+                    ? 'bg-white text-black border-white shadow-md'
+                    : 'bg-[#12141A] text-neutral-300 border-white/10 hover:border-white/30'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Maximize2 className="w-4 h-4" />
+                  <span className="text-xs font-bold">Penuhi Layar (Crop / Full)</span>
+                </div>
+                <p className={`text-[10px] mt-1.5 leading-relaxed ${wallpaperFitMode === 'cover' ? 'text-neutral-700 font-medium' : 'text-neutral-400'}`}>
+                  Gambar mengisi seluruh layar laptop tanpa tepi hitam (tepi foto dipotong sesuai rasio layar).
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleUpdateWallpaperFitMode('contain')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  wallpaperFitMode === 'contain'
+                    ? 'bg-white text-black border-white shadow-md'
+                    : 'bg-[#12141A] text-neutral-300 border-white/10 hover:border-white/30'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Minimize2 className="w-4 h-4" />
+                  <span className="text-xs font-bold">Utuh Tanpa Potong (Fit)</span>
+                </div>
+                <p className={`text-[10px] mt-1.5 leading-relaxed ${wallpaperFitMode === 'contain' ? 'text-neutral-700 font-medium' : 'text-neutral-400'}`}>
+                  Gambar tampil 100% utuh di tengah, dengan latar belakang Ambient Blur elegan di sisi kiri & kanan.
+                </p>
+              </button>
             </div>
           </div>
 
@@ -2626,6 +2688,40 @@ const TabletStudioContent: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* Fit Mode selector */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-neutral-300 flex items-center gap-1.5">
+                        <Maximize2 className="w-3.5 h-3.5 text-neutral-400" />
+                        <span>Mode Tampilan:</span>
+                      </span>
+                      <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateWallpaperFitMode('cover')}
+                          className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            wallpaperFitMode === 'cover'
+                              ? 'bg-white text-black shadow-sm'
+                              : 'text-neutral-400 hover:text-white'
+                          }`}
+                          title="Potong/Perbesar memenuhi 100% layar"
+                        >
+                          Penuh (Crop)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateWallpaperFitMode('contain')}
+                          className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            wallpaperFitMode === 'contain'
+                              ? 'bg-white text-black shadow-sm'
+                              : 'text-neutral-400 hover:text-white'
+                          }`}
+                          title="Tampil utuh tanpa terpotong dengan latar ambient blur"
+                        >
+                          Utuh (Fit)
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Presets Row */}
                     <div className="grid grid-cols-4 gap-1.5 pt-1">
                       {DEFAULT_WALLPAPERS.map((preset) => {
@@ -2642,7 +2738,7 @@ const TabletStudioContent: React.FC = () => {
                             }`}
                             title={preset.name}
                           >
-                            <div className="aspect-[9/13] w-full bg-black/40 overflow-hidden">
+                            <div className="aspect-[16/10] w-full bg-black/40 overflow-hidden">
                               <img
                                 src={preset.path}
                                 alt={preset.name}
@@ -3007,21 +3103,41 @@ const TabletStudioContent: React.FC = () => {
               e.stopPropagation();
               setIsScreensaverActive(false);
             }}
-            className="absolute inset-0 z-50 bg-black animate-fadeIn cursor-pointer select-none"
+            className="absolute inset-0 z-50 bg-black animate-fadeIn cursor-pointer select-none overflow-hidden"
           >
-            {/* Background Image / Animation */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={getActiveWallpaperUrl()}
-              alt="Standby Wallpaper"
-              className="w-full h-full object-cover select-none pointer-events-none"
-            />
+            {/* Background Image / Animation: Cover vs Contain with Ambient Blur */}
+            {wallpaperFitMode === 'contain' ? (
+              <>
+                {/* Ambient Blurred Backdrop */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={getActiveWallpaperUrl()}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover blur-3xl scale-115 opacity-40 brightness-75 select-none pointer-events-none"
+                />
+                {/* Centered Uncropped Main Image */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={getActiveWallpaperUrl()}
+                  alt="Standby Wallpaper"
+                  className="relative z-10 w-full h-full object-contain drop-shadow-2xl select-none pointer-events-none"
+                />
+              </>
+            ) : (
+              // Fullscreen Edge-to-Edge Cover
+              <img
+                src={getActiveWallpaperUrl()}
+                alt="Standby Wallpaper"
+                className="w-full h-full object-cover select-none pointer-events-none"
+              />
+            )}
 
             {/* Dark Vignette Overlay for Readability */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/60 pointer-events-none" />
+            <div className="absolute inset-0 z-20 bg-gradient-to-t from-black/85 via-black/25 to-black/60 pointer-events-none" />
 
             {/* Top Bar: Clock, Date, & Quick Settings */}
-            <div className="absolute top-8 inset-x-8 flex items-start justify-between">
+            <div className="absolute top-8 inset-x-8 z-30 flex items-start justify-between">
               <div>
                 <div className="text-5xl sm:text-7xl font-extralight tracking-tight text-white drop-shadow-lg font-sans">
                   {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -3051,7 +3167,7 @@ const TabletStudioContent: React.FC = () => {
             </div>
 
             {/* Bottom: Event Branding & Touch to Start Prompt */}
-            <div className="absolute inset-x-6 bottom-16 flex flex-col items-center justify-center text-center gap-4 pointer-events-none">
+            <div className="absolute inset-x-6 bottom-16 z-30 flex flex-col items-center justify-center text-center gap-4 pointer-events-none">
               <div className="flex flex-col items-center gap-1 drop-shadow-md">
                 <span className="text-xs sm:text-sm font-semibold tracking-widest uppercase text-white/80">
                   {currentEvent.name}
