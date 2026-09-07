@@ -16,6 +16,7 @@ import {
   Images,
   FolderCheck,
   Folder,
+  FolderOpen,
   ArrowLeft,
   ChevronLeft,
   Monitor,
@@ -113,8 +114,9 @@ function playShutterSound() {
 }
 
 const TabletStudioContent: React.FC = () => {
-  // Phase: 'setup' | 'kiosk' | 'review'
-  const [phase, setPhase] = useState<'setup' | 'kiosk' | 'review'>('setup');
+  // Phase: 'setup' | 'kiosk' | 'review' | 'gallery'
+  const [phase, setPhase] = useState<'setup' | 'kiosk' | 'review' | 'gallery'>('setup');
+  const [previousPhase, setPreviousPhase] = useState<'setup' | 'kiosk' | 'review'>('setup');
 
   // Camera State
   const [cameraMode, setCameraMode] = useState<'webcam' | 'sony'>('webcam');
@@ -168,19 +170,21 @@ const TabletStudioContent: React.FC = () => {
   // Results & QR
   const [finalPhotoDataUrl, setFinalPhotoDataUrl] = useState<string | null>(null);
   const [finalGifDataUrl, setFinalGifDataUrl] = useState<string | null>(null);
-  const [resultTab, setResultTab] = useState<'photo' | 'gif'>('photo');
+  const [resultTab, setResultTab] = useState<'photo' | 'gif' | 'original'>('photo');
+  const [reviewRawIndex, setReviewRawIndex] = useState<number>(0);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
   const [guestGalleryUrl, setGuestGalleryUrl] = useState<string>('');
   const [reviewCountdown, setReviewCountdown] = useState<number>(30);
   const [printImageUrl, setPrintImageUrl] = useState<string | null>(null);
 
-  // Gallery Modal & Lightbox
+  // Gallery View & Lightbox
   const [showEventGalleryModal, setShowEventGalleryModal] = useState<boolean>(false);
   const [eventGalleryPhotos, setEventGalleryPhotos] = useState<OfflineCaptureItem[]>([]);
   const [isEventGalleryLoading, setIsEventGalleryLoading] = useState<boolean>(false);
-  const [galleryFilterTab, setGalleryFilterTab] = useState<'all' | 'photo' | 'gif'>('all');
+  const [galleryFilterTab, setGalleryFilterTab] = useState<'all' | 'photo' | 'gif' | 'original'>('all');
   const [selectedGalleryPreviewItem, setSelectedGalleryPreviewItem] = useState<OfflineCaptureItem | null>(null);
-  const [galleryLightboxTab, setGalleryLightboxTab] = useState<'photo' | 'gif'>('photo');
+  const [galleryLightboxTab, setGalleryLightboxTab] = useState<'photo' | 'gif' | 'original'>('photo');
+  const [lightboxRawIndex, setLightboxRawIndex] = useState<number>(0);
 
   // Preview Framing Overlay Toggle (Clean full camera by default)
   const [showFrameOverlayInPreview, setShowFrameOverlayInPreview] = useState<boolean>(false);
@@ -517,61 +521,99 @@ const TabletStudioContent: React.FC = () => {
     fetchVendorData();
   }, [fetchVendorData]);
 
-  // Load Offline Captures & Supabase Cloud Captures whenever Event Gallery modal opens
-  useEffect(() => {
-    if (showEventGalleryModal) {
-      setIsEventGalleryLoading(true);
-      Promise.all([
+  // Reusable function to load local & Supabase gallery captures
+  const loadGalleryData = useCallback(async () => {
+    if (!selectedEventId) return;
+    setIsEventGalleryLoading(true);
+    try {
+      const [localItems, cloudData] = await Promise.all([
         getOfflineCaptures(selectedEventId).catch(() => []),
         fetch(`${API_BASE_URL}/api/gallery/event/${selectedEventId}`)
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-      ])
-        .then(([localItems, cloudData]) => {
-          const map = new Map<string, OfflineCaptureItem>();
+      ]);
 
-          // 1. Add cloud photos from Supabase (12 photos from database)
-          if (cloudData && Array.isArray(cloudData.photos)) {
-            for (const p of cloudData.photos) {
-              const photoUrl = p.fullUrl?.startsWith('http')
-                ? p.fullUrl
-                : p.thumbUrl?.startsWith('http')
-                ? p.thumbUrl
-                : `${API_BASE_URL}${p.fullUrl || p.thumbUrl}`;
-              const gifUrl = p.gifUrl
-                ? p.gifUrl.startsWith('http')
-                  ? p.gifUrl
-                  : `${API_BASE_URL}${p.gifUrl}`
-                : null;
+      const map = new Map<string, OfflineCaptureItem>();
 
-              map.set(p.photoId, {
-                photoId: p.photoId,
-                eventId: selectedEventId,
-                eventName: currentEvent.name,
-                photoDataUrl: photoUrl,
-                gifDataUrl: gifUrl,
-                hasGif: Boolean(p.hasGif),
-                createdAt: p.createdAt || new Date().toISOString(),
-              });
-            }
-          }
+      // 1. Add cloud photos from Supabase (strictly filtered to selectedEventId)
+      if (cloudData && Array.isArray(cloudData.photos)) {
+        for (const p of cloudData.photos) {
+          const photoUrl = p.fullUrl?.startsWith('http')
+            ? p.fullUrl
+            : p.thumbUrl?.startsWith('http')
+            ? p.thumbUrl
+            : `${API_BASE_URL}${p.fullUrl || p.thumbUrl}`;
+          const gifUrl = p.gifUrl
+            ? p.gifUrl.startsWith('http')
+              ? p.gifUrl
+              : `${API_BASE_URL}${p.gifUrl}`
+            : null;
 
-          // 2. Merge local items (local takes priority if same photoId)
-          if (Array.isArray(localItems)) {
-            for (const item of localItems) {
-              map.set(item.photoId, item);
-            }
-          }
+          const rawShots = Array.isArray(p.rawShots)
+            ? p.rawShots.map((r: any) => ({
+                index: r.index,
+                dataUrl: r.url?.startsWith('http') ? r.url : `${API_BASE_URL}${r.url}`,
+              }))
+            : [];
 
-          const combined = Array.from(map.values()).sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-          setEventGalleryPhotos(combined);
-        })
-        .catch((e) => console.warn('Could not load gallery captures:', e))
-        .finally(() => setIsEventGalleryLoading(false));
+          map.set(p.photoId, {
+            photoId: p.photoId,
+            eventId: selectedEventId,
+            eventName: currentEvent.name,
+            photoDataUrl: photoUrl,
+            gifDataUrl: gifUrl,
+            hasGif: Boolean(p.hasGif),
+            rawShots,
+            createdAt: p.createdAt || new Date().toISOString(),
+          });
+        }
+      }
+
+      // 2. Merge local items (local takes priority if same photoId)
+      if (Array.isArray(localItems)) {
+        for (const item of localItems) {
+          map.set(item.photoId, item);
+        }
+      }
+
+      const combined = Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setEventGalleryPhotos(combined);
+    } catch (e) {
+      console.warn('Could not load gallery captures:', e);
+    } finally {
+      setIsEventGalleryLoading(false);
     }
-  }, [showEventGalleryModal, selectedEventId]);
+  }, [selectedEventId, currentEvent.name]);
+
+  // Load Offline Captures & Supabase Cloud Captures whenever Event Gallery opens or event changes
+  useEffect(() => {
+    if (phase === 'gallery' || showEventGalleryModal) {
+      loadGalleryData();
+    }
+  }, [phase, showEventGalleryModal, selectedEventId, loadGalleryData]);
+
+  // Handle open storage folder directly in Finder / File Explorer
+  const handleOpenEventStorageFolder = async () => {
+    try {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.openEventFolder) {
+        const res = await (window as any).electronAPI.openEventFolder(currentEvent.name);
+        if (res && !res.success && res.error) {
+          alert(`Gagal membuka folder: ${res.error}`);
+        }
+      } else {
+        alert('Fitur buka folder penyimpanan lokal aktif di aplikasi desktop MingleBooth.');
+      }
+    } catch (e: any) {
+      alert(`Gagal membuka folder: ${e?.message || e}`);
+    }
+  };
+
+  const openEventGallery = () => {
+    setPreviousPhase(phase as 'setup' | 'kiosk' | 'review');
+    setPhase('gallery');
+  };
 
   // Upload Custom Photo Frame (.PNG)
   const handleUploadCustomFrame = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -873,7 +915,9 @@ const TabletStudioContent: React.FC = () => {
         }
       }
 
-      // Save to Offline Storage
+      const rawShotsPayload = photos.map((p, idx) => ({ index: idx + 1, dataUrl: p }));
+
+      // Save to Offline Storage (IndexedDB)
       saveOfflineCapture({
         photoId,
         eventId: selectedEventId,
@@ -881,8 +925,20 @@ const TabletStudioContent: React.FC = () => {
         photoDataUrl: compositeDataUrl,
         gifDataUrl,
         hasGif: Boolean(gifDataUrl),
+        rawShots: rawShotsPayload,
         createdAt: new Date().toISOString(),
       }).catch(() => {});
+
+      // Save directly to local SSD folder ~/Pictures/MingleBooth/[Nama Acara]
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.saveCaptureFiles) {
+        (window as any).electronAPI.saveCaptureFiles({
+          eventName: currentEvent.name,
+          photoId,
+          photoBase64: compositeDataUrl,
+          gifBase64: gifDataUrl,
+          rawShots: rawShotsPayload,
+        }).catch((e: any) => console.warn('Could not save to local SSD:', e));
+      }
 
       // Background Cloud Sync to Supabase
       if (navigator.onLine) {
@@ -901,6 +957,8 @@ const TabletStudioContent: React.FC = () => {
           }),
         }).catch(() => {});
       }
+
+      setReviewRawIndex(0);
 
       setPhase('review');
       setSessionStep('idle');
@@ -989,300 +1047,406 @@ const TabletStudioContent: React.FC = () => {
     setSessionStep('idle');
   };
 
-  // In-Kiosk Event Gallery Modal Component
-  const renderGalleryModalJSX = () => {
-    if (!showEventGalleryModal) return null;
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE: DEDICATED FULL-PAGE EVENT GALLERY
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (phase === 'gallery') {
+    const totalSessions = eventGalleryPhotos.length;
+    const photoCount = eventGalleryPhotos.length;
+    const gifCount = eventGalleryPhotos.filter((p) => p.hasGif && p.gifDataUrl).length;
+    const totalRawPoses = eventGalleryPhotos.reduce(
+      (acc, item) => acc + (item.rawShots ? item.rawShots.length : 0),
+      0
+    );
 
     const filteredPhotos = eventGalleryPhotos.filter((item) => {
       if (galleryFilterTab === 'photo') return true;
       if (galleryFilterTab === 'gif') return item.hasGif && Boolean(item.gifDataUrl);
+      if (galleryFilterTab === 'original') return item.rawShots && item.rawShots.length > 0;
       return true;
     });
 
     return (
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 select-none animate-fadeIn"
-      >
-        <div className="max-w-4xl w-full bg-[#121316] border border-white/[0.1] rounded-3xl p-6 flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-white">
-                <Images className="w-4 h-4 text-neutral-300" />
-              </div>
+      <div className="flex flex-col h-screen w-screen bg-[#090A0C] text-[#EDEDED] font-sans select-none overflow-hidden antialiased">
+        {/* Top Minimal Header */}
+        <header className="h-16 px-6 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setPhase(previousPhase || 'setup')}
+              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Kembali ke Studio</span>
+            </button>
+
+            <div className="h-4 w-[1px] bg-white/10 hidden sm:block" />
+
+            <div className="flex items-center gap-2.5">
+              <img
+                src={logoHeader}
+                alt="MingleBooth"
+                className="h-7 w-auto object-contain hidden sm:block"
+              />
               <div>
-                <h3 className="text-sm font-semibold text-white">
-                  Galeri Foto Acara: {currentEvent.name}
-                </h3>
-                <p className="text-xs text-neutral-400">
-                  {eventGalleryPhotos.length} Sesi Foto Tersimpan di SSD Laptop
+                <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <span>Galeri Foto: {currentEvent.name}</span>
+                  <span className="px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-medium text-neutral-300">
+                    Khusus Acara Terpilih
+                  </span>
+                </h2>
+                <p className="text-[11px] text-neutral-400">
+                  {totalSessions} sesi foto tersimpan di laptop & cloud
                 </p>
               </div>
             </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsEventGalleryLoading(true);
-                  getOfflineCaptures(selectedEventId)
-                    .then(setEventGalleryPhotos)
-                    .finally(() => setIsEventGalleryLoading(false));
-                }}
-                className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 hover:text-white text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="Muat ulang galeri foto"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isEventGalleryLoading ? 'animate-spin' : ''}`} />
-                <span>Perbarui</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowEventGalleryModal(false);
-                  setSelectedGalleryPreviewItem(null);
-                }}
-                className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
           </div>
 
-          {/* Filter Tabs */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 bg-[#18191E] p-1 rounded-xl border border-white/[0.06]">
-              <button
-                type="button"
-                onClick={() => setGalleryFilterTab('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  galleryFilterTab === 'all'
-                    ? 'bg-white text-black font-semibold shadow-sm'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                Semua ({eventGalleryPhotos.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setGalleryFilterTab('photo')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  galleryFilterTab === 'photo'
-                    ? 'bg-white text-black font-semibold shadow-sm'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                Foto Cetak ({eventGalleryPhotos.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setGalleryFilterTab('gif')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 cursor-pointer ${
-                  galleryFilterTab === 'gif'
-                    ? 'bg-white text-black font-semibold shadow-sm'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                <Film className="w-3 h-3 text-neutral-300" />
-                <span>Animasi GIF ({eventGalleryPhotos.filter((p) => p.hasGif && p.gifDataUrl).length})</span>
-              </button>
-            </div>
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={handleOpenEventStorageFolder}
+              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+              title="Buka folder foto acara ini di Finder / File Explorer"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-neutral-300" />
+              <span>Buka Folder di Laptop</span>
+            </button>
+
+            <button
+              onClick={() => loadGalleryData()}
+              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+              title="Muat ulang galeri"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isEventGalleryLoading ? 'animate-spin' : ''}`} />
+              <span>Perbarui</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Filter Navigation Bar */}
+        <div className="px-6 py-3 border-b border-white/[0.06] bg-[#0C0D10] flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-1.5 bg-[#141519] p-1 rounded-xl border border-white/[0.08]">
+            <button
+              onClick={() => setGalleryFilterTab('all')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                galleryFilterTab === 'all'
+                  ? 'bg-white text-black font-semibold shadow-sm'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Semua ({totalSessions})
+            </button>
+            <button
+              onClick={() => setGalleryFilterTab('photo')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                galleryFilterTab === 'photo'
+                  ? 'bg-white text-black font-semibold shadow-sm'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Foto Cetak ({photoCount})
+            </button>
+            <button
+              onClick={() => setGalleryFilterTab('gif')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                galleryFilterTab === 'gif'
+                  ? 'bg-white text-black font-semibold shadow-sm'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Film className="w-3.5 h-3.5" />
+              <span>Animasi GIF ({gifCount})</span>
+            </button>
+            <button
+              onClick={() => setGalleryFilterTab('original')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                galleryFilterTab === 'original'
+                  ? 'bg-white text-black font-semibold shadow-sm'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>Foto Original ({totalRawPoses > 0 ? totalRawPoses : totalSessions})</span>
+            </button>
           </div>
 
-          {/* Gallery Content */}
-          <div className="flex-1 overflow-y-auto min-h-0 pr-1">
-            {isEventGalleryLoading ? (
-              <div className="py-20 flex flex-col items-center justify-center text-xs text-neutral-400 gap-2">
-                <RefreshCw className="w-6 h-6 animate-spin text-white" />
-                <span>Memuat foto galeri acara...</span>
-              </div>
-            ) : filteredPhotos.length === 0 ? (
-              <div className="py-20 flex flex-col items-center justify-center text-center p-6 gap-3">
-                <div className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-400">
-                  <Camera className="w-7 h-7 text-neutral-300" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-white">Belum Ada Sesi Foto</h4>
-                  <p className="text-xs text-neutral-400 max-w-sm mt-1 leading-relaxed">
-                    Foto yang diambil pada sesi photobooth acara ini akan otomatis tersimpan di sini dan siap dicetak ulang atau dibagikan.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {filteredPhotos.map((item, idx) => (
-                  <div
-                    key={item.photoId || idx}
-                    onClick={() => {
-                      setSelectedGalleryPreviewItem(item);
-                      setGalleryLightboxTab(item.hasGif ? 'gif' : 'photo');
-                    }}
-                    className="group relative aspect-[2/3] rounded-xl overflow-hidden bg-black border border-white/[0.08] hover:border-white/30 transition-all cursor-pointer shadow-md"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.photoDataUrl}
-                      alt={item.photoId}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
+          <div className="text-xs text-neutral-400 hidden md:block">
+            Acara aktif: <span className="text-white font-medium">{currentEvent.name}</span>
+          </div>
+        </div>
 
-                    {/* Badge GIF */}
+        {/* Gallery Grid Body */}
+        <main className="flex-1 overflow-y-auto p-6 min-h-0">
+          {isEventGalleryLoading ? (
+            <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-xs text-neutral-400 gap-3">
+              <RefreshCw className="w-7 h-7 animate-spin text-white" />
+              <span>Memuat galeri acara {currentEvent.name}...</span>
+            </div>
+          ) : filteredPhotos.length === 0 ? (
+            <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center p-6 gap-3">
+              <div className="w-16 h-16 rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-400">
+                <Camera className="w-8 h-8 text-neutral-300" />
+              </div>
+              <div>
+                <h4 className="text-base font-semibold text-white">Belum Ada Sesi Foto</h4>
+                <p className="text-xs text-neutral-400 max-w-md mt-1.5 leading-relaxed">
+                  Foto yang diambil pada sesi photobooth acara <strong className="text-neutral-200">"{currentEvent.name}"</strong> akan otomatis tersimpan di laptop ini dan siap dicetak ulang atau diekspor.
+                </p>
+              </div>
+              <button
+                onClick={() => setPhase('setup')}
+                className="mt-2 h-9 px-4 rounded-xl bg-white text-black font-semibold text-xs transition-all hover:bg-neutral-200 cursor-pointer shadow-md"
+              >
+                Mulai Sesi Photobooth
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {filteredPhotos.map((item, idx) => (
+                <div
+                  key={item.photoId || idx}
+                  onClick={() => {
+                    setSelectedGalleryPreviewItem(item);
+                    setGalleryLightboxTab(
+                      galleryFilterTab === 'gif' && item.hasGif
+                        ? 'gif'
+                        : galleryFilterTab === 'original'
+                        ? 'original'
+                        : 'photo'
+                    );
+                    setLightboxRawIndex(0);
+                  }}
+                  className="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-black border border-white/[0.08] hover:border-white/30 transition-all cursor-pointer shadow-lg hover:shadow-2xl"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={
+                      galleryFilterTab === 'original' && item.rawShots && item.rawShots.length > 0
+                        ? item.rawShots[0].dataUrl
+                        : item.photoDataUrl
+                    }
+                    alt={item.photoId}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+
+                  {/* Badges Top */}
+                  <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                     {item.hasGif && (
-                      <div className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-sm border border-white/20 text-[10px] font-bold text-white flex items-center gap-1">
+                      <div className="px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-sm border border-white/20 text-[10px] font-bold text-white flex items-center gap-1 shadow-sm">
                         <Film className="w-2.5 h-2.5" />
                         <span>GIF</span>
                       </div>
                     )}
-
-                    {/* Bottom Details Overlay */}
-                    <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent flex items-end justify-between">
-                      <span className="text-[10px] font-mono text-white/90">
-                        {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <span className="text-[10px] text-white/70 group-hover:text-white transition-colors">
-                        Buka &rarr;
-                      </span>
-                    </div>
+                    {item.rawShots && item.rawShots.length > 0 && (
+                      <div className="px-1.5 py-0.5 rounded-md bg-black/75 backdrop-blur-sm border border-white/20 text-[10px] font-medium text-neutral-300 shadow-sm">
+                        {item.rawShots.length} Pose
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
 
-          {/* Lightbox / Detail Modal */}
-          {selectedGalleryPreviewItem && (
+                  {/* Bottom Details Overlay */}
+                  <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex items-end justify-between">
+                    <span className="text-[11px] font-mono text-white/90">
+                      {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span className="text-[11px] text-white/70 group-hover:text-white transition-colors font-medium">
+                      Buka &rarr;
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+
+        {/* Lightbox / Detail Modal */}
+        {selectedGalleryPreviewItem && (
+          <div
+            onClick={() => setSelectedGalleryPreviewItem(null)}
+            className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 select-none animate-fadeIn"
+          >
             <div
-              onClick={() => setSelectedGalleryPreviewItem(null)}
-              className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 select-none animate-fadeIn"
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-3xl w-full bg-[#121316] border border-white/15 rounded-3xl p-5 flex flex-col gap-4 shadow-2xl max-h-[92vh] overflow-hidden"
             >
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="max-w-2xl w-full bg-[#121316] border border-white/15 rounded-3xl p-5 flex flex-col gap-4 shadow-2xl max-h-[92vh] overflow-hidden"
-              >
-                <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono text-neutral-300">
-                      ID: {selectedGalleryPreviewItem.photoId}
-                    </span>
-                    <span className="text-neutral-500">•</span>
-                    <span className="text-xs text-neutral-400">
-                      {new Date(selectedGalleryPreviewItem.createdAt).toLocaleTimeString()}
-                    </span>
-                  </div>
+              <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-neutral-300">
+                    ID: {selectedGalleryPreviewItem.photoId}
+                  </span>
+                  <span className="text-neutral-500">•</span>
+                  <span className="text-xs text-neutral-400">
+                    {new Date(selectedGalleryPreviewItem.createdAt).toLocaleString('id-ID')}
+                  </span>
+                </div>
 
+                <button
+                  type="button"
+                  onClick={() => setSelectedGalleryPreviewItem(null)}
+                  className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Mode Switcher Tabs: Foto Cetak | Animasi GIF | Foto Original */}
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.08]">
                   <button
                     type="button"
-                    onClick={() => setSelectedGalleryPreviewItem(null)}
-                    className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                    onClick={() => setGalleryLightboxTab('photo')}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      galleryLightboxTab === 'photo'
+                        ? 'bg-white text-black shadow-sm'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
                   >
-                    <X className="w-4 h-4" />
+                    Foto Cetak
                   </button>
+
+                  {selectedGalleryPreviewItem.hasGif && selectedGalleryPreviewItem.gifDataUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setGalleryLightboxTab('gif')}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        galleryLightboxTab === 'gif'
+                          ? 'bg-white text-black shadow-sm'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      <Film className="w-3.5 h-3.5" />
+                      <span>Animasi GIF</span>
+                    </button>
+                  )}
+
+                  {selectedGalleryPreviewItem.rawShots && selectedGalleryPreviewItem.rawShots.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setGalleryLightboxTab('original')}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        galleryLightboxTab === 'original'
+                          ? 'bg-white text-black shadow-sm'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Foto Original</span>
+                    </button>
+                  )}
                 </div>
 
-                {/* Tabs if GIF is available */}
-                {selectedGalleryPreviewItem.hasGif && selectedGalleryPreviewItem.gifDataUrl && (
-                  <div className="flex items-center justify-center">
-                    <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
-                      <button
-                        type="button"
-                        onClick={() => setGalleryLightboxTab('photo')}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                          galleryLightboxTab === 'photo'
-                            ? 'bg-white text-black shadow-sm'
-                            : 'text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        Foto Cetak
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setGalleryLightboxTab('gif')}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                          galleryLightboxTab === 'gif'
-                            ? 'bg-white text-black shadow-sm'
-                            : 'text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        <Film className="w-3.5 h-3.5" />
-                        <span>Animasi GIF</span>
-                      </button>
+                {/* Sub-selector for raw poses if original tab is selected */}
+                {galleryLightboxTab === 'original' &&
+                  selectedGalleryPreviewItem.rawShots &&
+                  selectedGalleryPreviewItem.rawShots.length > 1 && (
+                    <div className="flex items-center gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.06]">
+                      {selectedGalleryPreviewItem.rawShots.map((shot, sIdx) => (
+                        <button
+                          key={sIdx}
+                          type="button"
+                          onClick={() => setLightboxRawIndex(sIdx)}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                            lightboxRawIndex === sIdx
+                              ? 'bg-white text-black font-semibold shadow-sm'
+                              : 'text-neutral-400 hover:text-white'
+                          }`}
+                        >
+                          Pose {shot.index || sIdx + 1}
+                        </button>
+                      ))}
                     </div>
-                  </div>
-                )}
+                  )}
+              </div>
 
-                {/* Preview Image */}
-                <div className="flex-1 min-h-0 flex items-center justify-center p-2 bg-black/60 rounded-2xl border border-white/[0.06]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={
-                      galleryLightboxTab === 'gif' && selectedGalleryPreviewItem.gifDataUrl
-                        ? selectedGalleryPreviewItem.gifDataUrl
-                        : selectedGalleryPreviewItem.photoDataUrl
-                    }
-                    alt="Preview"
-                    className="max-h-[55vh] max-w-full object-contain rounded-xl shadow-lg"
-                  />
-                </div>
+              {/* Preview Image Display */}
+              <div className="flex-1 min-h-0 flex items-center justify-center p-2 bg-black/60 rounded-2xl border border-white/[0.06]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={
+                    galleryLightboxTab === 'gif' && selectedGalleryPreviewItem.gifDataUrl
+                      ? selectedGalleryPreviewItem.gifDataUrl
+                      : galleryLightboxTab === 'original' &&
+                        selectedGalleryPreviewItem.rawShots &&
+                        selectedGalleryPreviewItem.rawShots.length > 0
+                      ? selectedGalleryPreviewItem.rawShots[lightboxRawIndex]?.dataUrl ||
+                        selectedGalleryPreviewItem.photoDataUrl
+                      : selectedGalleryPreviewItem.photoDataUrl
+                  }
+                  alt="Preview"
+                  className="max-h-[55vh] max-w-full object-contain rounded-xl shadow-lg"
+                />
+              </div>
 
-                {/* Actions */}
-                <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/[0.08]">
+              {/* Actions Bottom Bar */}
+              <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/[0.08]">
+                <div className="flex items-center gap-2">
                   <a
                     href={
                       galleryLightboxTab === 'gif' && selectedGalleryPreviewItem.gifDataUrl
                         ? selectedGalleryPreviewItem.gifDataUrl
+                        : galleryLightboxTab === 'original' &&
+                          selectedGalleryPreviewItem.rawShots &&
+                          selectedGalleryPreviewItem.rawShots.length > 0
+                        ? selectedGalleryPreviewItem.rawShots[lightboxRawIndex]?.dataUrl ||
+                          selectedGalleryPreviewItem.photoDataUrl
                         : selectedGalleryPreviewItem.photoDataUrl
                     }
-                    download={`${selectedGalleryPreviewItem.photoId}.${galleryLightboxTab === 'gif' ? 'gif' : 'jpg'}`}
+                    download={`${selectedGalleryPreviewItem.photoId}_${galleryLightboxTab}${
+                      galleryLightboxTab === 'original' ? `_pose${lightboxRawIndex + 1}` : ''
+                    }.${galleryLightboxTab === 'gif' ? 'gif' : 'jpg'}`}
                     className="h-10 px-4 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-semibold text-white flex items-center gap-2 transition-colors cursor-pointer"
                   >
                     <Download className="w-4 h-4" />
                     <span>Unduh File</span>
                   </a>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          if (typeof window !== 'undefined' && (window as any).electronAPI?.printPhoto) {
-                            await (window as any).electronAPI.printPhoto(selectedGalleryPreviewItem.photoDataUrl, 1, false);
-                            alert('Perintah cetak berhasil dikirim ke printer!');
-                          } else {
-                            const win = window.open('');
-                            win?.document.write(`<img src="${selectedGalleryPreviewItem.photoDataUrl}" style="width:100%"/>`);
-                            win?.print();
-                          }
-                        } catch (e: any) {
-                          alert(`Gagal mencetak: ${e.message}`);
+                  <button
+                    type="button"
+                    onClick={handleOpenEventStorageFolder}
+                    className="h-10 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 text-neutral-300" />
+                    <span>Buka di Folder Laptop</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const targetUrl =
+                          galleryLightboxTab === 'original' &&
+                          selectedGalleryPreviewItem.rawShots &&
+                          selectedGalleryPreviewItem.rawShots.length > 0
+                            ? selectedGalleryPreviewItem.rawShots[lightboxRawIndex]?.dataUrl ||
+                              selectedGalleryPreviewItem.photoDataUrl
+                            : selectedGalleryPreviewItem.photoDataUrl;
+
+                        if (typeof window !== 'undefined' && (window as any).electronAPI?.printPhoto) {
+                          await (window as any).electronAPI.printPhoto(targetUrl, 1, false);
+                          alert('Perintah cetak berhasil dikirim ke printer!');
+                        } else {
+                          const win = window.open('');
+                          win?.document.write(`<img src="${targetUrl}" style="width:100%"/>`);
+                          win?.print();
                         }
-                      }}
-                      className="h-10 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
-                    >
-                      <Printer className="w-4 h-4" />
-                      <span>Cetak Foto Ini</span>
-                    </button>
-                  </div>
+                      } catch (e: any) {
+                        alert(`Gagal mencetak: ${e.message}`);
+                      }
+                    }}
+                    className="h-10 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Cetak Foto Ini</span>
+                  </button>
                 </div>
               </div>
             </div>
-          )}
-
-          {/* Footer Close */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowEventGalleryModal(false);
-              setSelectedGalleryPreviewItem(null);
-            }}
-            className="w-full py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-neutral-300 hover:text-white font-semibold text-xs transition-colors cursor-pointer"
-          >
-            Tutup Galeri
-          </button>
-        </div>
+          </div>
+        )}
       </div>
     );
-  };
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 1: SETUP VIEW (MINIMAL PRO STUDIO)
@@ -1304,10 +1468,19 @@ const TabletStudioContent: React.FC = () => {
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <button
-              onClick={() => setShowEventGalleryModal(true)}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center gap-2 transition-colors cursor-pointer"
+              onClick={handleOpenEventStorageFolder}
+              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+              title="Buka folder penyimpanan foto acara di laptop"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-neutral-300" />
+              <span>Buka Folder Foto</span>
+            </button>
+
+            <button
+              onClick={openEventGallery}
+              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
             >
               <Images className="w-3.5 h-3.5 text-neutral-300" />
               <span>Galeri Acara</span>
@@ -2121,8 +2294,6 @@ const TabletStudioContent: React.FC = () => {
           </div>
         )}
 
-        {/* Modal In-Kiosk Event Gallery */}
-        {renderGalleryModalJSX()}
       </div>
     );
   }
@@ -2160,8 +2331,8 @@ const TabletStudioContent: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setShowEventGalleryModal(true)}
-            className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center gap-2 transition-colors"
+            onClick={openEventGallery}
+            className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center gap-2 transition-colors cursor-pointer"
           >
             <Images className="w-3.5 h-3.5 text-neutral-300" />
             <span>Galeri Acara</span>
@@ -2176,7 +2347,7 @@ const TabletStudioContent: React.FC = () => {
               handleResetKiosk();
               setPhase('kiosk');
             }}
-            className="h-9 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs transition-all shadow-md active:scale-98"
+            className="h-9 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs transition-all shadow-md active:scale-98 cursor-pointer"
           >
             Foto Tamu Berikutnya
           </button>
@@ -2185,27 +2356,58 @@ const TabletStudioContent: React.FC = () => {
 
       {/* Main Review Body: Split Canvas */}
       <main className="flex-1 w-full max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-center gap-8 px-6 py-6 min-h-0 overflow-hidden">
-        {/* Left Side: Photo Frame & GIF Boomerang Toggle */}
+        {/* Left Side: Photo Frame & GIF Boomerang & Raw Photo Toggle */}
         <div className="flex-1 h-full max-h-[75vh] flex flex-col items-center justify-center min-w-0 gap-3">
-          {finalGifDataUrl && (
-            <div className="flex items-center p-1 rounded-xl bg-white/[0.06] border border-white/[0.08]">
-              <button
-                onClick={() => setResultTab('photo')}
-                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  resultTab === 'photo' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                Foto Cetak
-              </button>
+          {/* Result Mode Switcher: Foto Cetak | Animasi GIF | Foto Original */}
+          <div className="flex items-center p-1 rounded-xl bg-white/[0.06] border border-white/[0.08] gap-1">
+            <button
+              onClick={() => setResultTab('photo')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                resultTab === 'photo' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Foto Cetak
+            </button>
+            {finalGifDataUrl && (
               <button
                 onClick={() => setResultTab('gif')}
-                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                   resultTab === 'gif' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'
                 }`}
               >
                 <Film className="w-3.5 h-3.5" />
                 <span>Animasi GIF</span>
               </button>
+            )}
+            {capturedPhotos.length > 0 && (
+              <button
+                onClick={() => setResultTab('original')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  resultTab === 'original' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Foto Original</span>
+              </button>
+            )}
+          </div>
+
+          {/* Sub-selector for raw poses if original tab is selected */}
+          {resultTab === 'original' && capturedPhotos.length > 1 && (
+            <div className="flex items-center gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.06]">
+              {capturedPhotos.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setReviewRawIndex(idx)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                    reviewRawIndex === idx
+                      ? 'bg-white text-black font-semibold shadow-sm'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  Pose {idx + 1}
+                </button>
+              ))}
             </div>
           )}
 
@@ -2220,10 +2422,19 @@ const TabletStudioContent: React.FC = () => {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={finalPhotoDataUrl} alt="Hasil Foto" className="w-full h-full object-contain rounded-xl" />
               )
-            ) : (
+            ) : resultTab === 'gif' ? (
               finalGifDataUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={finalGifDataUrl} alt="Hasil GIF" className="w-full h-full object-contain rounded-xl" />
+              )
+            ) : (
+              capturedPhotos[reviewRawIndex] && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={capturedPhotos[reviewRawIndex]}
+                  alt={`Foto Original Pose ${reviewRawIndex + 1}`}
+                  className="w-full h-full object-contain rounded-xl"
+                />
               )
             )}
           </div>
@@ -2290,9 +2501,6 @@ const TabletStudioContent: React.FC = () => {
           <img src={printImageUrl} alt="Print Preview" />
         </div>
       )}
-
-      {/* In-Kiosk Event Gallery Modal */}
-      {renderGalleryModalJSX()}
     </div>
   );
 };

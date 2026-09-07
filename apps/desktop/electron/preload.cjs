@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getHWID: () => ipcRenderer.invoke('system:get-hwid'),
   printPhoto: (options) => ipcRenderer.invoke('printer:print-photo', options),
   openFolder: (folderPath) => ipcRenderer.invoke('storage:open-folder', folderPath),
+  openEventFolder: (eventName) => ipcRenderer.invoke('storage:open-event-folder', eventName),
+  saveCaptureFiles: (data) => ipcRenderer.invoke('storage:save-capture-files', data),
   selectFolder: (currentPath) => ipcRenderer.invoke('storage:select-folder', currentPath),
   listFiles: (options) => ipcRenderer.invoke('storage:list-files', options),
   getPrinters: () => ipcRenderer.invoke('printer:get-printers'),

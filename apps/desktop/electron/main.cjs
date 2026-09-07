@@ -354,6 +354,79 @@ ipcMain.handle('storage:open-folder', async (event, folderPath) => {
   }
 });
 
+function getEventStorageDir(eventName) {
+  const sanitized = (eventName || 'Acara_Photobooth')
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+  let basePictures;
+  try {
+    basePictures = app.getPath('pictures');
+  } catch (e) {
+    basePictures = path.join(os.homedir(), 'Pictures');
+  }
+  const baseDir = path.join(basePictures, 'MingleBooth', sanitized);
+  const subdirs = ['processed', 'gifs', 'raw'];
+  for (const sub of subdirs) {
+    const p = path.join(baseDir, sub);
+    if (!fs.existsSync(p)) {
+      fs.mkdirSync(p, { recursive: true });
+    }
+  }
+  return baseDir;
+}
+
+ipcMain.handle('storage:open-event-folder', async (event, eventName) => {
+  try {
+    const dir = getEventStorageDir(eventName);
+    const openResult = await shell.openPath(dir);
+    if (openResult) {
+      return { success: false, error: openResult, path: dir };
+    }
+    return { success: true, path: dir };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('storage:save-capture-files', async (event, { eventName, photoId, photoBase64, gifBase64, rawShots }) => {
+  try {
+    const eventDir = getEventStorageDir(eventName);
+    
+    // 1. Save processed composite photo (JPG)
+    if (photoBase64) {
+      const match = photoBase64.match(/^data:image\/\w+;base64,(.+)$/);
+      const buffer = Buffer.from(match ? match[1] : photoBase64, 'base64');
+      fs.writeFileSync(path.join(eventDir, 'processed', `${photoId}.jpg`), buffer);
+    }
+    
+    // 2. Save GIF (if available)
+    if (gifBase64) {
+      const match = gifBase64.match(/^data:image\/\w+;base64,(.+)$/);
+      const buffer = Buffer.from(match ? match[1] : gifBase64, 'base64');
+      fs.writeFileSync(path.join(eventDir, 'gifs', `${photoId}.gif`), buffer);
+    }
+    
+    // 3. Save raw camera poses
+    if (Array.isArray(rawShots)) {
+      rawShots.forEach((shot, idx) => {
+        const shotData = typeof shot === 'string' ? shot : shot.dataUrl;
+        const index = typeof shot === 'object' && shot.index !== undefined ? shot.index : idx + 1;
+        if (shotData) {
+          const match = shotData.match(/^data:image\/\w+;base64,(.+)$/);
+          const buffer = Buffer.from(match ? match[1] : shotData, 'base64');
+          fs.writeFileSync(path.join(eventDir, 'raw', `${photoId}_raw_${index}.jpg`), buffer);
+        }
+      });
+    }
+    
+    return { success: true, eventDir };
+  } catch (err) {
+    console.error('[Storage] Failed to save capture files to SSD:', err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('storage:list-files', async (event, { basePath, eventId }) => {
   try {
     const eventDir =
