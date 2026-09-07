@@ -7,6 +7,14 @@ const { exec } = require('child_process');
 const { getTetherServer } = require('./tether-server.cjs');
 const { getNativeCameraService } = require('./native-camera.cjs');
 
+// ── Enforce Single Instance so earlier background processes never hold the camera ──
+const gotSingleLock = app.requestSingleInstanceLock();
+if (!gotSingleLock) {
+  console.log('[Electron] Another instance is already running. Exiting.');
+  app.quit();
+  process.exit(0);
+}
+
 // ── Configure full media (camera/mic/device) permissions for WebContents session ──
 function configureSessionPermissions(ses) {
   if (!ses) return;
@@ -451,7 +459,33 @@ ipcMain.handle('tether:get-info', () => {
   }
 });
 
-app.whenReady().then(() => {
+ipcMain.handle('camera:request-access', async () => {
+  if (process.platform === 'darwin' && systemPreferences?.askForMediaAccess) {
+    try {
+      return await systemPreferences.askForMediaAccess('camera');
+    } catch (e) {
+      console.warn('[Electron] askForMediaAccess camera failed:', e);
+      return false;
+    }
+  }
+  return true;
+});
+
+ipcMain.handle('camera:get-status', () => {
+  if (process.platform === 'darwin' && systemPreferences?.getMediaAccessStatus) {
+    return systemPreferences.getMediaAccessStatus('camera');
+  }
+  return 'granted';
+});
+
+ipcMain.handle('camera:open-privacy-settings', () => {
+  if (process.platform === 'darwin') {
+    shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Camera');
+  }
+  return true;
+});
+
+app.whenReady().then(async () => {
   // Start Tether Server for Remote PC / Tablet Hub
   try {
     const tetherServer = getTetherServer(4848);
@@ -474,14 +508,13 @@ app.whenReady().then(() => {
     configureSessionPermissions(session.defaultSession);
   }
 
-  // Request native OS camera / microphone permissions on macOS explicitly
+  // Request native OS camera / microphone permissions on macOS explicitly BEFORE creating window
   if (process.platform === 'darwin' && systemPreferences?.askForMediaAccess) {
     try {
       const cameraStatus = systemPreferences.getMediaAccessStatus('camera');
       if (cameraStatus !== 'granted') {
-        systemPreferences.askForMediaAccess('camera').then((granted) => {
-          console.log('[Electron] macOS Camera access granted:', granted);
-        }).catch((e) => console.warn('[Electron] Camera permission error:', e));
+        const granted = await systemPreferences.askForMediaAccess('camera');
+        console.log('[Electron] macOS Camera access granted on startup:', granted);
       }
     } catch (e) {
       console.warn('Media access check failed:', e);
@@ -490,6 +523,13 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
 
 
 

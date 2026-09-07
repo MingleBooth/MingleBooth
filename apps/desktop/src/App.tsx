@@ -45,6 +45,8 @@ import {
 } from './lib/offlineStorage';
 import { VendorAuthGate } from './components/VendorAuthGate';
 import { API_BASE_URL } from './config';
+import logoHeader from './assets/logo-minglebooth-header.png';
+import appIcon from './assets/icon.png';
 
 interface DiscoveredCamera {
   deviceId: string;
@@ -210,35 +212,67 @@ const TabletStudioContent: React.FC = () => {
       streamRef.current = null;
     }
 
+    // Explicit macOS camera check via IPC in Electron
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.requestCameraAccess) {
+      try {
+        const granted = await (window as any).electronAPI.requestCameraAccess();
+        if (!granted) {
+          setCameraError('Izin akses kamera Mac belum diberikan. Silakan izinkan di Pengaturan Privasi Mac.');
+          setIsCameraLoading(false);
+          return;
+        }
+      } catch (ipcErr) {
+        console.warn('IPC camera check notice:', ipcErr);
+      }
+    }
+
     const targetId = deviceId || selectedWebcamId;
 
     try {
-      // Direct universal constraint without facingMode to prevent OverconstrainedError on Mac/PC
-      const constraints: MediaStreamConstraints = {
-        video: targetId
-          ? {
+      let stream: MediaStream | null = null;
+
+      // Strategy 1: Targeted device with high-res ideal
+      if (targetId) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
               deviceId: { ideal: targetId },
               width: { ideal: 1920 },
               height: { ideal: 1080 },
-            }
-          : {
+            },
+            audio: false,
+          });
+        } catch (e1) {
+          console.warn('Targeted stream failed, falling back to default:', e1);
+        }
+      }
+
+      // Strategy 2: High-res default without deviceId lock
+      if (!stream) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
               width: { ideal: 1920 },
               height: { ideal: 1080 },
             },
-        audio: false,
-      };
+            audio: false,
+          });
+        } catch (e2) {
+          console.warn('High-res stream failed, falling back to basic video:', e2);
+        }
+      }
 
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (e) {
-        console.warn('High-res stream failed, fallback to default video:', e);
-        // Absolute fallback that works on any webcam hardware
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      // Strategy 3: Universal standard video constraint
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
       }
 
       streamRef.current = stream;
       setCameraStream(stream);
+      setCameraError(null);
 
       // Immediately sync with any mounted video elements
       if (previewVideoRef.current) {
@@ -254,11 +288,17 @@ const TabletStudioContent: React.FC = () => {
       enumerateCameras();
     } catch (err: any) {
       console.error('Webcam connection failed:', err);
-      setCameraError(
-        err.name === 'NotAllowedError'
-          ? 'Izin kamera ditolak. Buka System Settings > Privacy & Security > Camera dan izinkan MingleBooth Studio.'
-          : 'Kamera webcam tidak merespons. Pastikan kamera tidak sedang dipakai oleh aplikasi lain (FaceTime/Zoom).'
-      );
+      let msg = 'Kamera laptop tidak dapat diakses.';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg = 'Izin kamera belum aktif. Buka Pengaturan Mac > Privasi & Keamanan > Kamera, lalu centang MingleBooth Studio.';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        msg = 'Kamera sedang dipakai oleh aplikasi lain (FaceTime, Zoom, atau Photo Booth). Silakan tutup aplikasi tersebut lalu klik Sambungkan Ulang.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        msg = 'Tidak ada perangkat kamera yang terdeteksi di laptop ini.';
+      } else {
+        msg = `Kamera belum terhubung (${err.name || err.message}). Pastikan kamera laptop tidak terkunci.`;
+      }
+      setCameraError(msg);
     } finally {
       setIsCameraLoading(false);
     }
@@ -643,44 +683,47 @@ const TabletStudioContent: React.FC = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Cannot init canvas');
 
-      // Draw user photos into cutout holes (Supports 1 to 6 photos dynamically)
+      // Draw user photos into cutout holes (Supports arbitrary flexible photos count dynamically)
       let cutouts = frameCutouts;
       if (!cutouts || cutouts.length < photos.length) {
         cutouts = [];
         const n = photos.length;
-        if (n <= 3) {
+        if (n === 1) {
+          cutouts.push({
+            x: 40,
+            y: 40,
+            width: canvas.width - 80,
+            height: canvas.height - 140,
+          });
+        } else if (n <= 3) {
           const slotH = Math.floor((canvas.height - 140) / n);
           for (let i = 0; i < n; i++) {
             cutouts.push({
               x: 40,
-              y: 40 + i * (slotH + 20),
+              y: 40 + i * (slotH + 15),
               width: canvas.width - 80,
-              height: slotH,
+              height: slotH - 10,
             });
           }
-        } else if (n === 4) {
-          const slotW = Math.floor((canvas.width - 100) / 2);
-          const slotH = Math.floor((canvas.height - 140) / 2);
-          for (let r = 0; r < 2; r++) {
-            for (let c = 0; c < 2; c++) {
-              cutouts.push({
-                x: 35 + c * (slotW + 30),
-                y: 40 + r * (slotH + 30),
-                width: slotW,
-                height: slotH,
-              });
-            }
-          }
         } else {
-          // 5 or 6 photos: 2 cols x 3 rows
-          const slotW = Math.floor((canvas.width - 90) / 2);
-          const slotH = Math.floor((canvas.height - 140) / 3);
-          for (let r = 0; r < 3; r++) {
-            for (let c = 0; c < 2; c++) {
+          // Dynamic grid calculation for ANY count N (4, 5, 6, 7, 8, 9, etc.)
+          const cols = n <= 4 ? 2 : n <= 6 ? 2 : n <= 9 ? 3 : 4;
+          const rows = Math.ceil(n / cols);
+          const padX = 30;
+          const padY = 35;
+          const gapX = 14;
+          const gapY = 14;
+          const totalGapW = (cols - 1) * gapX;
+          const totalGapH = (rows - 1) * gapY;
+          const slotW = Math.floor((canvas.width - padX * 2 - totalGapW) / cols);
+          const slotH = Math.floor((canvas.height - 130 - totalGapH) / rows);
+
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
               if (cutouts.length < n) {
                 cutouts.push({
-                  x: 30 + c * (slotW + 30),
-                  y: 35 + r * (slotH + 25),
+                  x: padX + c * (slotW + gapX),
+                  y: padY + r * (slotH + gapY),
                   width: slotW,
                   height: slotH,
                 });
@@ -876,7 +919,7 @@ const TabletStudioContent: React.FC = () => {
         <div className="max-w-2xl w-full bg-[#121316] border border-white/[0.08] rounded-3xl p-6 flex flex-col gap-4 shadow-2xl max-h-[85vh]">
           <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
             <div className="flex items-center gap-2">
-              <Images className="w-4 h-4 text-amber-400" />
+              <Images className="w-4 h-4 text-neutral-300" />
               <h3 className="text-sm font-semibold text-white">Galeri Foto Acara</h3>
             </div>
             <button
@@ -911,17 +954,15 @@ const TabletStudioContent: React.FC = () => {
         {/* Top Minimal Header */}
         <header className="h-16 px-6 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-black text-sm shadow-md">
-              M
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-bold tracking-tight text-white leading-tight">
-                Mingle<span className="text-amber-400">Booth</span>
-              </span>
-              <span className="text-[10px] font-medium text-neutral-400 leading-tight">
-                Studio Photobooth Kiosk
-              </span>
-            </div>
+            <img
+              src={logoHeader}
+              alt="MingleBooth"
+              className="h-7 sm:h-8 w-auto object-contain"
+            />
+            <div className="h-4 w-[1px] bg-white/10 hidden sm:block" />
+            <span className="text-xs font-semibold tracking-wide text-neutral-300 hidden sm:inline">
+              Studio Photobooth Kiosk
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -957,29 +998,29 @@ const TabletStudioContent: React.FC = () => {
                 {cameraMode === 'webcam' ? (
                   cameraStream ? (
                     <>
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      <span className="text-neutral-200 font-medium">Webcam Laptop Aktif</span>
+                      <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                      <span className="text-white font-medium">Webcam Laptop Aktif</span>
                     </>
                   ) : isCameraLoading ? (
                     <>
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-spin" />
-                      <span className="text-amber-300 font-medium">Menghubungkan Webcam...</span>
+                      <span className="w-2 h-2 rounded-full bg-neutral-400 animate-spin" />
+                      <span className="text-neutral-300 font-medium">Menghubungkan Kamera...</span>
                     </>
                   ) : (
                     <>
-                      <span className="w-2 h-2 rounded-full bg-rose-400" />
-                      <span className="text-rose-400 font-medium">Webcam Belum Terhubung</span>
+                      <span className="w-2 h-2 rounded-full bg-neutral-500" />
+                      <span className="text-neutral-400 font-medium">Kamera Belum Terhubung</span>
                     </>
                   )
                 ) : tetherStatus === 'connected' ? (
                   <>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-neutral-200 font-medium">Sony DSLR USB Siap</span>
+                    <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                    <span className="text-white font-medium">Kamera Sony USB Siap</span>
                   </>
                 ) : (
                   <>
-                    <span className="w-2 h-2 rounded-full bg-amber-400" />
-                    <span className="text-amber-300 font-medium">Menunggu Sambungan Sony USB</span>
+                    <span className="w-2 h-2 rounded-full bg-neutral-500" />
+                    <span className="text-neutral-400 font-medium">Menunggu Kamera Sony USB</span>
                   </>
                 )}
               </span>
@@ -1008,29 +1049,41 @@ const TabletStudioContent: React.FC = () => {
                   <div className="flex flex-col items-center justify-center p-6 text-center text-xs text-neutral-400 gap-3 z-0">
                     <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-300">
                       {isCameraLoading ? (
-                        <RefreshCw className="w-6 h-6 animate-spin text-amber-400" />
+                        <RefreshCw className="w-6 h-6 animate-spin text-white" />
                       ) : (
-                        <Laptop className="w-6 h-6" />
+                        <Laptop className="w-6 h-6 text-neutral-300" />
                       )}
                     </div>
                     <div>
                       <p className="font-semibold text-white">
-                        {isCameraLoading ? 'Menghubungkan Webcam Laptop...' : 'Webcam Belum Terhubung'}
+                        {isCameraLoading ? 'Menghubungkan Kamera Laptop...' : 'Kamera Laptop Belum Terhubung'}
                       </p>
                       {cameraError && (
-                        <p className="text-[11px] text-rose-400 max-w-xs mt-1 leading-tight">
+                        <p className="text-[11px] text-neutral-300 max-w-xs mt-1.5 leading-relaxed bg-white/[0.04] p-2 rounded-lg border border-white/[0.08]">
                           {cameraError}
                         </p>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => startWebcamStream()}
-                      className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-1.5 shadow-lg active:scale-95 transition-all cursor-pointer"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Sambungkan Webcam</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startWebcamStream()}
+                        className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-1.5 shadow-lg active:scale-95 transition-all cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Sambungkan Kamera</span>
+                      </button>
+                      {typeof window !== 'undefined' && (window as any).electronAPI?.openCameraPrivacySettings && (
+                        <button
+                          type="button"
+                          onClick={() => (window as any).electronAPI.openCameraPrivacySettings()}
+                          className="px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-neutral-300 hover:text-white font-medium text-xs transition-colors cursor-pointer"
+                          title="Buka Pengaturan Privasi Kamera di macOS"
+                        >
+                          Buka Privasi Mac
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )
               ) : tetherLiveFrame ? (
@@ -1039,14 +1092,14 @@ const TabletStudioContent: React.FC = () => {
               ) : (
                 <div className="flex flex-col items-center justify-center p-6 text-center text-xs text-neutral-400 gap-3 z-0">
                   <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-300">
-                    <Camera className="w-6 h-6 text-amber-400" />
+                    <Camera className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <p className="font-semibold text-white">Mode Sony / DSLR USB Siap</p>
+                    <p className="font-semibold text-white">Mode Kamera Sony / DSLR USB Siap</p>
                     <p className="text-[11px] text-neutral-400 max-w-xs mt-1 leading-tight">
                       {tetherStatus === 'connected'
-                        ? 'Kamera terdeteksi via USB (Port 4848). Foto tajam otomatis tersinkron saat memotret.'
-                        : 'Hubungkan Sony via kabel USB PC Remote. Tombol potret akan langsung mengambil foto dengan flash.'}
+                        ? 'Kamera terdeteksi via kabel USB. Foto tajam otomatis tersinkron saat memotret.'
+                        : 'Hubungkan kamera via kabel USB (Mode PC Remote). Tombol potret akan langsung mengambil foto dengan flash.'}
                     </p>
                   </div>
                   <button
@@ -1060,7 +1113,7 @@ const TabletStudioContent: React.FC = () => {
                     className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Uji Sambungan Port 4848</span>
+                    <span>Cek Sambungan Kamera</span>
                   </button>
                 </div>
               )}
@@ -1081,21 +1134,21 @@ const TabletStudioContent: React.FC = () => {
           {/* SISI KANAN: STUDIO CONFIGURATION PANEL (CLEAN MONOCHROME) */}
           <aside className="w-full lg:w-[460px] bg-[#0F1014] p-6 flex flex-col justify-between overflow-y-auto min-h-0">
             <div className="space-y-5">
-              {/* Event Card */}
+              {/* 1. Event Selection Card (Clean & Zero Jargon) */}
               <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-2.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
-                    1. Acara Vendor
+                    1. Pilih Acara
                   </label>
                   <button
                     type="button"
                     onClick={fetchVendorData}
                     disabled={isLoadingVendorData}
-                    className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
-                    title="Sinkronkan data acara dari Supabase Database"
+                    className="text-[11px] text-neutral-300 hover:text-white flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                    title="Perbarui daftar acara dari server"
                   >
                     <RefreshCw className={`w-3 h-3 ${isLoadingVendorData ? 'animate-spin' : ''}`} />
-                    <span>{isLoadingVendorData ? 'Menyinkronkan...' : 'Sinkron Database'}</span>
+                    <span>{isLoadingVendorData ? 'Memperbarui...' : 'Perbarui Acara'}</span>
                   </button>
                 </div>
                 <select
@@ -1110,12 +1163,12 @@ const TabletStudioContent: React.FC = () => {
                   ))}
                 </select>
                 <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>Database Supabase Aktif &bull; {events.length} Acara Terdaftar</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-white/60" />
+                  <span>{events.length} Acara Siap Digunakan</span>
                 </div>
               </div>
 
-              {/* Template & GIF Card */}
+              {/* 2. Template & GIF Card (Clean Monochrome) */}
               <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-3">
                 {/* Hidden File Inputs for Custom Uploads */}
                 <input
@@ -1153,7 +1206,7 @@ const TabletStudioContent: React.FC = () => {
                         onClick={() => setSelectedTemplateId(tmpl.id)}
                         className={`p-2.5 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
                           isSelected
-                            ? 'bg-white text-black border-white shadow-md'
+                            ? 'bg-white text-black border-white shadow-md font-medium'
                             : 'bg-[#1A1C24] border-white/[0.06] text-neutral-300 hover:border-white/20'
                         }`}
                       >
@@ -1179,7 +1232,7 @@ const TabletStudioContent: React.FC = () => {
                     className="h-10 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/20 text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
                     title="Upload template bingkai cetak format PNG transparan"
                   >
-                    <Upload className="w-3.5 h-3.5 text-amber-400" />
+                    <Upload className="w-3.5 h-3.5 text-neutral-300" />
                     <span className="truncate">{customPhotoFileName ? 'Ganti Bingkai Foto' : 'Upload Bingkai (.PNG)'}</span>
                   </button>
 
@@ -1189,7 +1242,7 @@ const TabletStudioContent: React.FC = () => {
                     className="h-10 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/20 text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
                     title="Upload bingkai overlay khusus untuk animasi GIF Boomerang"
                   >
-                    <Film className="w-3.5 h-3.5 text-amber-400" />
+                    <Film className="w-3.5 h-3.5 text-neutral-300" />
                     <span className="truncate">{customGifFileName ? 'Ganti Bingkai GIF' : 'Upload Bingkai GIF'}</span>
                   </button>
                 </div>
@@ -1197,33 +1250,35 @@ const TabletStudioContent: React.FC = () => {
                 {/* Uploaded Files & GIF Toggle Indicator */}
                 <div className="space-y-1.5 pt-1 text-[11px]">
                   {customPhotoFileName && (
-                    <div className="flex items-center gap-1.5 text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                    <div className="flex items-center gap-1.5 text-neutral-300">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-white flex-shrink-0" />
                       <span className="truncate">Bingkai Foto: <strong>{customPhotoFileName}</strong></span>
                     </div>
                   )}
 
                   <div className="flex items-center justify-between p-2 rounded-xl bg-[#1A1C24] border border-white/[0.06]">
                     <div className="flex items-center gap-2">
-                      <Film className="w-3.5 h-3.5 text-amber-400" />
+                      <Film className="w-3.5 h-3.5 text-neutral-300" />
                       <span className="text-neutral-300">
-                        {customGifFileName ? `GIF: ${customGifFileName}` : 'GIF Boomerang Otomatis'}
+                        {customGifFileName ? `GIF: ${customGifFileName}` : 'Animasi GIF Boomerang'}
                       </span>
                     </div>
                     <button
                       type="button"
                       onClick={() => setEnableGif(!enableGif)}
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-colors cursor-pointer ${
-                        enableGif ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-neutral-800 text-neutral-400 border border-white/10'
+                      className={`px-3 py-1 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all cursor-pointer ${
+                        enableGif
+                          ? 'bg-white text-black shadow-sm'
+                          : 'bg-white/10 text-neutral-400 hover:text-white'
                       }`}
                     >
-                      {enableGif ? 'Aktif' : 'Nonaktif'}
+                      {enableGif ? 'Aktif' : 'Mati'}
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* Camera Source Selector */}
+              {/* 3. Camera Source Selector */}
               <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-2.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
@@ -1289,7 +1344,7 @@ const TabletStudioContent: React.FC = () => {
                     <span className="text-neutral-400 flex items-center gap-2">
                       <span
                         className={`w-2 h-2 rounded-full ${
-                          tetherStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                          tetherStatus === 'connected' ? 'bg-white animate-pulse' : 'bg-neutral-500'
                         }`}
                       />
                       <span>{tetherStatus === 'connected' ? 'Sony USB Siap' : 'Menunggu Sambungan USB'}</span>
@@ -1310,33 +1365,74 @@ const TabletStudioContent: React.FC = () => {
                 )}
               </div>
 
-              {/* Capture Parameters (Pose & Countdown) */}
+              {/* 4. Capture Parameters: Flexible Custom Pose + Countdown */}
               <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-3">
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
                       Jumlah Pose:
                     </span>
-                    <span className="text-xs font-semibold text-amber-400">
-                      {shotsCount} Foto
+                    <span className="text-xs font-bold text-white bg-white/10 px-2.5 py-0.5 rounded-md border border-white/10">
+                      {shotsCount} Pose
                     </span>
                   </div>
-                  <div className="grid grid-cols-6 gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
-                    {[1, 2, 3, 4, 5, 6].map((num) => (
+
+                  {/* Quick Preset Buttons + Custom Stepper & Direct Input */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 grid grid-cols-5 gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
+                      {[1, 2, 3, 4, 6].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setShotsCount(num)}
+                          className={`py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            shotsCount === num
+                              ? 'bg-white text-black shadow-sm font-bold'
+                              : 'text-neutral-400 hover:text-white'
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Flexible Stepper & Direct Custom Input */}
+                    <div className="flex items-center bg-[#1A1C24] border border-white/[0.08] rounded-xl p-0.5 h-[38px]">
                       <button
-                        key={num}
                         type="button"
-                        onClick={() => setShotsCount(num)}
-                        className={`py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          shotsCount === num
-                            ? 'bg-white text-black shadow-sm font-bold'
-                            : 'text-neutral-400 hover:text-white'
-                        }`}
+                        onClick={() => setShotsCount((prev) => Math.max(1, prev - 1))}
+                        className="w-7 h-full flex items-center justify-center text-neutral-300 hover:text-white hover:bg-white/10 rounded-lg text-sm font-bold transition-colors cursor-pointer"
+                        title="Kurangi Pose"
                       >
-                        {num}
+                        -
                       </button>
-                    ))}
+                      <input
+                        type="number"
+                        min={1}
+                        max={24}
+                        value={shotsCount}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val) && val >= 1) {
+                            setShotsCount(Math.min(24, val));
+                          }
+                        }}
+                        className="w-10 text-center bg-transparent text-white font-bold text-xs outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        title="Ketik jumlah pose yang diinginkan secara bebas"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShotsCount((prev) => Math.min(24, prev + 1))}
+                        className="w-7 h-full flex items-center justify-center text-neutral-300 hover:text-white hover:bg-white/10 rounded-lg text-sm font-bold transition-colors cursor-pointer"
+                        title="Tambah Pose"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
+                  <p className="text-[10px] text-neutral-400">
+                    Pilih preset atau ketik angka bebas (misal 5, 8, atau 10 pose). Layout otomatis menyesuaikan.
+                  </p>
                 </div>
 
                 <div className="flex items-center justify-between pt-1">
@@ -1466,7 +1562,7 @@ const TabletStudioContent: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
             className="absolute inset-0 z-40 bg-neutral-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none"
           >
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4">
+            <div className="w-16 h-16 rounded-2xl bg-white/[0.06] border border-white/[0.1] flex items-center justify-center text-neutral-300 mb-4">
               <CameraOff className="w-8 h-8" />
             </div>
             <h2 className="text-xl font-bold text-white mb-2">Kamera Belum Terhubung</h2>
@@ -1539,13 +1635,13 @@ const TabletStudioContent: React.FC = () => {
               e.stopPropagation();
               setShowEventGalleryModal(true);
             }}
-            className="h-10 px-4 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-amber-400/40 hover:border-amber-400/80 flex items-center gap-2 text-white/95 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all cursor-pointer group"
+            className="h-10 px-4 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-white/20 hover:border-white/40 flex items-center gap-2 text-white/95 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all cursor-pointer group"
             title="Lihat Galeri Foto Acara"
           >
-            <Images className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+            <Images className="w-4 h-4 text-neutral-300 group-hover:scale-110 transition-transform" />
             <span>Galeri Foto</span>
             {eventGalleryPhotos.length > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-[10px] text-amber-300 font-mono font-bold leading-none">
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-white/15 border border-white/25 text-[10px] text-white font-mono font-bold leading-none">
                 {eventGalleryPhotos.length}
               </span>
             )}
@@ -1658,17 +1754,15 @@ const TabletStudioContent: React.FC = () => {
       {/* Top Header Bar */}
       <header className="h-16 px-6 sm:px-10 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-black text-sm shadow-md">
-            M
-          </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-bold tracking-tight text-white leading-tight">
-              Mingle<span className="text-amber-400">Booth</span>
-            </span>
-            <span className="text-[10px] font-medium text-neutral-400 leading-tight">
-              Foto Berhasil Diambil
-            </span>
-          </div>
+          <img
+            src={logoHeader}
+            alt="MingleBooth"
+            className="h-7 sm:h-8 w-auto object-contain"
+          />
+          <div className="h-4 w-[1px] bg-white/10 hidden sm:block" />
+          <span className="text-xs font-medium text-neutral-400 hidden sm:inline">
+            Foto Berhasil Diambil
+          </span>
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -1688,7 +1782,7 @@ const TabletStudioContent: React.FC = () => {
             onClick={() => setShowEventGalleryModal(true)}
             className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center gap-2 transition-colors"
           >
-            <Images className="w-3.5 h-3.5 text-amber-400" />
+            <Images className="w-3.5 h-3.5 text-neutral-300" />
             <span>Galeri Acara</span>
           </button>
 

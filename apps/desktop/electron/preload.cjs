@@ -34,5 +34,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('camera:driver-install-log', handler);
     return () => ipcRenderer.removeListener('camera:driver-install-log', handler);
   },
+  // macOS Native Camera Permissions
+  requestCameraAccess: () => ipcRenderer.invoke('camera:request-access'),
+  getCameraAccessStatus: () => ipcRenderer.invoke('camera:get-status'),
+  openCameraPrivacySettings: () => ipcRenderer.invoke('camera:open-privacy-settings'),
 });
 
