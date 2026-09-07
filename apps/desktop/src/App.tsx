@@ -29,6 +29,8 @@ import {
   ExternalLink,
   ChevronRight,
   ShieldCheck,
+  CameraOff,
+  RotateCcw,
 } from 'lucide-react';
 import { FrameHoleDetector, DetectedCutout } from '@minglebooth/template-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
@@ -66,7 +68,7 @@ const DEFAULT_TEMPLATES: TemplateItem[] = [
   {
     id: 'tmpl_wedding_bayu_irma',
     name: 'Wedding Bayu & Irma (Floral Strip)',
-    path: '/frames/wedding_bayu_irma.png',
+    path: 'frames/wedding_bayu_irma.png',
     ratio: '2:3',
   },
 ];
@@ -228,18 +230,15 @@ const TabletStudioContent: React.FC = () => {
 
       setCameraStream(stream);
 
-      // Attach to any active video DOM element
-      const attachStream = (el: HTMLVideoElement | null) => {
-        if (!el) return;
-        el.muted = true;
-        el.defaultMuted = true;
-        el.playsInline = true;
-        el.srcObject = stream;
-        el.play().catch((err) => console.warn('Video play prevented:', err));
-      };
-
-      attachStream(previewVideoRef.current);
-      attachStream(videoRef.current);
+      // Immediately sync with any mounted video elements
+      if (previewVideoRef.current) {
+        previewVideoRef.current.srcObject = stream;
+        previewVideoRef.current.play().catch(() => {});
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
 
       // Update camera labels once permission granted
       enumerateCameras();
@@ -254,6 +253,61 @@ const TabletStudioContent: React.FC = () => {
       setIsCameraLoading(false);
     }
   }, [selectedWebcamId, cameraStream, enumerateCameras]);
+
+  // Video Ref attachment callbacks that guarantee immediate playback when DOM mounts
+  const attachVideoRef = useCallback(
+    (el: HTMLVideoElement | null) => {
+      videoRef.current = el;
+      if (el) {
+        el.muted = true;
+        el.defaultMuted = true;
+        el.playsInline = true;
+        if (cameraStream) {
+          if (el.srcObject !== cameraStream) {
+            el.srcObject = cameraStream;
+          }
+          el.play().catch(() => {});
+        } else if (cameraMode === 'webcam' && !isCameraLoading) {
+          startWebcamStream();
+        }
+      }
+    },
+    [cameraStream, cameraMode, isCameraLoading, startWebcamStream]
+  );
+
+  const attachPreviewVideoRef = useCallback(
+    (el: HTMLVideoElement | null) => {
+      previewVideoRef.current = el;
+      if (el) {
+        el.muted = true;
+        el.defaultMuted = true;
+        el.playsInline = true;
+        if (cameraStream) {
+          if (el.srcObject !== cameraStream) {
+            el.srcObject = cameraStream;
+          }
+          el.play().catch(() => {});
+        } else if (cameraMode === 'webcam' && !isCameraLoading) {
+          startWebcamStream();
+        }
+      }
+    },
+    [cameraStream, cameraMode, isCameraLoading, startWebcamStream]
+  );
+
+  // Sync active stream across phase transitions
+  useEffect(() => {
+    if (cameraStream) {
+      if (videoRef.current && videoRef.current.srcObject !== cameraStream) {
+        videoRef.current.srcObject = cameraStream;
+        videoRef.current.play().catch(() => {});
+      }
+      if (previewVideoRef.current && previewVideoRef.current.srcObject !== cameraStream) {
+        previewVideoRef.current.srcObject = cameraStream;
+        previewVideoRef.current.play().catch(() => {});
+      }
+    }
+  }, [phase, cameraStream]);
 
   // Initial mount: start camera
   useEffect(() => {
@@ -637,6 +691,62 @@ const TabletStudioContent: React.FC = () => {
     return () => clearInterval(timer);
   }, [phase]);
 
+  // Retake previous pose
+  const handleRetakePreviousPose = () => {
+    const prevIdx = Math.max(0, currentShotIndex - 1);
+    setCurrentShotIndex(prevIdx);
+    const trimmed = capturedPhotos.slice(0, prevIdx);
+    setCapturedPhotos(trimmed);
+    setSessionStep(prevIdx === 0 ? 'idle' : 'paused_between_poses');
+  };
+
+  // Reset Kiosk
+  const handleResetKiosk = () => {
+    setCapturedPhotos([]);
+    setCurrentShotIndex(0);
+    setFinalPhotoDataUrl(null);
+    setFinalGifDataUrl(null);
+    setResultTab('photo');
+    setSessionStep('idle');
+  };
+
+  // In-Kiosk Event Gallery Modal Component
+  const renderGalleryModalJSX = () => {
+    if (!showEventGalleryModal) return null;
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 select-none animate-fadeIn"
+      >
+        <div className="max-w-2xl w-full bg-[#121316] border border-white/[0.08] rounded-3xl p-6 flex flex-col gap-4 shadow-2xl max-h-[85vh]">
+          <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
+            <div className="flex items-center gap-2">
+              <Images className="w-4 h-4 text-amber-400" />
+              <h3 className="text-sm font-semibold text-white">Galeri Foto Acara</h3>
+            </div>
+            <button
+              onClick={() => setShowEventGalleryModal(false)}
+              className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-neutral-400 hover:text-white flex items-center justify-center transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto min-h-0 text-xs text-neutral-400 text-center py-10">
+            Semua foto sesi acara ini otomatis tersimpan aman di SSD laptop dan tersinkronisasi ke cloud gallery.
+          </div>
+
+          <button
+            onClick={() => setShowEventGalleryModal(false)}
+            className="w-full py-2.5 rounded-xl bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors"
+          >
+            Tutup Galeri
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 1: SETUP VIEW (MINIMAL PRO STUDIO)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -701,7 +811,7 @@ const TabletStudioContent: React.FC = () => {
             >
               {cameraMode === 'webcam' ? (
                 <video
-                  ref={previewVideoRef}
+                  ref={attachPreviewVideoRef}
                   autoPlay
                   playsInline
                   muted
@@ -723,7 +833,8 @@ const TabletStudioContent: React.FC = () => {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={currentTemplate.path}
-                alt="Template Frame"
+                alt=""
+                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                 className="absolute inset-0 w-full h-full object-contain pointer-events-none z-10"
               />
 
@@ -911,108 +1022,267 @@ const TabletStudioContent: React.FC = () => {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PHASE 2: GUEST KIOSK VIEW (FULLSCREEN MINIMAL PRO STUDIO)
+  // PHASE 2: GUEST KIOSK VIEW (100% FULLSCREEN EDGE-TO-EDGE PHOTOBOTH)
   // ═══════════════════════════════════════════════════════════════════════════
   if (phase === 'kiosk') {
     return (
       <div
         onClick={() => {
-          if (sessionStep === 'idle' || sessionStep === 'paused_between_poses') {
+          if (showEventGalleryModal) return;
+          if (sessionStep === 'idle') {
+            triggerPoseShot(0);
+          } else if (sessionStep === 'paused_between_poses') {
             triggerPoseShot(currentShotIndex);
           }
         }}
-        className="h-screen w-screen bg-[#07090E] text-white flex flex-col items-center justify-center relative overflow-hidden select-none font-sans cursor-pointer"
+        className={`relative h-screen w-screen bg-black overflow-hidden select-none touch-none font-sans ${
+          sessionStep === 'idle' || sessionStep === 'paused_between_poses' ? 'cursor-pointer' : ''
+        }`}
       >
-        {/* Subtle Flash Overlay */}
-        <div
-          className={`absolute inset-0 bg-white pointer-events-none z-50 transition-opacity duration-150 ${
-            isFlashing ? 'opacity-100' : 'opacity-0'
-          }`}
-        />
+        {/* Shutter White Flash Screen */}
+        {isFlashing && (
+          <div className="absolute inset-0 z-50 bg-white pointer-events-none transition-opacity duration-150" />
+        )}
 
-        {/* Top Discreet Bar */}
-        <div className="absolute top-5 inset-x-8 flex items-center justify-between z-30 pointer-events-none">
-          {/* Pose indicator pill */}
-          <div className="px-4 py-1.5 rounded-full bg-black/60 border border-white/10 backdrop-blur-md text-xs font-medium text-neutral-300">
-            Foto {currentShotIndex + 1} dari {shotsCount}
-          </div>
-
-          {/* Discreet exit button for operator (re-enable pointer events on button) */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setPhase('setup');
-              setSessionStep('idle');
-            }}
-            className="pointer-events-auto h-8 px-3 rounded-lg bg-black/60 hover:bg-black/80 border border-white/10 text-neutral-400 hover:text-white text-xs transition-colors flex items-center gap-1.5"
-            title="Keluar ke Pengaturan (ESC)"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Pengaturan</span>
-          </button>
-        </div>
-
-        {/* Framing Container (Centered Fullscreen Canvas) */}
-        <div
-          style={{
-            aspectRatio: `${frameDimensions.width} / ${frameDimensions.height}`,
-          }}
-          className="h-[88vh] max-w-[94vw] rounded-2xl bg-black border border-white/[0.08] overflow-hidden relative shadow-[0_20px_50px_rgba(0,0,0,0.9)] flex items-center justify-center"
-        >
-          {cameraMode === 'webcam' ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover transform -scale-x-100"
+        {/* ── 100% FULL SCREEN CAMERA FEED (EDGE-TO-EDGE 1 TAB) ── */}
+        {cameraMode === 'sony' ? (
+          tetherLiveFrame ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={tetherLiveFrame}
+              alt="Sony Live View"
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
             />
           ) : (
-            tetherLiveFrame && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={tetherLiveFrame} alt="Live View" className="w-full h-full object-cover" />
-            )
-          )}
-
-          {/* Template Frame Layer */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={currentTemplate.path}
-            alt="Template Frame"
-            className="absolute inset-0 w-full h-full object-contain pointer-events-none z-10"
-          />
-
-          {/* Large Floating Countdown HUD */}
-          {sessionStep === 'countdown' && (
-            <div className="absolute inset-0 flex items-center justify-center z-40 bg-black/30 backdrop-blur-[2px]">
-              <div className="w-36 h-36 rounded-full bg-black/70 border border-white/20 flex items-center justify-center shadow-2xl animate-scaleIn">
-                <span className="text-7xl font-extrabold text-white tracking-tight">
-                  {countdownRemaining}
-                </span>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="absolute inset-0 bg-[#090A0C] flex flex-col items-center justify-center p-6 text-center"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-white mb-4 animate-pulse">
+                <Camera className="w-8 h-8 text-neutral-300" />
               </div>
+              <h2 className="text-lg font-semibold text-white mb-1">Kamera Sony / DSLR di Laptop Siap</h2>
+              <p className="text-xs text-neutral-400 max-w-sm mb-4 leading-relaxed">
+                Kamera Sony USB siap memotret dengan hasil tajam dan lampu flash fisik.
+              </p>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCameraMode('webcam');
+                  startWebcamStream();
+                }}
+                className="mt-2 px-5 py-2.5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-xl active:scale-95 cursor-pointer"
+              >
+                <Camera className="w-4 h-4 fill-black" />
+                <span>Gunakan Webcam Laptop</span>
+              </button>
             </div>
-          )}
+          )
+        ) : (
+          <video
+            ref={attachVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none transform -scale-x-100"
+          />
+        )}
 
-          {/* Processing Spinner */}
-          {sessionStep === 'processing' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-40 bg-black/80 backdrop-blur-md gap-3">
-              <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white animate-spin" />
-              <span className="text-sm font-medium tracking-wide text-neutral-300">
-                Menyusun Foto Cetak &amp; Animasi...
-              </span>
+        {/* Camera Starting Up Indicator */}
+        {cameraMode === 'webcam' && isCameraLoading && !cameraStream && (
+          <div className="absolute inset-0 z-35 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center text-white gap-3 select-none pointer-events-none">
+            <RefreshCw className="w-8 h-8 animate-spin text-white" />
+            <span className="text-xs font-semibold tracking-wide">Menyalakan Kamera...</span>
+          </div>
+        )}
+
+        {/* Camera Inactive / Error Overlay */}
+        {cameraMode === 'webcam' && !isCameraLoading && (!cameraStream || cameraError) && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 z-40 bg-neutral-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none"
+          >
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4">
+              <CameraOff className="w-8 h-8" />
             </div>
-          )}
-        </div>
-
-        {/* Bottom Floating Trigger Prompt */}
-        {(sessionStep === 'idle' || sessionStep === 'paused_between_poses') && (
-          <div className="absolute bottom-6 z-30 pointer-events-none animate-fadeIn">
-            <div className="px-6 py-3 rounded-full bg-white text-black font-bold text-xs shadow-2xl tracking-wide uppercase flex items-center gap-2">
-              <Camera className="w-4 h-4 text-black" />
-              <span>Sentuh Layar atau Tekan Space untuk Memotret</span>
+            <h2 className="text-xl font-bold text-white mb-2">Kamera Belum Terhubung</h2>
+            <p className="text-xs sm:text-sm text-neutral-400 max-w-md mb-6 leading-relaxed">
+              {cameraError || 'Pastikan webcam laptop tidak sedang digunakan oleh aplikasi lain.'}
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startWebcamStream();
+                }}
+                className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95 cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Hubungkan Ulang Kamera</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleResetKiosk();
+                  setPhase('setup');
+                }}
+                className="h-11 px-5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Kembali ke Pengaturan
+              </button>
             </div>
           </div>
         )}
+
+        {/* Subtle Event Watermark (Floating Elegantly in Top-Center) */}
+        <div className="absolute top-6 inset-x-0 z-20 flex flex-col items-center justify-center pointer-events-none text-center">
+          <span className="text-base font-semibold tracking-wider text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]">
+            {currentEvent.hostNames || currentEvent.name}
+          </span>
+          <span className="text-xs font-medium text-white/75 drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]">
+            {currentEvent.date || 'Photobooth Edition'}
+          </span>
+        </div>
+
+        {/* Top-Left: PIP Pose Thumbnails */}
+        {capturedPhotos.length > 0 && sessionStep !== 'countdown' && (
+          <div className="absolute top-6 left-6 z-30 flex flex-col gap-2 pointer-events-none animate-fadeIn">
+            {capturedPhotos.map((photo, pIdx) => (
+              <div
+                key={pIdx}
+                className="w-20 h-24 sm:w-24 sm:h-28 rounded-xl overflow-hidden border-2 border-white/80 shadow-[0_8px_24px_rgba(0,0,0,0.7)] bg-black relative"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photo} alt={`Pose ${pIdx + 1}`} className="w-full h-full object-cover" />
+                <div className="absolute bottom-0 inset-x-0 py-0.5 bg-black/70 text-center text-[9px] font-bold text-white uppercase tracking-wider">
+                  Pose {pIdx + 1}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Top-Right: Quick Controls (Galeri Foto & Pengaturan) */}
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-6 right-6 z-40 pointer-events-auto flex items-center gap-2.5"
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowEventGalleryModal(true);
+            }}
+            className="h-10 px-4 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-amber-400/40 hover:border-amber-400/80 flex items-center gap-2 text-white/95 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all cursor-pointer group"
+            title="Lihat Galeri Foto Acara"
+          >
+            <Images className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+            <span>Galeri Foto</span>
+            {eventGalleryPhotos.length > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-[10px] text-amber-300 font-mono font-bold leading-none">
+                {eventGalleryPhotos.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleResetKiosk();
+              setPhase('setup');
+            }}
+            className="h-10 px-4 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-white/20 flex items-center gap-2 text-white/90 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all hover:border-white/40 cursor-pointer"
+            title="Kembali ke Layar Pengaturan (ESC)"
+          >
+            <ChevronLeft className="w-4 h-4 text-white" />
+            <span>Pengaturan</span>
+            <span className="hidden sm:inline px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-neutral-300 font-mono">
+              ESC
+            </span>
+          </button>
+        </div>
+
+        {/* Countdown Overlay HUD */}
+        {sessionStep === 'countdown' && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/25 pointer-events-none">
+            <span className="text-[140px] font-bold text-white drop-shadow-[0_10px_35px_rgba(0,0,0,0.95)] animate-pulse leading-none">
+              {countdownRemaining}
+            </span>
+            <span className="text-xs font-bold tracking-widest uppercase text-white drop-shadow-md bg-black/70 px-5 py-2 rounded-full mt-4">
+              Senyum untuk Pose {currentShotIndex + 1}!
+            </span>
+          </div>
+        )}
+
+        {/* Processing HUD */}
+        {sessionStep === 'processing' && (
+          <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md pointer-events-none">
+            <RefreshCw className="w-10 h-10 text-white animate-spin mb-4" />
+            <span className="text-base font-semibold text-white tracking-wide">
+              {shotsCount > 1 ? 'Menyiapkan Foto & Animasi GIF...' : 'Memasang Foto ke Bingkai...'}
+            </span>
+          </div>
+        )}
+
+        {/* Bottom Shutter Controls */}
+        {sessionStep === 'idle' && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-10 inset-x-0 z-20 flex flex-col items-center justify-center pointer-events-auto animate-fadeIn"
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerPoseShot(0);
+              }}
+              className="px-9 py-4 rounded-full bg-white text-black font-bold text-sm tracking-wider uppercase flex items-center gap-3 shadow-[0_10px_35px_rgba(0,0,0,0.6)] active:scale-95 transition-all hover:bg-neutral-200 cursor-pointer"
+            >
+              <Camera className="w-5 h-5 fill-black" />
+              <span>SENTUH LAYAR ATAU TEKAN SPACE UNTUK MEMOTRET</span>
+            </button>
+            <span className="text-[11px] font-medium text-white/90 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] mt-2.5">
+              Total {shotsCount} Pose bergantian santai
+            </span>
+          </div>
+        )}
+
+        {sessionStep === 'paused_between_poses' && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-10 inset-x-4 z-20 flex flex-col items-center justify-center pointer-events-auto gap-3 animate-fadeIn"
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerPoseShot(currentShotIndex);
+              }}
+              className="px-9 py-4 rounded-full bg-white text-black font-bold text-sm tracking-wider uppercase flex items-center gap-3 shadow-[0_10px_35px_rgba(0,0,0,0.6)] active:scale-95 transition-all hover:bg-neutral-200 animate-pulse cursor-pointer"
+            >
+              <Camera className="w-5 h-5 fill-black" />
+              <span>SENTUH UNTUK FOTO {currentShotIndex + 1}</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRetakePreviousPose();
+              }}
+              className="text-xs text-white/90 hover:text-white flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/20 transition-colors shadow-md cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Ulangi Pose {currentShotIndex}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Modal In-Kiosk Event Gallery */}
+        {renderGalleryModalJSX()}
       </div>
     );
   }
@@ -1026,23 +1296,42 @@ const TabletStudioContent: React.FC = () => {
       <header className="h-16 px-6 sm:px-10 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-minglebooth.png" alt="MingleBooth" className="h-6 w-auto object-contain" />
+          <img src="logo-minglebooth.png" alt="MingleBooth" className="h-6 w-auto object-contain" />
           <div className="h-4 w-[1px] bg-white/10 hidden sm:block" />
           <span className="text-xs font-medium text-neutral-400 hidden sm:inline">
             Foto Berhasil Diambil
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-400 font-mono hidden sm:inline">
-            Reset otomatis dalam {reviewCountdown}s
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => {
+              handleResetKiosk();
+              setPhase('setup');
+            }}
+            className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
+            title="Kembali ke Layar Pengaturan (ESC)"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            <span>Pengaturan</span>
+          </button>
+
+          <button
+            onClick={() => setShowEventGalleryModal(true)}
+            className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center gap-2 transition-colors"
+          >
+            <Images className="w-3.5 h-3.5 text-amber-400" />
+            <span>Galeri Acara</span>
+          </button>
+
+          <span className="text-xs text-neutral-400 font-mono hidden sm:inline px-2">
+            Reset dalam {reviewCountdown}s
           </span>
 
           <button
             onClick={() => {
+              handleResetKiosk();
               setPhase('kiosk');
-              setCapturedPhotos([]);
-              setCurrentShotIndex(0);
             }}
             className="h-9 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs transition-all shadow-md active:scale-98"
           >
@@ -1160,35 +1449,7 @@ const TabletStudioContent: React.FC = () => {
       )}
 
       {/* In-Kiosk Event Gallery Modal */}
-      {showEventGalleryModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 select-none animate-fadeIn">
-          <div className="max-w-2xl w-full bg-[#121316] border border-white/[0.08] rounded-3xl p-6 flex flex-col gap-4 shadow-2xl max-h-[85vh]">
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
-              <div className="flex items-center gap-2">
-                <Images className="w-4 h-4 text-white" />
-                <h3 className="text-sm font-semibold text-white">Galeri Foto Acara</h3>
-              </div>
-              <button
-                onClick={() => setShowEventGalleryModal(false)}
-                className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-neutral-400 hover:text-white flex items-center justify-center transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto min-h-0 text-xs text-neutral-400 text-center py-10">
-              Semua foto sesi acara ini otomatis tersimpan aman di SSD laptop dan tersinkronisasi ke cloud gallery.
-            </div>
-
-            <button
-              onClick={() => setShowEventGalleryModal(false)}
-              className="w-full py-2.5 rounded-xl bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors"
-            >
-              Tutup Galeri
-            </button>
-          </div>
-        </div>
-      )}
+      {renderGalleryModalJSX()}
     </div>
   );
 };
