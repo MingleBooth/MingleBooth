@@ -1081,8 +1081,10 @@ export default function DashboardPage() {
 
                   <a
                     href={
-                      process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL ||
-                      'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio-1.0.0.dmg'
+                      process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
+                      !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
+                        ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
+                        : 'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio-1.0.0.dmg'
                     }
                     target="_blank"
                     rel="noopener noreferrer"
@@ -1114,8 +1116,10 @@ export default function DashboardPage() {
 
                   <a
                     href={
-                      process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL ||
-                      'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio.Setup.1.0.0.exe'
+                      process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
+                      !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
+                        ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
+                        : 'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio.Setup.1.0.0.exe'
                     }
                     target="_blank"
                     rel="noopener noreferrer"

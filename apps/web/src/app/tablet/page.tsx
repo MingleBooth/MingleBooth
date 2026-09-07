@@ -17,12 +17,16 @@ import {
 
 export default function TabletStudioPage() {
   const winUrl =
-    process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL ||
-    'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio.Setup.1.0.0.exe';
+    process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
+    !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
+      ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
+      : 'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio.Setup.1.0.0.exe';
 
   const macUrl =
-    process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL ||
-    'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio-1.0.0.dmg';
+    process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
+    !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
+      ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
+      : 'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio-1.0.0.dmg';
 
   return (
     <div className="min-h-screen w-full bg-[#090A0C] text-[#EDEDED] flex flex-col font-sans selection:bg-white/20">
