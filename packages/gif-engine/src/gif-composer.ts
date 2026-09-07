@@ -127,21 +127,24 @@ export class GifComposer {
     }
 
     // 3. Detect or use explicit transparent cutout holes from PNG
+    const origW = options.width || (overlayImg ? (overlayImg.naturalWidth || overlayImg.width) : targetWidth) || targetWidth;
+    const origH = options.height || (overlayImg ? (overlayImg.naturalHeight || overlayImg.height) : targetHeight) || targetHeight;
+
     const slots: Array<{ x: number; y: number; width: number; height: number }> =
       options.cutoutSlots && options.cutoutSlots.length > 0
         ? options.cutoutSlots.map((s) => ({
-            x: Math.round((s.x * targetWidth) / (options.width || targetWidth)),
-            y: Math.round((s.y * targetHeight) / (options.height || targetHeight)),
-            width: Math.round((s.width * targetWidth) / (options.width || targetWidth)),
-            height: Math.round((s.height * targetHeight) / (options.height || targetHeight)),
+            x: Math.round((s.x * targetWidth) / origW),
+            y: Math.round((s.y * targetHeight) / origH),
+            width: Math.round((s.width * targetWidth) / origW),
+            height: Math.round((s.height * targetHeight) / origH),
           }))
         : [
             options.cutoutSlot
               ? {
-                  x: Math.round((options.cutoutSlot.x * targetWidth) / (options.width || targetWidth)),
-                  y: Math.round((options.cutoutSlot.y * targetHeight) / (options.height || targetHeight)),
-                  width: Math.round((options.cutoutSlot.width * targetWidth) / (options.width || targetWidth)),
-                  height: Math.round((options.cutoutSlot.height * targetHeight) / (options.height || targetHeight)),
+                  x: Math.round((options.cutoutSlot.x * targetWidth) / origW),
+                  y: Math.round((options.cutoutSlot.y * targetHeight) / origH),
+                  width: Math.round((options.cutoutSlot.width * targetWidth) / origW),
+                  height: Math.round((options.cutoutSlot.height * targetHeight) / origH),
                 }
               : overlayImg
               ? this.detectCutoutArea(overlayImg, targetWidth, targetHeight)

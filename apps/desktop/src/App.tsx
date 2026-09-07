@@ -517,15 +517,58 @@ const TabletStudioContent: React.FC = () => {
     fetchVendorData();
   }, [fetchVendorData]);
 
-  // Load Offline Captures whenever Event Gallery modal opens
+  // Load Offline Captures & Supabase Cloud Captures whenever Event Gallery modal opens
   useEffect(() => {
     if (showEventGalleryModal) {
       setIsEventGalleryLoading(true);
-      getOfflineCaptures(selectedEventId)
-        .then((items) => {
-          setEventGalleryPhotos(items);
+      Promise.all([
+        getOfflineCaptures(selectedEventId).catch(() => []),
+        fetch(`${API_BASE_URL}/api/gallery/event/${selectedEventId}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+      ])
+        .then(([localItems, cloudData]) => {
+          const map = new Map<string, OfflineCaptureItem>();
+
+          // 1. Add cloud photos from Supabase (12 photos from database)
+          if (cloudData && Array.isArray(cloudData.photos)) {
+            for (const p of cloudData.photos) {
+              const photoUrl = p.fullUrl?.startsWith('http')
+                ? p.fullUrl
+                : p.thumbUrl?.startsWith('http')
+                ? p.thumbUrl
+                : `${API_BASE_URL}${p.fullUrl || p.thumbUrl}`;
+              const gifUrl = p.gifUrl
+                ? p.gifUrl.startsWith('http')
+                  ? p.gifUrl
+                  : `${API_BASE_URL}${p.gifUrl}`
+                : null;
+
+              map.set(p.photoId, {
+                photoId: p.photoId,
+                eventId: selectedEventId,
+                eventName: currentEvent.name,
+                photoDataUrl: photoUrl,
+                gifDataUrl: gifUrl,
+                hasGif: Boolean(p.hasGif),
+                createdAt: p.createdAt || new Date().toISOString(),
+              });
+            }
+          }
+
+          // 2. Merge local items (local takes priority if same photoId)
+          if (Array.isArray(localItems)) {
+            for (const item of localItems) {
+              map.set(item.photoId, item);
+            }
+          }
+
+          const combined = Array.from(map.values()).sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+          setEventGalleryPhotos(combined);
         })
-        .catch((e) => console.warn('Could not load offline captures:', e))
+        .catch((e) => console.warn('Could not load gallery captures:', e))
         .finally(() => setIsEventGalleryLoading(false));
     }
   }, [showEventGalleryModal, selectedEventId]);
@@ -575,9 +618,14 @@ const TabletStudioContent: React.FC = () => {
       setCustomGifFileName(file.name);
       setEnableGif(true);
 
-      // Detect cutouts in uploaded GIF frame
+      // Detect cutouts with natural dimensions of uploaded image
       try {
-        const detected = await FrameHoleDetector.detectCutouts(base64, 720, 960);
+        const img = new Image();
+        img.src = base64;
+        await new Promise((res) => { img.onload = res; });
+        const natW = img.naturalWidth || 720;
+        const natH = img.naturalHeight || 960;
+        const detected = await FrameHoleDetector.detectCutouts(base64, natW, natH);
         if (detected && detected.length > 0) {
           setCustomGifCutouts(detected);
         } else {
@@ -2163,9 +2211,9 @@ const TabletStudioContent: React.FC = () => {
 
           <div
             style={{
-              aspectRatio: `${frameDimensions.width} / ${frameDimensions.height}`,
+              aspectRatio: resultTab === 'photo' ? `${frameDimensions.width} / ${frameDimensions.height}` : undefined,
             }}
-            className="h-full max-h-[66vh] rounded-2xl bg-black border border-white/[0.1] overflow-hidden shadow-2xl flex items-center justify-center p-1"
+            className="h-full max-h-[66vh] max-w-full rounded-2xl bg-black border border-white/[0.1] overflow-hidden shadow-2xl flex items-center justify-center p-1 transition-all duration-300"
           >
             {resultTab === 'photo' ? (
               finalPhotoDataUrl && (
