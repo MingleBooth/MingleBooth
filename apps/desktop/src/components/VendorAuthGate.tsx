@@ -106,11 +106,14 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
         <div className="max-w-md w-full bg-[#121316] border border-white/[0.08] rounded-2xl p-8 shadow-2xl flex flex-col gap-6 animate-fadeIn">
           {/* Header */}
           <div className="flex flex-col items-center text-center gap-3">
-            <img
-              src="/logo-minglebooth-header.png"
-              alt="MingleBooth"
-              className="h-9 sm:h-10 w-auto object-contain"
-            />
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-black text-lg shadow-lg">
+                M
+              </div>
+              <span className="text-xl font-bold tracking-tight text-white">
+                Mingle<span className="text-amber-400">Booth</span>
+              </span>
+            </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-white">
                 Aktivasi MingleBooth Studio

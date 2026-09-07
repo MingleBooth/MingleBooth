@@ -31,6 +31,9 @@ import {
   ShieldCheck,
   CameraOff,
   RotateCcw,
+  Upload,
+  Layers,
+  CheckCircle2,
 } from 'lucide-react';
 import { FrameHoleDetector, DetectedCutout } from '@minglebooth/template-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
@@ -142,9 +145,12 @@ const TabletStudioContent: React.FC = () => {
 
   // Capture Settings
   const [countdownSeconds, setCountdownSeconds] = useState<number>(3); // 0, 3, 5, 10
-  const [shotsCount, setShotsCount] = useState<number>(2); // 1, 2, 3, 4
+  const [shotsCount, setShotsCount] = useState<number>(2); // 1, 2, 3, 4, 5, 6
   const [enableGif, setEnableGif] = useState<boolean>(true);
-  const [gifOverlayPath, setGifOverlayPath] = useState<string | null>('/frames/wedding_gif_frame.png');
+  const [gifOverlayPath, setGifOverlayPath] = useState<string | null>('frames/wedding_gif_frame.png');
+  const [customPhotoFileName, setCustomPhotoFileName] = useState<string>('');
+  const [customGifFileName, setCustomGifFileName] = useState<string>('');
+  const [isLoadingVendorData, setIsLoadingVendorData] = useState<boolean>(false);
 
   // Kiosk Session Running State
   const [sessionStep, setSessionStep] = useState<'idle' | 'countdown' | 'flash' | 'paused_between_poses' | 'processing'>('idle');
@@ -171,9 +177,12 @@ const TabletStudioContent: React.FC = () => {
   const [eventGalleryPhotos, setEventGalleryPhotos] = useState<any[]>([]);
   const [isEventGalleryLoading, setIsEventGalleryLoading] = useState<boolean>(false);
 
-  // Video Refs
+  // Video & File Refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const customFileInputRef = useRef<HTMLInputElement | null>(null);
+  const customGifFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // ── 1. HARDWARE DISCOVERY & WEBCAM INITIALIZATION (UNIVERSAL & ERROR-FREE) ──
   const enumerateCameras = useCallback(async () => {
@@ -196,9 +205,9 @@ const TabletStudioContent: React.FC = () => {
     setCameraError(null);
 
     // Stop existing tracks safely
-    if (cameraStream) {
-      cameraStream.getTracks().forEach((track) => track.stop());
-      setCameraStream(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
 
     const targetId = deviceId || selectedWebcamId;
@@ -228,6 +237,7 @@ const TabletStudioContent: React.FC = () => {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
 
+      streamRef.current = stream;
       setCameraStream(stream);
 
       // Immediately sync with any mounted video elements
@@ -252,7 +262,7 @@ const TabletStudioContent: React.FC = () => {
     } finally {
       setIsCameraLoading(false);
     }
-  }, [selectedWebcamId, cameraStream, enumerateCameras]);
+  }, [selectedWebcamId, enumerateCameras]);
 
   // Video Ref attachment callbacks that guarantee immediate playback when DOM mounts
   const attachVideoRef = useCallback(
@@ -388,37 +398,143 @@ const TabletStudioContent: React.FC = () => {
     };
   }, [currentTemplate]);
 
-  // ── 3. FETCH VENDOR EVENTS & TEMPLATES ──
-  useEffect(() => {
-    const token = localStorage.getItem('mb_license_token');
-    if (!token) return;
+  // ── 3. FETCH VENDOR EVENTS & TEMPLATES (LIVE SUPABASE DATABASE SYNC) ──
+  const fetchVendorData = useCallback(async () => {
+    setIsLoadingVendorData(true);
+    try {
+      const token = localStorage.getItem('mb_license_token') || '';
+      let orgId = '';
+      let vendorEmail = '';
+      try {
+        const orgData = JSON.parse(localStorage.getItem('mb_vendor_org') || '{}');
+        orgId = orgData.id || '';
+      } catch {}
+      try {
+        const devData = JSON.parse(localStorage.getItem('mb_device_info') || '{}');
+        vendorEmail = devData.vendorEmail || '';
+      } catch {}
 
-    // Fetch Events
-    fetch(`${API_BASE_URL}/api/vendor/events`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.events) && data.events.length > 0) {
-          setEvents(data.events);
-          setSelectedEventId(data.events[0].id);
-        }
-      })
-      .catch(() => {});
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (orgId) headers['x-org-id'] = orgId;
+      if (vendorEmail) headers['x-vendor-email'] = vendorEmail;
 
-    // Fetch Templates
-    fetch(`${API_BASE_URL}/api/vendor/templates`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.templates) && data.templates.length > 0) {
-          setTemplates(data.templates);
-          setSelectedTemplateId(data.templates[0].id);
+      // 1. Fetch Events from Supabase
+      const evRes = await fetch(`${API_BASE_URL}/api/vendor/events`, { headers });
+      if (evRes.ok) {
+        const evData = await evRes.json();
+        if (Array.isArray(evData.events) && evData.events.length > 0) {
+          const mappedEvents = evData.events.map((e: any) => ({
+            id: e.id,
+            name: e.name,
+            hostNames: e.branding?.hostNames || e.branding?.eventName || e.name,
+            date: e.date,
+          }));
+          setEvents(mappedEvents);
+          setSelectedEventId(mappedEvents[0].id);
         }
-      })
-      .catch(() => {});
+      }
+
+      // 2. Fetch Templates from Supabase
+      const tmplRes = await fetch(`${API_BASE_URL}/api/vendor/templates`, { headers });
+      if (tmplRes.ok) {
+        const tmplData = await tmplRes.json();
+        if (Array.isArray(tmplData.templates) && tmplData.templates.length > 0) {
+          const mappedTemplates: TemplateItem[] = tmplData.templates.map((t: any, idx: number) => ({
+            id: t.id || `tmpl_db_${idx}`,
+            name: t.name || `Template ${idx + 1}`,
+            path: t.overlay_base64 || t.preview_url || 'frames/wedding_bayu_irma.png',
+            base64: t.overlay_base64,
+            ratio: t.aspect_ratio || '2:3',
+          }));
+          setTemplates((prev) => {
+            const ids = new Set(prev.map((p) => p.id));
+            const fresh = mappedTemplates.filter((m) => !ids.has(m.id));
+            return [...fresh, ...prev];
+          });
+          if (mappedTemplates[0]?.id) {
+            setSelectedTemplateId(mappedTemplates[0].id);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch vendor data:', e);
+    } finally {
+      setIsLoadingVendorData(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchVendorData();
+  }, [fetchVendorData]);
+
+  // Upload Custom Photo Frame (.PNG)
+  const handleUploadCustomFrame = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      const cleanName = file.name.replace(/\.[^/.]+$/, '');
+      const newTmpl: TemplateItem = {
+        id: 'custom_' + Date.now(),
+        name: cleanName,
+        path: base64,
+        base64,
+        ratio: '2:3',
+      };
+      setCustomPhotoFileName(file.name);
+      setTemplates((prev) => [newTmpl, ...prev]);
+      setSelectedTemplateId(newTmpl.id);
+
+      // Detect Cutouts for Custom Frame
+      try {
+        const detected = await FrameHoleDetector.detectCutouts(base64, 682, 1024);
+        if (detected && detected.length > 0) {
+          setFrameCutouts(detected);
+        }
+      } catch (err) {
+        console.warn('Frame detection notice:', err);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Upload Custom GIF Frame (.PNG)
+  const handleUploadCustomGifFrame = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setGifOverlayPath(base64);
+      setCustomGifFileName(file.name);
+      setEnableGif(true);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Camera Mode Switcher
+  const handleSwitchCameraMode = (mode: 'webcam' | 'sony') => {
+    setCameraMode(mode);
+    setCameraError(null);
+    if (mode === 'webcam') {
+      startWebcamStream();
+    } else {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((t) => t.stop());
+        setCameraStream(null);
+      }
+    }
+  };
 
   // ── 4. GRAB FRAME & CAPTURE SEQUENCE ──
   const grabVideoFrame = (): string | null => {
@@ -527,13 +643,52 @@ const TabletStudioContent: React.FC = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Cannot init canvas');
 
-      // Draw user photos into cutout holes
-      const cutouts = frameCutouts.length > 0
-        ? frameCutouts
-        : [
-            { x: 40, y: 40, width: canvas.width - 80, height: Math.floor((canvas.height - 120) / 2) },
-            { x: 40, y: Math.floor(canvas.height / 2) + 20, width: canvas.width - 80, height: Math.floor((canvas.height - 120) / 2) },
-          ];
+      // Draw user photos into cutout holes (Supports 1 to 6 photos dynamically)
+      let cutouts = frameCutouts;
+      if (!cutouts || cutouts.length < photos.length) {
+        cutouts = [];
+        const n = photos.length;
+        if (n <= 3) {
+          const slotH = Math.floor((canvas.height - 140) / n);
+          for (let i = 0; i < n; i++) {
+            cutouts.push({
+              x: 40,
+              y: 40 + i * (slotH + 20),
+              width: canvas.width - 80,
+              height: slotH,
+            });
+          }
+        } else if (n === 4) {
+          const slotW = Math.floor((canvas.width - 100) / 2);
+          const slotH = Math.floor((canvas.height - 140) / 2);
+          for (let r = 0; r < 2; r++) {
+            for (let c = 0; c < 2; c++) {
+              cutouts.push({
+                x: 35 + c * (slotW + 30),
+                y: 40 + r * (slotH + 30),
+                width: slotW,
+                height: slotH,
+              });
+            }
+          }
+        } else {
+          // 5 or 6 photos: 2 cols x 3 rows
+          const slotW = Math.floor((canvas.width - 90) / 2);
+          const slotH = Math.floor((canvas.height - 140) / 3);
+          for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 2; c++) {
+              if (cutouts.length < n) {
+                cutouts.push({
+                  x: 30 + c * (slotW + 30),
+                  y: 35 + r * (slotH + 25),
+                  width: slotW,
+                  height: slotH,
+                });
+              }
+            }
+          }
+        }
+      }
 
       for (let i = 0; i < photos.length; i++) {
         const photoData = photos[i];
@@ -756,18 +911,23 @@ const TabletStudioContent: React.FC = () => {
         {/* Top Minimal Header */}
         <header className="h-16 px-6 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-minglebooth.png" alt="MingleBooth" className="h-6 w-auto object-contain" />
-            <div className="h-4 w-[1px] bg-white/10" />
-            <span className="text-xs font-semibold tracking-wide text-neutral-300">
-              Studio Photobooth Kiosk
-            </span>
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-black text-sm shadow-md">
+              M
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-bold tracking-tight text-white leading-tight">
+                Mingle<span className="text-amber-400">Booth</span>
+              </span>
+              <span className="text-[10px] font-medium text-neutral-400 leading-tight">
+                Studio Photobooth Kiosk
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowEventGalleryModal(true)}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center gap-2 transition-colors"
+              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center gap-2 transition-colors cursor-pointer"
             >
               <Images className="w-3.5 h-3.5 text-neutral-300" />
               <span>Galeri Acara</span>
@@ -780,7 +940,7 @@ const TabletStudioContent: React.FC = () => {
                   window.location.reload();
                 }
               }}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-xs font-medium text-neutral-400 hover:text-white flex items-center gap-1.5 transition-colors"
+              className="h-9 px-3.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-xs font-medium text-neutral-400 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Ganti Akun</span>
@@ -794,8 +954,34 @@ const TabletStudioContent: React.FC = () => {
           <section className="flex-1 bg-[#090A0C] flex flex-col items-center justify-center p-6 min-h-0 border-b lg:border-b-0 lg:border-r border-white/[0.06] relative">
             <div className="w-full max-w-md flex items-center justify-between mb-3 text-xs text-neutral-400">
               <span className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Preview Studio Aktif</span>
+                {cameraMode === 'webcam' ? (
+                  cameraStream ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-neutral-200 font-medium">Webcam Laptop Aktif</span>
+                    </>
+                  ) : isCameraLoading ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-spin" />
+                      <span className="text-amber-300 font-medium">Menghubungkan Webcam...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-rose-400" />
+                      <span className="text-rose-400 font-medium">Webcam Belum Terhubung</span>
+                    </>
+                  )
+                ) : tetherStatus === 'connected' ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-neutral-200 font-medium">Sony DSLR USB Siap</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+                    <span className="text-amber-300 font-medium">Menunggu Sambungan Sony USB</span>
+                  </>
+                )}
               </span>
               <span className="font-mono text-[11px] bg-white/[0.06] px-2 py-0.5 rounded text-neutral-300">
                 Rasio: {currentTemplate.ratio} ({frameDimensions.width}x{frameDimensions.height})
@@ -807,26 +993,76 @@ const TabletStudioContent: React.FC = () => {
               style={{
                 aspectRatio: `${frameDimensions.width} / ${frameDimensions.height}`,
               }}
-              className="h-full max-h-[68vh] rounded-2xl bg-black border border-white/[0.1] overflow-hidden relative shadow-2xl flex items-center justify-center group"
+              className="h-full max-h-[68vh] rounded-2xl bg-[#090A0C] border border-white/[0.1] overflow-hidden relative shadow-2xl flex items-center justify-center group"
             >
               {cameraMode === 'webcam' ? (
-                <video
-                  ref={attachPreviewVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover transform -scale-x-100"
-                />
-              ) : (
-                tetherLiveFrame ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={tetherLiveFrame} alt="Sony Live View" className="w-full h-full object-cover" />
+                cameraStream ? (
+                  <video
+                    ref={attachPreviewVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover transform -scale-x-100"
+                  />
                 ) : (
-                  <div className="flex flex-col items-center justify-center p-6 text-center text-xs text-neutral-400 gap-2">
-                    <Camera className="w-8 h-8 text-neutral-600 animate-pulse" />
-                    <span>Menghubungkan ke Sony PC Remote (Port 4848)...</span>
+                  <div className="flex flex-col items-center justify-center p-6 text-center text-xs text-neutral-400 gap-3 z-0">
+                    <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-300">
+                      {isCameraLoading ? (
+                        <RefreshCw className="w-6 h-6 animate-spin text-amber-400" />
+                      ) : (
+                        <Laptop className="w-6 h-6" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-white">
+                        {isCameraLoading ? 'Menghubungkan Webcam Laptop...' : 'Webcam Belum Terhubung'}
+                      </p>
+                      {cameraError && (
+                        <p className="text-[11px] text-rose-400 max-w-xs mt-1 leading-tight">
+                          {cameraError}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => startWebcamStream()}
+                      className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-1.5 shadow-lg active:scale-95 transition-all cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Sambungkan Webcam</span>
+                    </button>
                   </div>
                 )
+              ) : tetherLiveFrame ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={tetherLiveFrame} alt="Sony Live View" className="w-full h-full object-cover" />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-6 text-center text-xs text-neutral-400 gap-3 z-0">
+                  <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-300">
+                    <Camera className="w-6 h-6 text-amber-400" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white">Mode Sony / DSLR USB Siap</p>
+                    <p className="text-[11px] text-neutral-400 max-w-xs mt-1 leading-tight">
+                      {tetherStatus === 'connected'
+                        ? 'Kamera terdeteksi via USB (Port 4848). Foto tajam otomatis tersinkron saat memotret.'
+                        : 'Hubungkan Sony via kabel USB PC Remote. Tombol potret akan langsung mengambil foto dengan flash.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fetch(`${tetherUrl}/api/tether/status`)
+                        .then((r) => r.json())
+                        .then((d) => setTetherStatus(d.success ? 'connected' : 'disconnected'))
+                        .catch(() => setTetherStatus('disconnected'));
+                    }}
+                    className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Uji Sambungan Port 4848</span>
+                  </button>
+                </div>
               )}
 
               {/* Template Frame Overlay */}
@@ -834,16 +1070,11 @@ const TabletStudioContent: React.FC = () => {
               <img
                 src={currentTemplate.path}
                 alt=""
-                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
                 className="absolute inset-0 w-full h-full object-contain pointer-events-none z-10"
               />
-
-              {/* Camera Error Banner */}
-              {cameraError && (
-                <div className="absolute inset-x-4 top-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs text-center backdrop-blur-md z-20">
-                  {cameraError}
-                </div>
-              )}
             </div>
           </section>
 
@@ -851,10 +1082,22 @@ const TabletStudioContent: React.FC = () => {
           <aside className="w-full lg:w-[460px] bg-[#0F1014] p-6 flex flex-col justify-between overflow-y-auto min-h-0">
             <div className="space-y-5">
               {/* Event Card */}
-              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-2">
-                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
-                  1. Acara Vendor
-                </label>
+              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
+                    1. Acara Vendor
+                  </label>
+                  <button
+                    type="button"
+                    onClick={fetchVendorData}
+                    disabled={isLoadingVendorData}
+                    className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                    title="Sinkronkan data acara dari Supabase Database"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isLoadingVendorData ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingVendorData ? 'Menyinkronkan...' : 'Sinkron Database'}</span>
+                  </button>
+                </div>
                 <select
                   value={selectedEventId}
                   onChange={(e) => setSelectedEventId(e.target.value)}
@@ -866,57 +1109,157 @@ const TabletStudioContent: React.FC = () => {
                     </option>
                   ))}
                 </select>
+                <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Database Supabase Aktif &bull; {events.length} Acara Terdaftar</span>
+                </div>
               </div>
 
-              {/* Template Card */}
-              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-2.5">
-                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
-                  2. Desain Bingkai / Frame
-                </label>
+              {/* Template & GIF Card */}
+              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-3">
+                {/* Hidden File Inputs for Custom Uploads */}
+                <input
+                  ref={customFileInputRef}
+                  type="file"
+                  accept="image/png"
+                  onChange={handleUploadCustomFrame}
+                  className="hidden"
+                />
+                <input
+                  ref={customGifFileInputRef}
+                  type="file"
+                  accept="image/png"
+                  onChange={handleUploadCustomGifFrame}
+                  className="hidden"
+                />
+
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
+                    2. Desain Bingkai &amp; GIF
+                  </label>
+                  <span className="text-[11px] text-neutral-400 font-mono">
+                    {templates.length} Pilihan Bingkai
+                  </span>
+                </div>
+
+                {/* Templates Thumbnail Selector */}
                 <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
                   {templates.map((tmpl) => {
                     const isSelected = tmpl.id === selectedTemplateId;
                     return (
                       <button
                         key={tmpl.id}
+                        type="button"
                         onClick={() => setSelectedTemplateId(tmpl.id)}
-                        className={`p-2.5 rounded-xl border text-left flex items-center gap-2.5 transition-all ${
+                        className={`p-2.5 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
                           isSelected
                             ? 'bg-white text-black border-white shadow-md'
                             : 'bg-[#1A1C24] border-white/[0.06] text-neutral-300 hover:border-white/20'
                         }`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={tmpl.path} alt={tmpl.name} className="w-8 h-10 object-contain rounded bg-black/40 flex-shrink-0" />
-                        <span className="text-[11px] font-semibold truncate leading-tight">{tmpl.name}</span>
+                        <img
+                          src={tmpl.path}
+                          alt={tmpl.name}
+                          className="w-8 h-10 object-contain rounded bg-black/40 flex-shrink-0"
+                        />
+                        <span className="text-[11px] font-semibold truncate leading-tight">
+                          {tmpl.name}
+                        </span>
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Upload Action Buttons */}
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/[0.06]">
+                  <button
+                    type="button"
+                    onClick={() => customFileInputRef.current?.click()}
+                    className="h-10 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/20 text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    title="Upload template bingkai cetak format PNG transparan"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="truncate">{customPhotoFileName ? 'Ganti Bingkai Foto' : 'Upload Bingkai (.PNG)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => customGifFileInputRef.current?.click()}
+                    className="h-10 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/20 text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    title="Upload bingkai overlay khusus untuk animasi GIF Boomerang"
+                  >
+                    <Film className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="truncate">{customGifFileName ? 'Ganti Bingkai GIF' : 'Upload Bingkai GIF'}</span>
+                  </button>
+                </div>
+
+                {/* Uploaded Files & GIF Toggle Indicator */}
+                <div className="space-y-1.5 pt-1 text-[11px]">
+                  {customPhotoFileName && (
+                    <div className="flex items-center gap-1.5 text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="truncate">Bingkai Foto: <strong>{customPhotoFileName}</strong></span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-[#1A1C24] border border-white/[0.06]">
+                    <div className="flex items-center gap-2">
+                      <Film className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-neutral-300">
+                        {customGifFileName ? `GIF: ${customGifFileName}` : 'GIF Boomerang Otomatis'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEnableGif(!enableGif)}
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-colors cursor-pointer ${
+                        enableGif ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-neutral-800 text-neutral-400 border border-white/10'
+                      }`}
+                    >
+                      {enableGif ? 'Aktif' : 'Nonaktif'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
               {/* Camera Source Selector */}
               <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-2.5">
-                <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
-                  3. Sumber Kamera
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
+                    3. Sumber Kamera
+                  </label>
+                  {cameraMode === 'webcam' && (
+                    <button
+                      type="button"
+                      onClick={() => startWebcamStream()}
+                      className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Sambungkan Ulang</span>
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 p-1 rounded-xl bg-[#1A1C24] border border-white/[0.06]">
                   <button
-                    onClick={() => {
-                      setCameraMode('webcam');
-                      startWebcamStream();
-                    }}
-                    className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                      cameraMode === 'webcam' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'
+                    type="button"
+                    onClick={() => handleSwitchCameraMode('webcam')}
+                    className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      cameraMode === 'webcam'
+                        ? 'bg-white text-black shadow-sm'
+                        : 'text-neutral-400 hover:text-white'
                     }`}
                   >
                     <Laptop className="w-3.5 h-3.5" />
                     <span>Webcam Laptop</span>
                   </button>
                   <button
-                    onClick={() => setCameraMode('sony')}
-                    className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                      cameraMode === 'sony' ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'
+                    type="button"
+                    onClick={() => handleSwitchCameraMode('sony')}
+                    className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      cameraMode === 'sony'
+                        ? 'bg-white text-black shadow-sm'
+                        : 'text-neutral-400 hover:text-white'
                     }`}
                   >
                     <Camera className="w-3.5 h-3.5" />
@@ -944,17 +1287,22 @@ const TabletStudioContent: React.FC = () => {
                 {cameraMode === 'sony' && (
                   <div className="p-2.5 rounded-xl bg-[#1A1C24] border border-white/[0.06] flex items-center justify-between text-xs">
                     <span className="text-neutral-400 flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${tetherStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          tetherStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                        }`}
+                      />
                       <span>{tetherStatus === 'connected' ? 'Sony USB Siap' : 'Menunggu Sambungan USB'}</span>
                     </span>
                     <button
+                      type="button"
                       onClick={() => {
                         fetch(`${tetherUrl}/api/tether/status`)
                           .then((r) => r.json())
                           .then((d) => setTetherStatus(d.success ? 'connected' : 'disconnected'))
                           .catch(() => setTetherStatus('disconnected'));
                       }}
-                      className="text-[11px] text-neutral-300 hover:text-white underline"
+                      className="text-[11px] text-neutral-300 hover:text-white underline cursor-pointer"
                     >
                       Uji Sambungan
                     </button>
@@ -964,32 +1312,47 @@ const TabletStudioContent: React.FC = () => {
 
               {/* Capture Parameters (Pose & Countdown) */}
               <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Jumlah Pose:</span>
-                  <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
-                    {[1, 2, 3, 4].map((num) => (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                      Jumlah Pose:
+                    </span>
+                    <span className="text-xs font-semibold text-amber-400">
+                      {shotsCount} Foto
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-6 gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
+                    {[1, 2, 3, 4, 5, 6].map((num) => (
                       <button
                         key={num}
+                        type="button"
                         onClick={() => setShotsCount(num)}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                          shotsCount === num ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'
+                        className={`py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          shotsCount === num
+                            ? 'bg-white text-black shadow-sm font-bold'
+                            : 'text-neutral-400 hover:text-white'
                         }`}
                       >
-                        {num} Foto
+                        {num}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Countdown:</span>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                    Countdown:
+                  </span>
                   <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
                     {[0, 3, 5, 10].map((sec) => (
                       <button
                         key={sec}
+                        type="button"
                         onClick={() => setCountdownSeconds(sec)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                          countdownSeconds === sec ? 'bg-white text-black shadow-sm' : 'text-neutral-400 hover:text-white'
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          countdownSeconds === sec
+                            ? 'bg-white text-black shadow-sm'
+                            : 'text-neutral-400 hover:text-white'
                         }`}
                       >
                         {sec === 0 ? 'Off' : `${sec}s`}
@@ -1009,7 +1372,7 @@ const TabletStudioContent: React.FC = () => {
                   setCurrentShotIndex(0);
                   setCapturedPhotos([]);
                 }}
-                className="w-full h-14 rounded-2xl bg-white hover:bg-neutral-200 text-black font-bold text-sm flex items-center justify-center gap-2 shadow-2xl transition-all active:scale-[0.99]"
+                className="w-full h-14 rounded-2xl bg-white hover:bg-neutral-200 text-black font-bold text-sm flex items-center justify-center gap-2 shadow-2xl transition-all active:scale-[0.99] cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-current" />
                 <span>Mulai Sesi Photobooth (Kiosk)</span>
@@ -1295,12 +1658,17 @@ const TabletStudioContent: React.FC = () => {
       {/* Top Header Bar */}
       <header className="h-16 px-6 sm:px-10 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="logo-minglebooth.png" alt="MingleBooth" className="h-6 w-auto object-contain" />
-          <div className="h-4 w-[1px] bg-white/10 hidden sm:block" />
-          <span className="text-xs font-medium text-neutral-400 hidden sm:inline">
-            Foto Berhasil Diambil
-          </span>
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-black text-sm shadow-md">
+            M
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm font-bold tracking-tight text-white leading-tight">
+              Mingle<span className="text-amber-400">Booth</span>
+            </span>
+            <span className="text-[10px] font-medium text-neutral-400 leading-tight">
+              Foto Berhasil Diambil
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center gap-2.5">
