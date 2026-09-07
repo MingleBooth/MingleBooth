@@ -37,6 +37,8 @@ import {
   Upload,
   Layers,
   CheckCircle2,
+  Eye,
+  Palette,
 } from 'lucide-react';
 import { FrameHoleDetector, DetectedCutout } from '@minglebooth/template-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
@@ -80,6 +82,35 @@ const DEFAULT_TEMPLATES: TemplateItem[] = [
     ratio: '2:3',
   },
 ];
+
+export interface WallpaperPresetItem {
+  id: string;
+  name: string;
+  subtitle: string;
+  path: string;
+}
+
+const DEFAULT_WALLPAPERS: WallpaperPresetItem[] = [
+  {
+    id: 'flower',
+    name: 'Bunga Putih Langit Biru',
+    subtitle: 'Minimalis & Estetik',
+    path: 'wallpapers/default_flower.jpg',
+  },
+  {
+    id: 'building',
+    name: 'Apartemen Malam Hangat',
+    subtitle: 'Cozy Architectural Art',
+    path: 'wallpapers/default_building.jpg',
+  },
+  {
+    id: 'coastal',
+    name: 'Pesisir Pantai Sunset',
+    subtitle: 'Golden Hour Ocean View',
+    path: 'wallpapers/default_coastal.jpg',
+  },
+];
+
 
 // Audio feedback synthesizer
 function playBeep(frequency = 880, duration = 0.08, type: OscillatorType = 'sine') {
@@ -201,6 +232,44 @@ const TabletStudioContent: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const customFileInputRef = useRef<HTMLInputElement | null>(null);
   const customGifFileInputRef = useRef<HTMLInputElement | null>(null);
+  const customWallpaperFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Standby Wallpaper / Screensaver States
+  const [enableStandbyWallpaper, setEnableStandbyWallpaper] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mb_enable_standby_wallpaper');
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
+  const [standbyTimeoutMinutes, setStandbyTimeoutMinutes] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mb_standby_timeout_minutes');
+      return saved ? parseFloat(saved) || 1 : 1;
+    }
+    return 1;
+  });
+  const [selectedWallpaperId, setSelectedWallpaperId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mb_selected_wallpaper_id') || 'flower';
+    }
+    return 'flower';
+  });
+  const [customWallpaperUrl, setCustomWallpaperUrl] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mb_custom_wallpaper_url') || null;
+    }
+    return null;
+  });
+  const [customWallpaperFileName, setCustomWallpaperFileName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mb_custom_wallpaper_filename') || '';
+    }
+    return '';
+  });
+  const [isScreensaverActive, setIsScreensaverActive] = useState<boolean>(false);
+  const [showWallpaperSettingModal, setShowWallpaperSettingModal] = useState<boolean>(false);
+
 
   // ── 1. HARDWARE DISCOVERY & WEBCAM INITIALIZATION (UNIVERSAL & ERROR-FREE) ──
   const enumerateCameras = useCallback(async () => {
@@ -706,6 +775,107 @@ const TabletStudioContent: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
+  // Upload Custom Standby Wallpaper (Image / GIF)
+  const handleUploadCustomWallpaper = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setCustomWallpaperUrl(base64);
+      setCustomWallpaperFileName(file.name);
+      setSelectedWallpaperId('custom');
+      localStorage.setItem('mb_custom_wallpaper_url', base64);
+      localStorage.setItem('mb_custom_wallpaper_filename', file.name);
+      localStorage.setItem('mb_selected_wallpaper_id', 'custom');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const getActiveWallpaperUrl = useCallback(() => {
+    if (selectedWallpaperId === 'custom' && customWallpaperUrl) {
+      return customWallpaperUrl;
+    }
+    const preset = DEFAULT_WALLPAPERS.find((w) => w.id === selectedWallpaperId);
+    return preset?.path || DEFAULT_WALLPAPERS[0].path;
+  }, [selectedWallpaperId, customWallpaperUrl]);
+
+  const handleUpdateStandbyTimeout = (minutes: number) => {
+    const valid = Math.max(0.1, Number(minutes.toFixed(1)));
+    setStandbyTimeoutMinutes(valid);
+    localStorage.setItem('mb_standby_timeout_minutes', valid.toString());
+  };
+
+  const handleToggleStandbyWallpaper = (enabled: boolean) => {
+    setEnableStandbyWallpaper(enabled);
+    localStorage.setItem('mb_enable_standby_wallpaper', enabled ? 'true' : 'false');
+    if (!enabled) {
+      setIsScreensaverActive(false);
+    }
+  };
+
+  const handleSelectWallpaperPreset = (presetId: string) => {
+    setSelectedWallpaperId(presetId);
+    localStorage.setItem('mb_selected_wallpaper_id', presetId);
+  };
+
+  // Idle Activity Tracker in Kiosk Mode for Standby Wallpaper
+  useEffect(() => {
+    if (
+      phase !== 'kiosk' ||
+      !enableStandbyWallpaper ||
+      sessionStep !== 'idle' ||
+      showEventGalleryModal ||
+      showWallpaperSettingModal
+    ) {
+      if (isScreensaverActive && (phase !== 'kiosk' || !enableStandbyWallpaper)) {
+        setIsScreensaverActive(false);
+      }
+      return;
+    }
+
+    const timeoutMs = Math.max(5, standbyTimeoutMinutes * 60) * 1000;
+    let timer: NodeJS.Timeout;
+
+    const resetIdleTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        setIsScreensaverActive(true);
+      }, timeoutMs);
+    };
+
+    resetIdleTimer();
+
+    const handleUserActivity = () => {
+      if (isScreensaverActive) {
+        setIsScreensaverActive(false);
+      }
+      resetIdleTimer();
+    };
+
+    window.addEventListener('mousemove', handleUserActivity);
+    window.addEventListener('mousedown', handleUserActivity);
+    window.addEventListener('touchstart', handleUserActivity);
+    window.addEventListener('keydown', handleUserActivity);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('mousemove', handleUserActivity);
+      window.removeEventListener('mousedown', handleUserActivity);
+      window.removeEventListener('touchstart', handleUserActivity);
+      window.removeEventListener('keydown', handleUserActivity);
+    };
+  }, [
+    phase,
+    enableStandbyWallpaper,
+    standbyTimeoutMinutes,
+    sessionStep,
+    showEventGalleryModal,
+    showWallpaperSettingModal,
+    isScreensaverActive,
+  ]);
+
   // Camera Mode Switcher
   const handleSwitchCameraMode = (mode: 'webcam' | 'sony') => {
     setCameraMode(mode);
@@ -1123,6 +1293,288 @@ const TabletStudioContent: React.FC = () => {
         await new Promise((r) => setTimeout(r, 250));
       }
     }
+  };
+
+  // ── RENDER WALLPAPER & SCREENSAVER SETTINGS MODAL ──
+  const renderWallpaperSettingModal = () => {
+    if (!showWallpaperSettingModal) return null;
+
+    return (
+      <div
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowWallpaperSettingModal(false);
+        }}
+        className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 select-none animate-fadeIn"
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="max-w-xl w-full bg-[#111216] border border-white/[0.12] rounded-3xl p-6 sm:p-7 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-white/[0.08] border border-white/15 flex items-center justify-center text-white">
+                <Sparkles className="w-5 h-5 text-amber-300" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white tracking-wide">
+                  Pengaturan Wallpaper Standby
+                </h3>
+                <p className="text-xs text-neutral-400">
+                  Screensaver otomatis saat bilik photobooth sedang santai tanpa tamu
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowWallpaperSettingModal(false)}
+              className="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.15] text-neutral-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* 1. Toggle Sakelar On / Off */}
+          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#171920] border border-white/[0.06]">
+            <div>
+              <span className="text-xs font-semibold text-white block">
+                Status Wallpaper Standby
+              </span>
+              <span className="text-[11px] text-neutral-400">
+                Tampilkan wallpaper estetik saat tidak ada tamu yang berfoto
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleToggleStandbyWallpaper(!enableStandbyWallpaper)}
+              className={`px-4 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                enableStandbyWallpaper
+                  ? 'bg-white text-black shadow-md'
+                  : 'bg-white/10 text-neutral-400 hover:text-white'
+              }`}
+            >
+              {enableStandbyWallpaper ? 'Aktif' : 'Mati'}
+            </button>
+          </div>
+
+          {/* 2. Timer Setup (Vendor Bebas Mengatur) */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-neutral-400" />
+                <span>Waktu Tunggu Standby (Idle Timeout):</span>
+              </label>
+              <span className="text-xs font-bold text-white bg-white/10 px-2.5 py-0.5 rounded-md border border-white/10 font-mono">
+                {standbyTimeoutMinutes < 1
+                  ? `${Math.round(standbyTimeoutMinutes * 60)} Detik`
+                  : `${standbyTimeoutMinutes} Menit`}
+              </span>
+            </div>
+
+            {/* Quick buttons + Stepper */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 grid grid-cols-4 gap-1.5 bg-[#171920] p-1 rounded-xl border border-white/[0.06]">
+                {[
+                  { label: '30s', val: 0.5 },
+                  { label: '1m', val: 1 },
+                  { label: '2m', val: 2 },
+                  { label: '5m', val: 5 },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => handleUpdateStandbyTimeout(item.val)}
+                    className={`py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      standbyTimeoutMinutes === item.val
+                        ? 'bg-white text-black shadow-sm font-bold'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Direct input number in minutes */}
+              <div className="flex items-center bg-[#171920] border border-white/[0.08] rounded-xl p-0.5 h-[42px]">
+                <button
+                  type="button"
+                  onClick={() => handleUpdateStandbyTimeout(Math.max(0.2, Number((standbyTimeoutMinutes - 0.5).toFixed(1))))}
+                  className="w-8 h-full flex items-center justify-center text-neutral-300 hover:text-white hover:bg-white/10 rounded-lg text-sm font-bold transition-colors cursor-pointer"
+                  title="Kurangi Waktu"
+                >
+                  -
+                </button>
+                <div className="flex items-center px-1">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.1"
+                    max="60"
+                    value={standbyTimeoutMinutes}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!isNaN(v) && v > 0) {
+                        handleUpdateStandbyTimeout(v);
+                      }
+                    }}
+                    className="w-10 text-center bg-transparent text-white font-bold text-xs outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    title="Ketik durasi menit bebas"
+                  />
+                  <span className="text-[10px] text-neutral-400 font-medium mr-1">m</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateStandbyTimeout(Number((standbyTimeoutMinutes + 0.5).toFixed(1)))}
+                  className="w-8 h-full flex items-center justify-center text-neutral-300 hover:text-white hover:bg-white/10 rounded-lg text-sm font-bold transition-colors cursor-pointer"
+                  title="Tambah Waktu"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] text-neutral-400">
+              Jika bilik foto tidak disentuh selama durasi di atas, wallpaper akan otomatis tampil.
+            </p>
+          </div>
+
+          {/* 3. Pilihan Wallpaper (3 Preset Referensi + Upload Kustom) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+                <Palette className="w-3.5 h-3.5 text-neutral-400" />
+                <span>Pilih Tampilan Wallpaper:</span>
+              </label>
+              <span className="text-[11px] text-neutral-400">
+                {DEFAULT_WALLPAPERS.length} Preset Bawaan + Kustom
+              </span>
+            </div>
+
+            {/* Presets Grid */}
+            <div className="grid grid-cols-3 gap-2.5">
+              {DEFAULT_WALLPAPERS.map((preset) => {
+                const isSelected = selectedWallpaperId === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => handleSelectWallpaperPreset(preset.id)}
+                    className={`relative rounded-2xl overflow-hidden border text-left transition-all group cursor-pointer ${
+                      isSelected
+                        ? 'border-white ring-2 ring-white/50 shadow-xl'
+                        : 'border-white/10 hover:border-white/30 opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    <div className="aspect-[9/14] w-full bg-black/40 overflow-hidden">
+                      <img
+                        src={preset.path}
+                        alt={preset.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                    <div className="p-2 bg-[#171920]">
+                      <span className="text-[11px] font-semibold text-white block truncate">
+                        {preset.name}
+                      </span>
+                      <span className="text-[9px] text-neutral-400 block truncate">
+                        {preset.subtitle}
+                      </span>
+                    </div>
+                    {isSelected && (
+                      <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-white text-black flex items-center justify-center shadow-md">
+                        <Check className="w-3 h-3 stroke-[3]" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Custom Upload Card */}
+            <div
+              className={`p-3.5 rounded-2xl border transition-all ${
+                selectedWallpaperId === 'custom'
+                  ? 'bg-[#1A1C24] border-white shadow-md'
+                  : 'bg-[#14161C] border-white/[0.08]'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                  <div className="w-8 h-8 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center flex-shrink-0">
+                    <Upload className="w-4 h-4 text-neutral-300" />
+                  </div>
+                  <div className="truncate">
+                    <span className="text-xs font-semibold text-white block truncate">
+                      {customWallpaperFileName ? `Kustom: ${customWallpaperFileName}` : 'Upload Wallpaper / Animasi Sendiri'}
+                    </span>
+                    <span className="text-[10px] text-neutral-400 block truncate">
+                      Foto prewedding, logo acara, atau animasi GIF (.jpg, .png, .gif)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <input
+                    ref={customWallpaperFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleUploadCustomWallpaper}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => customWallpaperFileInputRef.current?.click()}
+                    className="h-8 px-3 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] border border-white/15 text-[11px] font-semibold text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <span>{customWallpaperUrl ? 'Ganti File' : 'Pilih File'}</span>
+                  </button>
+                  {customWallpaperUrl && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectWallpaperPreset('flower')}
+                      className="h-8 px-2.5 rounded-lg text-[11px] text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                      title="Kembali ke preset bunga bawaan"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer Action Buttons */}
+          <div className="flex items-center justify-between pt-2 border-t border-white/[0.08] gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setShowWallpaperSettingModal(false);
+                if (phase === 'kiosk') {
+                  setIsScreensaverActive(true);
+                } else {
+                  alert('Layar standby akan aktif saat masuk ke Mode Kiosk.');
+                }
+              }}
+              className="h-11 px-4 rounded-2xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/15 text-xs font-semibold text-white flex items-center gap-2 transition-all cursor-pointer"
+              title="Coba dan lihat tampilan wallpaper sekarang juga"
+            >
+              <Eye className="w-4 h-4 text-neutral-300" />
+              <span>Pratinjau / Uji Sekarang</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowWallpaperSettingModal(false)}
+              className="h-11 px-6 rounded-2xl bg-white hover:bg-neutral-200 text-black font-bold text-xs flex items-center gap-2 shadow-xl transition-all cursor-pointer"
+            >
+              <span>Simpan & Selesai</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2120,6 +2572,125 @@ const TabletStudioContent: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* 5. Standby Wallpaper (Screensaver) Card */}
+              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
+                      5. Wallpaper Standby (Screensaver)
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleStandbyWallpaper(!enableStandbyWallpaper)}
+                    className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                      enableStandbyWallpaper
+                        ? 'bg-white text-black shadow-sm'
+                        : 'bg-white/10 text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {enableStandbyWallpaper ? 'Aktif' : 'Mati'}
+                  </button>
+                </div>
+
+                {enableStandbyWallpaper && (
+                  <div className="space-y-2.5 pt-1">
+                    {/* Timer selector */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-neutral-300 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-neutral-400" />
+                        <span>Timer Standby:</span>
+                      </span>
+                      <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
+                        {[
+                          { label: '30s', val: 0.5 },
+                          { label: '1m', val: 1 },
+                          { label: '2m', val: 2 },
+                          { label: '5m', val: 5 },
+                        ].map((item) => (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => handleUpdateStandbyTimeout(item.val)}
+                            className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                              standbyTimeoutMinutes === item.val
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-neutral-400 hover:text-white'
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Presets Row */}
+                    <div className="grid grid-cols-4 gap-1.5 pt-1">
+                      {DEFAULT_WALLPAPERS.map((preset) => {
+                        const isSelected = selectedWallpaperId === preset.id;
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => handleSelectWallpaperPreset(preset.id)}
+                            className={`relative rounded-xl overflow-hidden border text-left transition-all group cursor-pointer ${
+                              isSelected
+                                ? 'border-white ring-1 ring-white shadow-md'
+                                : 'border-white/10 opacity-70 hover:opacity-100'
+                            }`}
+                            title={preset.name}
+                          >
+                            <div className="aspect-[9/13] w-full bg-black/40 overflow-hidden">
+                              <img
+                                src={preset.path}
+                                alt={preset.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <span className="text-[9px] font-medium text-neutral-300 block truncate p-1 bg-[#1A1C24]">
+                              {preset.name.split(' ')[0]}
+                            </span>
+                          </button>
+                        );
+                      })}
+
+                      {/* Custom Upload Trigger */}
+                      <button
+                        type="button"
+                        onClick={() => setShowWallpaperSettingModal(true)}
+                        className={`rounded-xl border flex flex-col items-center justify-center p-1 transition-all cursor-pointer ${
+                          selectedWallpaperId === 'custom'
+                            ? 'border-white bg-[#1A1C24]'
+                            : 'border-white/10 bg-[#1A1C24]/60 hover:bg-[#1A1C24]'
+                        }`}
+                        title="Atur atau Upload Wallpaper Sendiri"
+                      >
+                        <Sparkles className="w-4 h-4 text-amber-300 mb-1" />
+                        <span className="text-[9px] text-neutral-300 text-center leading-tight">
+                          {selectedWallpaperId === 'custom' ? 'Kustom' : 'Atur...'}
+                        </span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-neutral-400 truncate max-w-[170px]">
+                        {selectedWallpaperId === 'custom'
+                          ? `Kustom: ${customWallpaperFileName || 'Upload File'}`
+                          : DEFAULT_WALLPAPERS.find((w) => w.id === selectedWallpaperId)?.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowWallpaperSettingModal(true)}
+                        className="text-[11px] text-neutral-300 hover:text-white underline cursor-pointer"
+                      >
+                        Pengaturan Lengkap &rarr;
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Launch Kiosk Button */}
@@ -2139,6 +2710,8 @@ const TabletStudioContent: React.FC = () => {
             </div>
           </aside>
         </main>
+
+        {renderWallpaperSettingModal()}
       </div>
     );
   }
@@ -2150,7 +2723,11 @@ const TabletStudioContent: React.FC = () => {
     return (
       <div
         onClick={() => {
-          if (showEventGalleryModal) return;
+          if (showEventGalleryModal || showWallpaperSettingModal) return;
+          if (isScreensaverActive) {
+            setIsScreensaverActive(false);
+            return;
+          }
           if (sessionStep === 'idle') {
             triggerPoseShot(0);
           } else if (sessionStep === 'paused_between_poses') {
@@ -2287,11 +2864,31 @@ const TabletStudioContent: React.FC = () => {
           </div>
         )}
 
-        {/* Top-Right: Quick Controls (Galeri Foto & Pengaturan) */}
+        {/* Top-Right: Quick Controls (Standby Wallpaper, Galeri Foto & Pengaturan) */}
         <div
           onClick={(e) => e.stopPropagation()}
           className="absolute top-6 right-6 z-40 pointer-events-auto flex items-center gap-2.5"
         >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowWallpaperSettingModal(true);
+            }}
+            className="h-10 px-3.5 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-white/20 hover:border-white/40 flex items-center gap-1.5 text-white/90 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all cursor-pointer"
+            title="Pengaturan Timer & Wallpaper Standby"
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span className="hidden sm:inline">Standby:</span>
+            <span className="font-mono">
+              {enableStandbyWallpaper
+                ? standbyTimeoutMinutes < 1
+                  ? `${Math.round(standbyTimeoutMinutes * 60)}s`
+                  : `${standbyTimeoutMinutes}m`
+                : 'Mati'}
+            </span>
+          </button>
+
           <button
             type="button"
             onClick={(e) => {
@@ -2403,6 +3000,82 @@ const TabletStudioContent: React.FC = () => {
           </div>
         )}
 
+        {/* ── FULLSCREEN STANDBY WALLPAPER SCREENSAVER ── */}
+        {isScreensaverActive && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsScreensaverActive(false);
+            }}
+            className="absolute inset-0 z-50 bg-black animate-fadeIn cursor-pointer select-none"
+          >
+            {/* Background Image / Animation */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={getActiveWallpaperUrl()}
+              alt="Standby Wallpaper"
+              className="w-full h-full object-cover select-none pointer-events-none"
+            />
+
+            {/* Dark Vignette Overlay for Readability */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/60 pointer-events-none" />
+
+            {/* Top Bar: Clock, Date, & Quick Settings */}
+            <div className="absolute top-8 inset-x-8 flex items-start justify-between">
+              <div>
+                <div className="text-5xl sm:text-7xl font-extralight tracking-tight text-white drop-shadow-lg font-sans">
+                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <div className="text-sm sm:text-base font-medium text-white/90 mt-1 drop-shadow-md">
+                  {new Date().toLocaleDateString('id-ID', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowWallpaperSettingModal(true);
+                }}
+                className="h-10 px-4 rounded-full bg-black/50 hover:bg-black/80 backdrop-blur-md border border-white/25 hover:border-white/50 text-white text-xs font-semibold flex items-center gap-2 shadow-2xl transition-all cursor-pointer active:scale-95"
+                title="Buka Pengaturan Wallpaper & Timer"
+              >
+                <Settings className="w-4 h-4 text-white" />
+                <span>Pengaturan</span>
+              </button>
+            </div>
+
+            {/* Bottom: Event Branding & Touch to Start Prompt */}
+            <div className="absolute inset-x-6 bottom-16 flex flex-col items-center justify-center text-center gap-4 pointer-events-none">
+              <div className="flex flex-col items-center gap-1 drop-shadow-md">
+                <span className="text-xs sm:text-sm font-semibold tracking-widest uppercase text-white/80">
+                  {currentEvent.name}
+                </span>
+                {currentEvent.hostNames && (
+                  <span className="text-sm sm:text-base font-medium text-white">
+                    {currentEvent.hostNames}
+                  </span>
+                )}
+              </div>
+
+              <div className="px-8 py-4 rounded-full bg-white hover:bg-neutral-200 text-black font-bold text-sm sm:text-base flex items-center gap-3 shadow-2xl animate-pulse tracking-wide pointer-events-auto transition-all cursor-pointer active:scale-95">
+                <Camera className="w-5 h-5 fill-black" />
+                <span>SENTUH LAYAR UNTUK MEMULAI PHOTOBOOTH</span>
+              </div>
+
+              <p className="text-xs text-white/70 font-medium drop-shadow">
+                Sentuh layar di mana saja untuk menyalakan kamera
+              </p>
+            </div>
+          </div>
+        )}
+
+        {renderWallpaperSettingModal()}
       </div>
     );
   }
