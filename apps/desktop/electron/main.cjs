@@ -467,6 +467,8 @@ app.whenReady().then(() => {
     } catch (e) {
       console.warn('Could not set dock icon:', e);
     }
+  }
+
   // Auto-grant media (camera / microphone) permissions globally
   if (session && session.defaultSession) {
     configureSessionPermissions(session.defaultSession);
