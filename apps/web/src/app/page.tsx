@@ -22,6 +22,7 @@ import {
   UserPlus,
   Menu,
   X,
+  Download,
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -49,6 +50,13 @@ export default function LandingPage() {
             className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors whitespace-nowrap"
           >
             Paket & Lisensi
+          </Link>
+          <Link
+            href="/tablet"
+            className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <Download className="w-3.5 h-3.5 text-neutral-400" />
+            <span>Unduh Aplikasi</span>
           </Link>
           <Link
             href="/login"
@@ -108,6 +116,20 @@ export default function LandingPage() {
             </span>
           </Link>
 
+          <Link
+            href="/tablet"
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center justify-between px-3.5 py-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] text-neutral-200 text-sm font-medium transition-colors"
+          >
+            <span className="flex items-center gap-2.5">
+              <Download className="w-4 h-4 text-emerald-400" />
+              <span>Unduh Aplikasi Desktop</span>
+            </span>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Mac &amp; Win
+            </span>
+          </Link>
+
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/[0.06]">
             <Link
               href="/login"
@@ -162,11 +184,19 @@ export default function LandingPage() {
           </Link>
 
           <Link
+            href="/tablet"
+            className="h-11 px-5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
+          >
+            <Download className="w-4 h-4 text-neutral-300 flex-shrink-0" />
+            <span>Unduh Desktop</span>
+          </Link>
+
+          <Link
             href="/login"
             className="h-11 px-6 rounded-xl bg-[#14161A] hover:bg-[#1C1F24] border border-white/[0.08] text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
           >
             <LogIn className="w-4 h-4 text-neutral-400 flex-shrink-0" />
-            <span>Masuk ke Portal Vendor</span>
+            <span>Masuk Portal</span>
           </Link>
         </div>
 
