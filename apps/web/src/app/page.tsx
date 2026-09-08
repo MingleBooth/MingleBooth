@@ -1,32 +1,56 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import type { User } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 import {
   Camera,
   Layers,
   QrCode,
-  Zap,
   HardDrive,
   ShieldCheck,
   ArrowRight,
-  ExternalLink,
-  Laptop,
-  CheckCircle2,
-  Sparkles,
   CreditCard,
   WifiOff,
-  Printer,
   ChevronRight,
   LogIn,
   UserPlus,
   Menu,
   X,
   Download,
+  LayoutDashboard,
+  LogOut,
 } from 'lucide-react';
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    // Cek session saat ini
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    // Subscribe ke perubahan auth (login/logout real-time)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setMobileMenuOpen(false);
+  };
+
+  // Ambil inisial dari email untuk avatar
+  const userInitial = user?.email?.charAt(0).toUpperCase() ?? '?';
+  const userEmail = user?.email ?? '';
 
   return (
     <div className="min-h-screen bg-[#090A0C] text-[#EDEDED] flex flex-col font-sans select-none antialiased">
@@ -58,37 +82,97 @@ export default function LandingPage() {
             <Download className="w-3.5 h-3.5 text-neutral-400" />
             <span>Unduh Aplikasi</span>
           </Link>
-          <Link
-            href="/login"
-            className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors flex items-center gap-1.5 whitespace-nowrap"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>Masuk</span>
-          </Link>
-          <Link
-            href="/register"
-            className="px-3.5 py-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Daftar Vendor</span>
-          </Link>
+
+          {/* Conditional Auth Buttons */}
+          {!authLoading && (
+            user ? (
+              /* === SUDAH LOGIN === */
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/dashboard"
+                  className="px-3.5 py-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap"
+                >
+                  <LayoutDashboard className="w-3.5 h-3.5" />
+                  <span>Dashboard</span>
+                </Link>
+                {/* Avatar dengan tooltip email */}
+                <div className="relative group">
+                  <button
+                    onClick={handleLogout}
+                    title={`Logout (${userEmail})`}
+                    className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold hover:ring-2 hover:ring-violet-400 transition-all"
+                  >
+                    {userInitial}
+                  </button>
+                  {/* Tooltip */}
+                  <div className="absolute right-0 top-full mt-2 px-2.5 py-1.5 rounded-lg bg-[#1C1F24] border border-white/[0.1] text-[11px] text-neutral-300 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-xl z-50">
+                    <span className="block text-neutral-400 mb-0.5">{userEmail}</span>
+                    <span className="flex items-center gap-1 text-red-400"><LogOut className="w-3 h-3" /> Klik untuk logout</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* === BELUM LOGIN === */
+              <>
+                <Link
+                  href="/login"
+                  className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Masuk</span>
+                </Link>
+                <Link
+                  href="/register"
+                  className="px-3.5 py-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Daftar Vendor</span>
+                </Link>
+              </>
+            )
+          )}
         </nav>
 
         {/* Mobile Header Actions */}
         <div className="flex md:hidden items-center gap-2">
-          <Link
-            href="/login"
-            className="px-2.5 py-1.5 rounded-lg text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>Masuk</span>
-          </Link>
-          <Link
-            href="/register"
-            className="px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-transform"
-          >
-            <span>Daftar</span>
-          </Link>
+          {!authLoading && (
+            user ? (
+              /* === SUDAH LOGIN (mobile) === */
+              <>
+                <Link
+                  href="/dashboard"
+                  className="px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-transform"
+                >
+                  <LayoutDashboard className="w-3.5 h-3.5" />
+                  <span>Dashboard</span>
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  title={userEmail}
+                  className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold active:scale-95 transition-transform"
+                >
+                  {userInitial}
+                </button>
+              </>
+            ) : (
+              /* === BELUM LOGIN (mobile) === */
+              <>
+                <Link
+                  href="/login"
+                  className="px-2.5 py-1.5 rounded-lg text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Masuk</span>
+                </Link>
+                <Link
+                  href="/register"
+                  className="px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-transform"
+                >
+                  <span>Daftar</span>
+                </Link>
+              </>
+            )
+          )}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle navigation menu"
@@ -130,24 +214,47 @@ export default function LandingPage() {
             </span>
           </Link>
 
-          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/[0.06]">
-            <Link
-              href="/login"
-              onClick={() => setMobileMenuOpen(false)}
-              className="h-10 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-neutral-200 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Masuk</span>
-            </Link>
-            <Link
-              href="/register"
-              onClick={() => setMobileMenuOpen(false)}
-              className="h-10 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Daftar Vendor</span>
-            </Link>
-          </div>
+          {/* Conditional auth buttons di mobile drawer */}
+          {user ? (
+            /* === SUDAH LOGIN (drawer) === */
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/[0.06]">
+              <Link
+                href="/dashboard"
+                onClick={() => setMobileMenuOpen(false)}
+                className="h-10 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm col-span-2"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Masuk ke Dashboard</span>
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="h-10 rounded-xl bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] hover:border-red-500/20 text-neutral-300 hover:text-red-400 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors col-span-2"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Keluar ({userEmail})</span>
+              </button>
+            </div>
+          ) : (
+            /* === BELUM LOGIN (drawer) === */
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/[0.06]">
+              <Link
+                href="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="h-10 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-neutral-200 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Masuk</span>
+              </Link>
+              <Link
+                href="/register"
+                onClick={() => setMobileMenuOpen(false)}
+                className="h-10 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Daftar Vendor</span>
+              </Link>
+            </div>
+          )}
         </div>
       )}
 
@@ -191,13 +298,24 @@ export default function LandingPage() {
             <span>Unduh Desktop</span>
           </Link>
 
-          <Link
-            href="/login"
-            className="h-11 px-6 rounded-xl bg-[#14161A] hover:bg-[#1C1F24] border border-white/[0.08] text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
-          >
-            <LogIn className="w-4 h-4 text-neutral-400 flex-shrink-0" />
-            <span>Masuk Portal</span>
-          </Link>
+          {/* Hero CTA: conditional login/dashboard */}
+          {user ? (
+            <Link
+              href="/dashboard"
+              className="h-11 px-6 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto shadow-lg shadow-violet-900/30"
+            >
+              <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
+              <span>Buka Dashboard</span>
+            </Link>
+          ) : (
+            <Link
+              href="/login"
+              className="h-11 px-6 rounded-xl bg-[#14161A] hover:bg-[#1C1F24] border border-white/[0.08] text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
+            >
+              <LogIn className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+              <span>Masuk Portal</span>
+            </Link>
+          )}
         </div>
 
         {/* Key Feature Stats Cards */}
@@ -386,12 +504,21 @@ export default function LandingPage() {
 
         {/* Navigation Links */}
         <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 sm:gap-8 text-neutral-400 font-medium text-center">
-          <Link href="/login" className="hover:text-white transition-colors">
-            Masuk Vendor
-          </Link>
-          <Link href="/register" className="hover:text-white transition-colors">
-            Daftar Akun
-          </Link>
+          {/* Footer: conditional login/dashboard */}
+          {user ? (
+            <Link href="/dashboard" className="hover:text-white transition-colors">
+              Dashboard Vendor
+            </Link>
+          ) : (
+            <>
+              <Link href="/login" className="hover:text-white transition-colors">
+                Masuk Vendor
+              </Link>
+              <Link href="/register" className="hover:text-white transition-colors">
+                Daftar Akun
+              </Link>
+            </>
+          )}
           <Link href="/billing" className="hover:text-white transition-colors">
             Paket Lisensi
           </Link>

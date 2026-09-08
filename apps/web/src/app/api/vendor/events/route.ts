@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-org-id, x-vendor-email',
 };
 
@@ -147,6 +147,57 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, event: newEvent }, { headers: corsHeaders });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message }, { status: 500, headers: corsHeaders });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const client = getServiceSupabase();
+    const body = await req.json();
+    const { id, name, date, hostNames, outputType, status, hashtag } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'Event ID is required' }, { status: 400, headers: corsHeaders });
+    }
+
+    // Fetch existing event to preserve branding_json fields if partial update
+    const { data: existingEvent } = await client
+      .from('events')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    const existingBranding = existingEvent?.branding_json || {};
+    const updatedBranding = {
+      ...existingBranding,
+      eventName: name !== undefined ? name : existingBranding.eventName,
+      hostNames: hostNames !== undefined ? hostNames : existingBranding.hostNames,
+      hashtag: hashtag !== undefined ? hashtag : existingBranding.hashtag,
+      dateFormatted: date !== undefined && date ? new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : existingBranding.dateFormatted,
+    };
+
+    const updatePayload: Record<string, any> = {
+      branding_json: updatedBranding,
+    };
+    if (name !== undefined) updatePayload.name = name;
+    if (date !== undefined) updatePayload.date = date;
+    if (outputType !== undefined) updatePayload.output_type = outputType;
+    if (status !== undefined) updatePayload.status = status;
+
+    const { data: updatedEvent, error } = await client
+      .from('events')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
+    }
+
+    return NextResponse.json({ success: true, event: updatedEvent }, { headers: corsHeaders });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message }, { status: 500, headers: corsHeaders });
   }
