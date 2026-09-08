@@ -1,0 +1,21 @@
+# Exclude node_modules — Vercel will install fresh from package.json
+node_modules
+**/node_modules
+
+# Exclude desktop app entirely — only web app is deployed
+apps/desktop
+
+# Exclude build artifacts
+apps/web/.next
+apps/desktop/dist
+apps/desktop/release
+
+# Exclude binary/native modules
+apps/desktop/electron/bin
+apps/desktop/electron/native
+packages/*/build
+
+# Exclude dev/test files
+**/*.log
+**/.DS_Store
+dist

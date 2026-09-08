@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "buildCommand": "npm --workspace=@minglebooth/web run build",
+  "installCommand": "npm install",
+  "outputDirectory": "apps/web/.next",
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/cleanup",
+      "schedule": "0 20 * * *"
+    }
+  ]
+}
