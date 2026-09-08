@@ -95,7 +95,7 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen bg-[#090A0C] flex items-center justify-center text-neutral-500 text-xs font-mono">
+      <div className="h-screen w-screen bg-[#090A0C] flex items-center justify-center text-neutral-500 text-sm font-mono">
         Verifikasi Lisensi Hardware...
       </div>
     );
@@ -104,88 +104,88 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
   if (!isAuthenticated) {
     return (
       <div className="h-screen w-screen bg-[#090A0C] text-[#EDEDED] flex items-center justify-center p-6 select-none font-sans antialiased">
-        <div className="max-w-md w-full bg-[#121316] border border-white/[0.08] rounded-2xl p-8 shadow-2xl flex flex-col gap-6 animate-fadeIn">
+        <div className="max-w-lg w-full bg-[#121316] border border-white/[0.08] rounded-2xl p-8 md:p-10 shadow-2xl flex flex-col gap-6 animate-fadeIn">
           {/* Header */}
           <div className="flex flex-col items-center text-center gap-3">
             <img
               src={logoHeader}
               alt="MingleBooth"
-              className="h-10 sm:h-12 w-auto object-contain"
+              className="h-12 md:h-14 w-auto object-contain"
             />
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-white">
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white">
                 Aktivasi MingleBooth Studio
               </h1>
-              <p className="text-xs text-neutral-400 max-w-xs mt-1">
+              <p className="text-sm text-neutral-400 max-w-xs mt-1.5 leading-relaxed">
                 Masuk dengan akun vendor terdaftar untuk mengaktivasi laptop booth ini.
               </p>
             </div>
           </div>
 
           {/* ID Perangkat Laptop */}
-          <div className="p-3 rounded-lg bg-[#181A1F] border border-white/[0.05] flex items-center justify-between text-[11px] font-mono">
-            <div className="flex items-center gap-2 text-neutral-400">
-              <Laptop className="w-3.5 h-3.5 text-neutral-400" />
+          <div className="p-4 rounded-xl bg-[#181A1F] border border-white/[0.05] flex items-center justify-between text-sm font-mono">
+            <div className="flex items-center gap-2.5 text-neutral-400">
+              <Laptop className="w-4 h-4 text-neutral-400 flex-shrink-0" />
               <span>ID Perangkat Laptop:</span>
             </div>
-            <span className="text-neutral-200">{hwid || 'Mendeteksi...'}</span>
+            <span className="text-neutral-200 truncate ml-2 text-xs">{hwid || 'Mendeteksi...'}</span>
           </div>
 
           {/* Error Alert */}
           {errorMsg && (
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2.5">
-              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-400" />
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-sm flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-rose-400" />
               <div className="flex-1 leading-relaxed">{errorMsg}</div>
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="flex flex-col gap-3.5">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-neutral-300 font-medium">Email Vendor</label>
+          <form onSubmit={handleLogin} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm text-neutral-300 font-medium">Email Vendor</label>
               <input
                 type="email"
                 required
                 placeholder="vendor@photobooth.id"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="bg-[#181A1F] border border-white/[0.08] text-xs rounded-xl px-3.5 py-2.5 text-white outline-none focus:border-white/30 transition-colors"
+                className="bg-[#181A1F] border border-white/[0.08] text-sm rounded-xl px-4 py-3.5 text-white outline-none focus:border-white/30 transition-colors w-full"
               />
             </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-neutral-300 font-medium">Password</label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm text-neutral-300 font-medium">Password</label>
               <input
                 type="password"
                 required
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="bg-[#181A1F] border border-white/[0.08] text-xs rounded-xl px-3.5 py-2.5 text-white outline-none focus:border-white/30 transition-colors"
+                className="bg-[#181A1F] border border-white/[0.08] text-sm rounded-xl px-4 py-3.5 text-white outline-none focus:border-white/30 transition-colors w-full"
               />
             </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-neutral-300 font-medium">Nama Laptop / Booth</label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm text-neutral-300 font-medium">Nama Laptop / Booth</label>
               <input
                 type="text"
                 value={deviceName}
                 onChange={(e) => setDeviceName(e.target.value)}
                 placeholder="Contoh: Laptop Booth Utama"
-                className="bg-[#181A1F] border border-white/[0.08] text-xs rounded-xl px-3.5 py-2.5 text-white outline-none focus:border-white/30 transition-colors"
+                className="bg-[#181A1F] border border-white/[0.08] text-sm rounded-xl px-4 py-3.5 text-white outline-none focus:border-white/30 transition-colors w-full"
               />
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="mt-2 w-full py-3 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 shadow-md"
+              className="mt-2 w-full py-4 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] shadow-md"
             >
-              <ShieldCheck className="w-4 h-4" />
+              <ShieldCheck className="w-5 h-5" />
               <span>{submitting ? 'Memverifikasi Perangkat...' : 'Aktivasi Perangkat Ini'}</span>
             </button>
           </form>
 
-          <div className="flex flex-col items-center gap-2 pt-2 border-t border-white/[0.06]">
+          <div className="flex flex-col items-center gap-2.5 pt-3 border-t border-white/[0.06]">
             <a
               href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"
               target="_blank"
@@ -196,10 +196,10 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
               <img
                 src="/logo-footer-sebuahkenang.png"
                 alt="MingleBooth by sebuah.kenang"
-                className="h-8 w-auto object-contain opacity-75 group-hover:opacity-100 transition-opacity"
+                className="h-9 w-auto object-contain opacity-75 group-hover:opacity-100 transition-opacity"
               />
             </a>
-            <div className="text-center text-[10px] text-neutral-500">
+            <div className="text-center text-xs text-neutral-500">
               © 2026 MingleBooth by{' '}
               <a
                 href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"

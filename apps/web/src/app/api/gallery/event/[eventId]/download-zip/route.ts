@@ -16,8 +16,8 @@ export async function GET(
 
   try {
     const client = getServiceSupabase();
-    let eventName = 'Wedding Bayu & Irma';
-    let eventDate = '2026-08-29';
+    let eventName = 'Acara Photobooth';
+    let eventDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     let matchedEventId = eventId;
 
     if (client) {
@@ -66,9 +66,8 @@ export async function GET(
       candidateDirs.push(matchedEventId);
     }
     if (
-      eventName.toLowerCase().includes('bayu') ||
       eventId === 'b739dae7-9a16-48e9-bc53-3fa159380a87' ||
-      eventId.includes('bayu')
+      eventId === 'evt_bayu_irma_2026'
     ) {
       candidateDirs.push('evt_bayu_irma_2026');
       candidateDirs.push('b739dae7-9a16-48e9-bc53-3fa159380a87');

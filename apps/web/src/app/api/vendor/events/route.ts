@@ -212,9 +212,41 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Event ID is required' }, { status: 400, headers: corsHeaders });
     }
 
-    // Delete related photos first
+    // 1. Delete related database records
     await client.from('photos').delete().eq('event_id', eventId);
+    await client.from('gifs').delete().eq('event_id', eventId);
+    await client.from('cloud_sync_logs').delete().eq('event_id', eventId);
 
+    // 2. Clean up physical files from Supabase Storage
+    try {
+      // Delete raw subfolder files
+      const { data: rawFiles } = await client.storage
+        .from('minglebooth-storage')
+        .list(`events/${eventId}/raw`);
+
+      if (rawFiles && rawFiles.length > 0) {
+        const rawPaths = rawFiles.map((f) => `events/${eventId}/raw/${f.name}`);
+        await client.storage.from('minglebooth-storage').remove(rawPaths);
+      }
+
+      // Delete main event folder files
+      const { data: mainFiles } = await client.storage
+        .from('minglebooth-storage')
+        .list(`events/${eventId}`);
+
+      if (mainFiles && mainFiles.length > 0) {
+        const mainPaths = mainFiles
+          .filter((f) => f.name !== 'raw')
+          .map((f) => `events/${eventId}/${f.name}`);
+        if (mainPaths.length > 0) {
+          await client.storage.from('minglebooth-storage').remove(mainPaths);
+        }
+      }
+    } catch (storageErr) {
+      console.warn('Storage cleanup notice on event delete:', storageErr);
+    }
+
+    // 3. Delete event record
     const { error } = await client
       .from('events')
       .delete()

@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
       organizationId,
       fileDataUrl,
       type = 'photo',
+      rawIndex = 1,
     } = body;
 
     if (!photoId || !eventId || !fileDataUrl) {
@@ -83,20 +84,27 @@ export async function POST(req: NextRequest) {
       const dataRoot = getDataDirectory();
       const cloudGalleryDir = path.join(dataRoot, 'cloud-storage/public-gallery/events', eventId);
       await fs.mkdir(cloudGalleryDir, { recursive: true });
-      const filePath = path.join(cloudGalleryDir, `${photoId}.${ext}`);
-      await fs.writeFile(filePath, finalBuffer);
 
-      const localEventDir = path.join(dataRoot, 'events', eventId);
-      await fs.mkdir(localEventDir, { recursive: true });
-      if (type === 'gif') {
-        const gifDir = path.join(localEventDir, 'gifs');
-        await fs.mkdir(gifDir, { recursive: true });
-        await fs.writeFile(path.join(gifDir, `${photoId}.gif`), finalBuffer);
+      if (type === 'raw') {
+        const rawLocalDir = path.join(cloudGalleryDir, 'raw');
+        await fs.mkdir(rawLocalDir, { recursive: true });
+        await fs.writeFile(path.join(rawLocalDir, `${photoId}_raw_${rawIndex}.jpg`), finalBuffer);
       } else {
-        await fs.writeFile(path.join(localEventDir, `${photoId}.jpg`), finalBuffer);
-        const thumbDir = path.join(localEventDir, 'thumbnails');
-        await fs.mkdir(thumbDir, { recursive: true });
-        await fs.writeFile(path.join(thumbDir, `${photoId}_thumb.jpg`), finalBuffer);
+        const filePath = path.join(cloudGalleryDir, `${photoId}.${ext}`);
+        await fs.writeFile(filePath, finalBuffer);
+
+        const localEventDir = path.join(dataRoot, 'events', eventId);
+        await fs.mkdir(localEventDir, { recursive: true });
+        if (type === 'gif') {
+          const gifDir = path.join(localEventDir, 'gifs');
+          await fs.mkdir(gifDir, { recursive: true });
+          await fs.writeFile(path.join(gifDir, `${photoId}.gif`), finalBuffer);
+        } else {
+          await fs.writeFile(path.join(localEventDir, `${photoId}.jpg`), finalBuffer);
+          const thumbDir = path.join(localEventDir, 'thumbnails');
+          await fs.mkdir(thumbDir, { recursive: true });
+          await fs.writeFile(path.join(thumbDir, `${photoId}_thumb.jpg`), finalBuffer);
+        }
       }
     } catch {
       // In serverless environments (e.g. Vercel), disk writes are read-only; proceed with cloud storage
@@ -204,7 +212,10 @@ export async function POST(req: NextRequest) {
     }
 
     const targetEventFolder = validEventId || eventId;
-    const storagePath = `events/${targetEventFolder}/${photoId}.${ext}`;
+    const isRawType = type === 'raw';
+    const storagePath = isRawType
+      ? `events/${targetEventFolder}/raw/${photoId}_raw_${rawIndex}.jpg`
+      : `events/${targetEventFolder}/${photoId}.${ext}`;
 
     // ── Upload to Supabase Storage Bucket (minglebooth-storage) ──
     if (client) {
@@ -220,7 +231,7 @@ export async function POST(req: NextRequest) {
           console.warn('[Supabase Storage Upload Warning]:', storageErr.message);
         }
 
-        // Upload raw shots to Supabase storage
+        // Backward compatibility: upload raw shots array if provided
         if (rawShotsList.length > 0) {
           for (let i = 0; i < rawShotsList.length; i++) {
             const rawData = rawShotsList[i];
@@ -254,9 +265,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Insert Record into Supabase Cloud Database ──
+    // ── Insert Record into Supabase Cloud Database (Only for photo or gif) ──
     let supabaseRecordId: string | null = null;
-    if (client && validEventId && validOrgId) {
+    if (client && validEventId && validOrgId && !isRawType) {
       try {
         if (type === 'gif') {
           const { data: gData, error: gErr } = await client
@@ -319,10 +330,10 @@ export async function POST(req: NextRequest) {
       {
         success: true,
         photoId,
-        eventId,
-        organizationId,
-        cloudUrl,
-        storagePath: `public-gallery/events/${eventId}/${photoId}.${ext}`,
+        eventId: targetEventFolder,
+        organizationId: validOrgId || organizationId,
+        cloudUrl: isRawType ? null : cloudUrl,
+        storagePath,
         supabaseRecordId,
         syncedAt,
         expiresAt,

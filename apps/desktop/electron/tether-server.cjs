@@ -4,6 +4,15 @@ const path = require('path');
 const os = require('os');
 const EventEmitter = require('events');
 
+function getDefaultTetherDir() {
+  try {
+    const home = os.homedir();
+    return path.join(home, 'Pictures', 'MingleBooth', 'Tether-Inbox');
+  } catch {
+    return path.resolve(__dirname, '../../../data/tether-inbox');
+  }
+}
+
 class TetherServer extends EventEmitter {
   constructor(port = 4848) {
     super();
@@ -18,8 +27,8 @@ class TetherServer extends EventEmitter {
     this.sseClients = new Set();
     this.fsWatcher = null;
 
-    // Default tether inbox directory: <workspace-root>/data/tether-inbox
-    this.tetherDir = path.resolve(__dirname, '../../../data/tether-inbox');
+    // Default tether inbox directory: native user Pictures folder
+    this.tetherDir = getDefaultTetherDir();
     this.ensureDirectory();
     this.initWatcher();
   }
@@ -83,7 +92,7 @@ class TetherServer extends EventEmitter {
 
         const filePath = path.join(this.tetherDir, filename);
 
-        // Debounce read to let Sony / Canon finish writing file to disk
+        // Debounce read to let camera finish writing file to disk
         setTimeout(() => {
           this.handleNewTetherFile(filePath, filename);
         }, 250);
@@ -94,17 +103,50 @@ class TetherServer extends EventEmitter {
     }
   }
 
+  markProcessed(filename, size, mtimeMs) {
+    if (!filename) return;
+    this.processedFiles.add(filename);
+    if (size) {
+      this.processedFiles.add(`${filename}_${size}`);
+      if (mtimeMs) this.processedFiles.add(`${filename}_${size}_${mtimeMs}`);
+    }
+  }
+
   handleNewTetherFile(filePath, filename) {
     try {
       if (!fs.existsSync(filePath)) return;
 
       const stat = fs.statSync(filePath);
-      if (stat.size === 0) return; // File still being written
+      if (stat.size < 10240) return; // File still being written or empty (<10KB)
+
+      // Validate header magic bytes: JPEG (0xFF 0xD8), PNG (0x89 0x50), RAW/TIFF (0x49 0x49 or 0x4D 0x4D)
+      try {
+        const fd = fs.openSync(filePath, 'r');
+        const headerBuf = Buffer.alloc(4);
+        fs.readSync(fd, headerBuf, 0, 4, 0);
+        fs.closeSync(fd);
+
+        const isJpeg = headerBuf[0] === 0xff && headerBuf[1] === 0xd8;
+        const isPng = headerBuf[0] === 0x89 && headerBuf[1] === 0x50 && headerBuf[2] === 0x4e && headerBuf[3] === 0x47;
+        const isRaw = (headerBuf[0] === 0x49 && headerBuf[1] === 0x49) || (headerBuf[0] === 0x4d && headerBuf[1] === 0x4d);
+
+        if (!isJpeg && !isPng && !isRaw) return;
+      } catch {
+        return;
+      }
 
       // Check if already processed
       const fileKey = `${filename}_${stat.size}_${stat.mtimeMs}`;
-      if (this.processedFiles.has(fileKey)) return;
+      if (
+        this.processedFiles.has(filename) ||
+        this.processedFiles.has(`${filename}_${stat.size}`) ||
+        this.processedFiles.has(fileKey)
+      ) {
+        return;
+      }
       this.processedFiles.add(fileKey);
+      this.processedFiles.add(filename);
+      this.processedFiles.add(`${filename}_${stat.size}`);
 
       const buffer = fs.readFileSync(filePath);
       const mime = filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
@@ -114,7 +156,7 @@ class TetherServer extends EventEmitter {
       this.latestPhotoFilename = filename;
       this.latestPhotoTimestamp = Date.now();
 
-      console.log(`[TetherServer] 📸 New high-res photo captured from Sony/DSLR: ${filename} (${(stat.size / (1024 * 1024)).toFixed(2)} MB)`);
+      console.log(`[TetherServer] 📸 New high-res photo captured from camera: ${filename} (${(stat.size / (1024 * 1024)).toFixed(2)} MB)`);
 
       const photoPayload = {
         success: true,
@@ -172,15 +214,29 @@ class TetherServer extends EventEmitter {
 
       // ── 1. Health & Status Endpoint ──
       if (pathname === '/api/tether/status') {
+        let camState = { state: 'DISCONNECTED', camera: null };
+        try {
+          const { getNativeCameraService } = require('./native-camera.cjs');
+          const nativeCam = getNativeCameraService(this.tetherDir);
+          if (nativeCam) {
+            camState = nativeCam.getState();
+          }
+        } catch (e) {}
+
+        const isCamConnected = camState.state === 'CONNECTED' || camState.state === 'READY';
+
         res.setHeader('Content-Type', 'application/json');
         res.end(
           JSON.stringify({
             success: true,
-            status: 'online',
+            status: isCamConnected ? 'connected' : 'disconnected',
             service: 'MingleBooth Remote PC Studio Hub',
             port: this.port,
             ips: this.getLocalIPs(),
             tetherDir: this.tetherDir,
+            cameraState: camState.state,
+            camera: camState.camera,
+            cameraConnected: isCamConnected,
             latestPhotoFilename: this.latestPhotoFilename,
             latestPhotoTimestamp: this.latestPhotoTimestamp,
             hasLivePreview: Boolean(this.latestLiveFrame),
@@ -265,45 +321,42 @@ class TetherServer extends EventEmitter {
           JSON.stringify({
             success: true,
             frameDataUrl: this.latestLiveFrame || null,
+            liveFrame: this.latestLiveFrame || null,
             timestamp: Date.now(),
           })
         );
         return;
       }
 
-      // ── 4. Trigger Capture Shutter & Await High-Res Photo ──
+      // ── 4. Trigger Capture Shutter & Await High-Res Photo (STRICT NO MOCK) ──
       if (pathname === '/api/tether/trigger' && req.method === 'POST') {
         let body = '';
         req.on('data', (chunk) => (body += chunk));
         req.on('end', () => {
-          let timeoutMs = 8000;
-          let mockFallback = true;
+          let timeoutMs = 9000;
           try {
             const data = JSON.parse(body || '{}');
             if (data.timeoutMs) timeoutMs = data.timeoutMs;
-            if (data.mockFallback !== undefined) mockFallback = data.mockFallback;
-          } catch {
-            // Safe fallback
-          }
+          } catch {}
+
+          // Also trigger direct native capture if native camera is connected & ready
+          try {
+            const { getNativeCameraService } = require('./native-camera.cjs');
+            const nativeCam = getNativeCameraService(this.tetherDir);
+            if (nativeCam && (nativeCam.state === 'CONNECTED' || nativeCam.state === 'READY')) {
+              nativeCam.triggerDirectCapture().catch((err) => {
+                console.warn('[TetherServer] native triggerDirectCapture error:', err);
+              });
+            }
+          } catch (e) {}
 
           const triggerPromise = new Promise((resolve) => {
             const timeoutId = setTimeout(() => {
               this.pendingTriggers = this.pendingTriggers.filter((t) => t.timeoutId !== timeoutId);
-
-              if (mockFallback) {
-                const fallbackData = this.latestLiveFrame || this.latestPhotoBase64 || this.generateMockStudioPhoto();
-                resolve({
-                  success: true,
-                  source: 'preview_fallback',
-                  photoDataUrl: fallbackData,
-                  notice: 'Kamera fisik tidak mendeteksi file baru dalam batas waktu, menggunakan frame live preview beresolusi tinggi.',
-                });
-              } else {
-                resolve({
-                  success: false,
-                  error: 'Timeout waiting for Sony/DSLR photo capture in hot folder',
-                });
-              }
+              resolve({
+                success: false,
+                error: 'Photo transfer failed: Batas waktu menunggu kamera habis tanpa file foto baru di hot folder.',
+              });
             }, timeoutMs);
 
             this.pendingTriggers.push({ resolve, timeoutId });
@@ -382,7 +435,7 @@ class TetherServer extends EventEmitter {
   <div class="card">
     <div class="badge"><span class="dot"></span> Kamera Laptop Terhubung</div>
     <h1>MingleBooth Studio Hub</h1>
-    <p class="desc">Sinyal kamera Sony / DSLR di laptop aktif dan siap memotret dari layar tablet.</p>
+    <p class="desc">Sinyal kamera studio (DSLR / Mirrorless) di laptop aktif dan siap memotret dari layar tablet.</p>
 
     <div class="preview-box" id="previewBox">
       <span class="preview-empty">Menunggu Gambar Kamera...</span>
@@ -419,7 +472,7 @@ class TetherServer extends EventEmitter {
         const res = await fetch('/api/tether/trigger', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ timeoutMs: 3000, mockFallback: true })
+          body: JSON.stringify({ timeoutMs: 5000 })
         });
         const data = await res.json();
         if (data.success) {
@@ -459,26 +512,6 @@ class TetherServer extends EventEmitter {
         console.error('[TetherServer] Server error:', err);
       }
     });
-  }
-
-  generateMockStudioPhoto() {
-    // 1080x1350 High quality SVG portrait placeholder
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
-      <defs>
-        <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#18181b"/>
-          <stop offset="50%" stop-color="#27272a"/>
-          <stop offset="100%" stop-color="#09090b"/>
-        </linearGradient>
-      </defs>
-      <rect width="1080" height="1350" fill="url(#bg)"/>
-      <circle cx="540" cy="560" r="220" fill="#3f3f46" stroke="#71717a" stroke-width="4"/>
-      <circle cx="540" cy="500" r="110" fill="#a1a1aa"/>
-      <path d="M 360 740 Q 540 660 720 740 L 750 820 L 330 820 Z" fill="#71717a"/>
-      <text x="540" y="980" fill="#f4f4f5" font-size="34" font-weight="bold" text-anchor="middle" font-family="sans-serif">SONY PRO SHUTTER CAPTURE</text>
-      <text x="540" y="1030" fill="#10b981" font-size="22" font-weight="600" text-anchor="middle" font-family="sans-serif">● 24MP Studio Flash Synchronized</text>
-    </svg>`;
-    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   }
 
   stop() {

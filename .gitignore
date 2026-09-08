@@ -31,3 +31,6 @@ logs/
 # Electron build artifacts
 dist-electron
 release
+.vercel
+.env*.local
+*.tsbuildinfo

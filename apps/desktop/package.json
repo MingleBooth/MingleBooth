@@ -27,6 +27,9 @@
       "dist/**/*",
       "electron/**/*"
     ],
+    "asarUnpack": [
+      "electron/bin/**/*"
+    ],
     "mac": {
       "category": "public.app-category.photography",
       "icon": "build/icon.icns",

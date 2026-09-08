@@ -27,10 +27,10 @@ function configureSessionPermissions(ses) {
   }
 }
 
-// ── Fix Windows DPI / HiDPI scaling so viewport renders at correct CSS pixel width ──
+// ── HiDPI scaling – let the OS control device scale factor naturally ──
 app.commandLine.appendSwitch('high-dpi-support', '1');
-app.commandLine.appendSwitch('force-device-scale-factor', '1');
-app.commandLine.appendSwitch('disable-pinch');
+// NOTE: Do NOT force-device-scale-factor here; tablets/iPads need their
+// native scale (e.g. 2×) so the UI renders at a legible physical size.
 
 let mainWindow = null;
 let kioskTabWindow = null;
@@ -53,10 +53,10 @@ function generateHardwareFingerprint() {
   return crypto.createHash('sha256').update(rawString).digest('hex').substring(0, 32);
 }
 
-// ── Trigger Sony Camera shutter via gphoto2 (if available) ──
-function triggerSonyShutter(tetherDir) {
+// ── Trigger DSLR / Mirrorless Camera shutter via gphoto2 / digiCamControl (if available) ──
+function triggerUniversalCameraShutter(tetherDir) {
   return new Promise((resolve) => {
-    // Try gphoto2 first (Mac/Linux)
+    // Try gphoto2 first (Mac/Linux - universal Canon/Nikon/Sony/Fuji)
     exec('gphoto2 --capture-image-and-download --filename=%Y%m%d_%H%M%S.jpg', { cwd: tetherDir }, (err, stdout, stderr) => {
       if (!err) {
         console.log('[Electron] gphoto2 shutter triggered:', stdout);
@@ -117,20 +117,62 @@ function createWindow() {
   mainWindow.maximize();
 
   const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  nativeCamera.setTetherServer(tetherServer);
+
+  const recentCapturedPhotos = new Set();
+  const forwardPhotoToRenderer = (payload, origin) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const key = `${payload.filename}_${payload.byteSize || ''}`;
+    if (recentCapturedPhotos.has(key)) {
+      console.log(`[Electron] Duplicate photo from ${origin} suppressed:`, payload.filename);
+      return;
+    }
+    recentCapturedPhotos.add(key);
+    setTimeout(() => recentCapturedPhotos.delete(key), 15000);
+
+    console.log(`[Electron] 📸 Forwarding photo (${origin}) to photobooth UI:`, payload.filename);
+    mainWindow.webContents.send('tether:photo-captured', payload);
+  };
+
   tetherServer.removeAllListeners('photo');
   tetherServer.on('photo', (payload) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      console.log('[Electron] 📸 Forwarding tether photo to photobooth UI:', payload.filename);
-      mainWindow.webContents.send('tether:photo-captured', payload);
-    }
+    forwardPhotoToRenderer(payload, 'tetherServer');
   });
 
-  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
   nativeCamera.removeAllListeners('installLog');
+  nativeCamera.removeAllListeners('stateChange');
+  nativeCamera.removeAllListeners('liveFrame');
+  nativeCamera.removeAllListeners('photoCaptured');
+
   nativeCamera.on('installLog', (logMsg) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('camera:driver-install-log', logMsg);
     }
+  });
+
+  nativeCamera.on('stateChange', (payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('camera:state-change', payload);
+    }
+  });
+
+  nativeCamera.on('liveFrame', (payload) => {
+    tetherServer.latestLiveFrame = payload.frameDataUrl;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('camera:live-frame', payload);
+    }
+  });
+
+  nativeCamera.on('photoCaptured', (payload) => {
+    tetherServer.latestPhotoBase64 = payload.photoDataUrl;
+    tetherServer.latestPhotoFilename = payload.filename;
+    tetherServer.latestPhotoTimestamp = payload.timestamp;
+    tetherServer.markProcessed(payload.filename, payload.byteSize);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('camera:photo-captured', payload);
+    }
+    forwardPhotoToRenderer(payload, 'nativeCamera');
   });
 
   const devUrl = 'http://localhost:5173';
@@ -247,10 +289,10 @@ ipcMain.handle('app:toggle-kiosk-tab-fullscreen', () => {
   return false;
 });
 
-// ── Sony Camera Shutter Trigger via USB (gphoto2 / digiCamControl) ──
+// ── Camera Shutter Trigger via USB (gphoto2 / digiCamControl) ──
 ipcMain.handle('camera:trigger-shutter', async () => {
   const tetherServer = getTetherServer(4848);
-  const result = await triggerSonyShutter(tetherServer.tetherDir);
+  const result = await triggerUniversalCameraShutter(tetherServer.tetherDir);
   return result;
 });
 
@@ -302,6 +344,38 @@ ipcMain.handle('camera:stop-native-tether', async () => {
   return { success: true };
 });
 
+ipcMain.handle('camera:connect', async (event, targetCamera) => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.connectCamera(targetCamera);
+});
+
+ipcMain.handle('camera:disconnect', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.disconnectCamera();
+});
+
+ipcMain.handle('camera:start-liveview', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  nativeCamera.startLiveView();
+  return { success: true };
+});
+
+ipcMain.handle('camera:stop-liveview', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  nativeCamera.stopLiveView();
+  return { success: true };
+});
+
+ipcMain.handle('camera:get-state', () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return nativeCamera.getState();
+});
+
 ipcMain.handle('camera:direct-capture', async () => {
   const tetherServer = getTetherServer(4848);
   const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
@@ -333,7 +407,10 @@ ipcMain.handle('storage:select-folder', async (event, currentPath) => {
 ipcMain.handle('storage:open-folder', async (event, folderPath) => {
   try {
     let resolvedPath;
-    if (folderPath && path.isAbsolute(folderPath)) {
+    if (folderPath && (folderPath.includes('tether-inbox') || folderPath.includes('hotfolder'))) {
+      const home = os.homedir();
+      resolvedPath = path.join(home, 'Pictures', 'MingleBooth', 'Tether-Inbox');
+    } else if (folderPath && path.isAbsolute(folderPath)) {
       resolvedPath = folderPath;
     } else if (folderPath) {
       resolvedPath = path.resolve(__dirname, '../../', folderPath.replace(/^\.\//, ''));
@@ -624,5 +701,13 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', async () => {
+  try {
+    const tetherServer = getTetherServer(4848);
+    const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+    await nativeCamera.disconnectCamera();
+  } catch (e) {}
 });
 

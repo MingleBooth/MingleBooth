@@ -85,10 +85,19 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
     setIsTriggering(true);
     setTestResult(null);
     try {
+      if ((window as any).electronAPI?.triggerNativeCapture) {
+        const d = await (window as any).electronAPI.triggerNativeCapture();
+        if (d.success) {
+          setTestResult(`Berhasil! Foto studio diterima: ${d.filename} (${(d.byteSize / (1024 * 1024)).toFixed(2)} MB)`);
+        } else {
+          setTestResult(`Gagal: ${d.error || 'Tidak ada respon dari kamera'}`);
+        }
+        return;
+      }
       const res = await fetch('http://localhost:4848/api/tether/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timeoutMs: 3000, mockFallback: true }),
+        body: JSON.stringify({ timeoutMs: 8000 }),
       });
       const data = await res.json();
       if (data.success) {
@@ -112,8 +121,8 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-              <Monitor className="w-4 h-4 text-emerald-400" />
+            <div className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/10 flex items-center justify-center">
+              <Monitor className="w-4 h-4 text-white" />
             </div>
             <div>
               <h3 className="text-sm font-semibold text-white">Sambungkan iPad / Tablet</h3>
@@ -132,7 +141,7 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
         <div className="p-4 rounded-xl bg-[#171820] border border-white/[0.06] flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-white/80 animate-pulse" />
               <span>Sambungan Kamera: Siap Digunakan</span>
             </span>
             <button
@@ -152,13 +161,13 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
               <input
                 readOnly
                 value={hubUrl}
-                className="flex-1 bg-black/50 border border-white/[0.1] rounded-lg px-3 py-2 text-xs font-mono text-emerald-400 focus:outline-none select-all"
+                className="flex-1 bg-black/50 border border-white/[0.1] rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none select-all"
               />
               <button
                 onClick={() => handleCopy(hubUrl)}
                 className="px-3 py-2 rounded-lg bg-white/[0.08] hover:bg-white/[0.12] text-xs font-medium text-white flex items-center gap-1.5 transition-colors"
               >
-                {copiedIp === hubUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedIp === hubUrl ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copiedIp === hubUrl ? 'Disalin' : 'Salin Kode'}</span>
               </button>
             </div>
@@ -186,15 +195,15 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
         <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
           <div className="flex flex-col min-w-0 pr-2">
             <span className="text-xs font-medium text-neutral-200">Folder Simpan Foto Kamera</span>
-            <span className="text-[11px] text-neutral-400 font-mono truncate max-w-sm">
-              {hubInfo.tetherDir || 'data/tether-inbox'}
+            <span className="text-[11px] text-neutral-400 font-mono truncate max-w-sm" title={hubInfo.tetherDir || '~/Pictures/MingleBooth/Tether-Inbox'}>
+              {hubInfo.tetherDir || '~/Pictures/MingleBooth/Tether-Inbox'}
             </span>
           </div>
           <button
             onClick={handleOpenFolder}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-xs text-neutral-200 hover:text-white font-medium transition-colors flex-shrink-0"
           >
-            <FolderOpen className="w-3.5 h-3.5 text-blue-400" />
+            <FolderOpen className="w-3.5 h-3.5 text-neutral-300" />
             <span>Buka Folder</span>
           </button>
         </div>
@@ -202,17 +211,17 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
         {/* Panduan Shutter Fisik Kamera & Hot Folder */}
         <div className="text-[11px] text-neutral-400 space-y-2.5 bg-black/40 p-4 rounded-xl border border-white/[0.06] leading-relaxed">
           <div className="flex items-center justify-between">
-            <span className="font-semibold text-emerald-300 flex items-center gap-1.5 text-xs">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="font-semibold text-white flex items-center gap-1.5 text-xs">
+              <Sparkles className="w-3.5 h-3.5 text-neutral-400" />
               <span>Cara Sambungkan Shutter Kamera Fisik (PC Remote):</span>
             </span>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono">
+            <span className="text-[10px] px-2 py-0.5 rounded bg-white/[0.06] text-neutral-300 border border-white/10 font-mono">
               Auto-Jepret Aktif
             </span>
           </div>
 
           <p className="text-neutral-300 text-[11px]">
-            Colok kabel USB kamera ke laptop. Buka software bawaan kamera (gratis), lalu arahkan folder simpan (Save Destination) ke folder <code className="text-emerald-400 font-mono font-bold">data/tether-inbox</code> di atas:
+            Colok kabel USB kamera ke laptop. Buka software bawaan kamera (gratis), lalu arahkan folder simpan (Save Destination) ke folder <code className="text-white font-mono font-bold">{hubInfo.tetherDir || '~/Pictures/MingleBooth/Tether-Inbox'}</code> di atas:
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
@@ -222,7 +231,7 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
             </div>
             <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
               <strong className="text-white block mb-0.5">📸 Canon EOS DSLR &amp; R-Series:</strong>
-              <span>Buka software resmi <em>Canon EOS Utility</em> → Destination Folder ke <code className="text-emerald-300">tether-inbox</code>.</span>
+              <span>Buka software resmi <em>Canon EOS Utility</em> → Destination Folder ke <code className="text-neutral-200">Tether-Inbox</code>.</span>
             </div>
             <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
               <strong className="text-white block mb-0.5">📸 Fujifilm X-Series:</strong>
@@ -230,12 +239,12 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
             </div>
             <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
               <strong className="text-white block mb-0.5">📸 Nikon D &amp; Z-Series:</strong>
-              <span>Buka software resmi <em>Nikon NX Tether</em> atau <em>digiCamControl</em> ke folder <code className="text-emerald-300">tether-inbox</code>.</span>
+              <span>Buka software resmi <em>Nikon NX Tether</em> atau <em>digiCamControl</em> ke folder <code className="text-neutral-200">Tether-Inbox</code>.</span>
             </div>
           </div>
 
-          <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[11px] flex items-start gap-2">
-            <Check className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div className="p-2.5 rounded-lg bg-white/[0.04] border border-white/10 text-neutral-300 text-[11px] flex items-start gap-2">
+            <Check className="w-4 h-4 text-white flex-shrink-0 mt-0.5" />
             <span>
               <strong>Hasil:</strong> Tekan tombol jepret di bodi kamera atau remote wireless di tangan ➔ Flash studio nyala ➔ Foto asli 24MP+ langsung masuk ke template photobooth &amp; otomatis ganti pose tanpa perlu sentuh layar!
             </span>
@@ -254,12 +263,12 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
             onClick={handleTestShutter}
             className="px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-neutral-200 text-xs font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
           >
-            <Camera className="w-3.5 h-3.5 text-emerald-400" />
+            <Camera className="w-3.5 h-3.5 text-neutral-300" />
             <span>{isTriggering ? 'Menguji Shutter...' : 'Tes Sinyal Shutter'}</span>
           </button>
 
           {testResult && (
-            <span className="text-[11px] text-emerald-400 font-medium truncate max-w-xs">{testResult}</span>
+            <span className="text-[11px] text-white font-medium truncate max-w-xs">{testResult}</span>
           )}
 
           <button

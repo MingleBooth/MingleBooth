@@ -92,7 +92,7 @@ export const CustomFormatModal: React.FC<CustomFormatModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08]">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <div className="w-8 h-8 rounded-lg bg-white/[0.08] border border-white/10 flex items-center justify-center text-white">
               <Ratio className="w-4 h-4" />
             </div>
             <div>
@@ -149,7 +149,7 @@ export const CustomFormatModal: React.FC<CustomFormatModalProps> = ({
                 setError('');
               }}
               placeholder="Contoh: Cetak 3R Khusus, Polaroid Retro..."
-              className="w-full h-10 px-3.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
+              className="w-full h-10 px-3.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder:text-neutral-600 focus:outline-none focus:border-white/40 transition-colors"
             />
           </div>
 
@@ -166,7 +166,7 @@ export const CustomFormatModal: React.FC<CustomFormatModalProps> = ({
                 step={10}
                 value={width}
                 onChange={(e) => setWidth(Number(e.target.value))}
-                className="w-full h-10 px-3.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+                className="w-full h-10 px-3.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:border-white/40 transition-colors font-mono"
               />
             </div>
             <div>
@@ -180,7 +180,7 @@ export const CustomFormatModal: React.FC<CustomFormatModalProps> = ({
                 step={10}
                 value={height}
                 onChange={(e) => setHeight(Number(e.target.value))}
-                className="w-full h-10 px-3.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+                className="w-full h-10 px-3.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:border-white/40 transition-colors font-mono"
               />
             </div>
           </div>
@@ -191,7 +191,7 @@ export const CustomFormatModal: React.FC<CustomFormatModalProps> = ({
               <span className="text-[11px] font-semibold text-neutral-400 block">
                 Proporsi Rasio Otomatis:
               </span>
-              <span className="text-base font-bold text-emerald-400 font-mono">
+              <span className="text-base font-bold text-white font-mono">
                 {calcRatio(width, height)}
               </span>
               <span className="text-[11px] text-neutral-500 block mt-0.5">
@@ -201,7 +201,7 @@ export const CustomFormatModal: React.FC<CustomFormatModalProps> = ({
 
             <div className="w-24 h-24 rounded-lg bg-neutral-900 border border-white/10 flex items-center justify-center p-2">
               <div
-                className="border-2 border-dashed border-emerald-400/80 rounded bg-emerald-500/10 flex items-center justify-center transition-all duration-300 shadow-sm"
+                className="border-2 border-dashed border-white/60 rounded bg-white/[0.06] flex items-center justify-center transition-all duration-300 shadow-sm"
                 style={{
                   width: previewRatio >= 1 ? '100%' : `${previewRatio * 100}%`,
                   height: previewRatio >= 1 ? `${(1 / previewRatio) * 100}%` : '100%',
@@ -209,7 +209,7 @@ export const CustomFormatModal: React.FC<CustomFormatModalProps> = ({
                   maxWidth: '100%',
                 }}
               >
-                <LayoutGrid className="w-3 h-3 text-emerald-400/60" />
+                <LayoutGrid className="w-3 h-3 text-neutral-400" />
               </div>
             </div>
           </div>

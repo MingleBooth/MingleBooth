@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Download,
@@ -16,7 +17,9 @@ import {
   Grid,
   Check,
   ExternalLink,
+  ArrowRight,
   X,
+  Loader2,
 } from 'lucide-react';
 
 interface SlideItem {
@@ -31,6 +34,7 @@ interface SlideItem {
 
 interface GalleryMeta {
   photoId: string;
+  eventId?: string | null;
   eventName: string;
   dateFormatted: string;
   hasGif: boolean;
@@ -84,7 +88,6 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
         if (data.slides && data.slides.length > 0) {
           setMeta(data);
         } else {
-          // Fallback slides
           setMeta(buildFallbackMeta(photoId));
         }
       })
@@ -103,14 +106,18 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
       }
       setMySessions(list);
     } catch {}
-  }, [photoId]);
+  }, [photoId, router]);
 
   // Load Full Event Gallery Photos
   const handleOpenFullGallery = () => {
+    if (meta?.eventId) {
+      router.push(`/gallery/${meta.eventId}`);
+      return;
+    }
     setShowFullGalleryModal(true);
     if (eventPhotos.length === 0) {
       setLoadingEventPhotos(true);
-      fetch('/api/gallery/event/evt_bayu_irma_2026')
+      fetch(`/api/gallery/event/live`)
         .then((res) => res.json())
         .then((data) => {
           if (data.photos) setEventPhotos(data.photos);
@@ -144,10 +151,8 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
     if (!touchStartX.current || !touchEndX.current) return;
     const diff = touchStartX.current - touchEndX.current;
     if (diff > 45) {
-      // Swiped Left -> Next
       handleNext();
     } else if (diff < -45) {
-      // Swiped Right -> Prev
       handlePrev();
     }
     touchStartX.current = null;
@@ -174,7 +179,6 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
   };
 
   const handleDownloadAllMyFiles = async () => {
-    // Download all slides in this session sequentially
     for (let i = 0; i < slides.length; i++) {
       const s = slides[i];
       const link = document.createElement('a');
@@ -190,124 +194,160 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
   };
 
   return (
-    <main className="min-h-screen bg-[#08090B] text-[#EDEDED] flex flex-col items-center justify-between p-3 sm:p-6 select-none font-sans antialiased overflow-x-hidden">
+    <main className="min-h-screen bg-[#07080A] text-[#EDEDED] flex flex-col items-center justify-between p-3.5 sm:p-6 select-none font-sans antialiased overflow-x-hidden">
       {/* ── Top Event Branding Header ── */}
-      <header className="w-full max-w-md flex flex-col items-center pt-2 pb-1 text-center">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono tracking-wider font-semibold">
-            MINGLEBOOTH LIVE GALLERY
+      <header className="w-full max-w-md flex flex-col items-center pt-2 pb-2 text-center">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[10px] font-mono tracking-widest text-neutral-400 font-medium uppercase">
+            MingleBooth Gallery
           </span>
         </div>
-        <h1 className="text-base sm:text-lg font-bold text-white tracking-tight">
-          {meta?.eventName || 'Wedding Bayu & Irma'}
-        </h1>
-        <p className="text-[11px] text-neutral-400 mt-0.5">
-          {meta?.dateFormatted || '29 August 2026'}
-        </p>
 
-        {/* My Sessions Quick Switcher Bar (if guest took photos multiple times) */}
+        {loading ? (
+          <div className="flex flex-col items-center py-1 gap-1.5">
+            <div className="h-5 w-44 bg-white/10 rounded-md animate-pulse" />
+            <div className="h-3 w-28 bg-white/5 rounded-md animate-pulse" />
+          </div>
+        ) : (
+          <>
+            <h1 className="text-base sm:text-lg font-semibold text-white tracking-tight px-2">
+              {meta?.eventName || 'Acara Photobooth'}
+            </h1>
+            {meta?.dateFormatted && (
+              <p className="text-[11px] text-neutral-400 mt-0.5">
+                {meta.dateFormatted}
+              </p>
+            )}
+          </>
+        )}
+
+        {/* My Sessions Quick Switcher Bar (if guest took photos multiple times on this device) */}
         {mySessions.length > 1 && (
           <div className="mt-2.5 w-full flex items-center justify-center gap-1.5 overflow-x-auto no-scrollbar py-1">
-            <span className="text-[10px] text-neutral-500 font-mono flex items-center gap-1 mr-1">
-              <History className="w-3 h-3 text-neutral-400" /> Sesi Kamu:
+            <span className="text-[10px] text-neutral-500 font-mono flex items-center gap-1 mr-0.5 shrink-0">
+              <History className="w-3 h-3 text-neutral-400" /> Sesi:
             </span>
             {mySessions.map((id, idx) => (
               <a
                 key={id}
                 href={`/p/${id}`}
-                className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition-colors ${
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition-colors shrink-0 ${
                   id === photoId
-                    ? 'bg-white text-black font-bold shadow'
-                    : 'bg-white/[0.06] text-neutral-300 hover:bg-white/[0.12]'
+                    ? 'bg-white text-black font-semibold shadow'
+                    : 'bg-white/[0.06] text-neutral-400 hover:bg-white/[0.12] hover:text-white'
                 }`}
               >
-                Sesi #{mySessions.length - idx}
+                #{mySessions.length - idx}
               </a>
             ))}
           </div>
         )}
       </header>
 
-      {/* ── Center: Google Drive / Carousel Media Slider ── */}
-      <section className="w-full max-w-md flex flex-col items-center my-auto py-2">
-        {/* Slide Indicator Badge */}
-        <div className="flex items-center justify-between w-full px-2 mb-2">
-          <div className="flex items-center gap-1.5">
-            {currentSlide.type === 'photo' && <Sparkles className="w-3.5 h-3.5 text-amber-400" />}
-            {currentSlide.type === 'gif' && <Film className="w-3.5 h-3.5 text-emerald-400" />}
-            {currentSlide.type === 'raw' && <Camera className="w-3.5 h-3.5 text-sky-400" />}
-            <span className="text-xs font-semibold text-white tracking-tight">
-              {currentSlide.title}
-            </span>
+      {/* ── Center: Photo / Media Viewer ── */}
+      <section className="w-full max-w-md flex flex-col items-center my-auto py-1">
+        {/* Segmented Tab Switcher (Foto Cetak / GIF / Pose Asli) */}
+        {slides.length > 1 && (
+          <div className="w-full flex items-center justify-center gap-1 mb-2.5 overflow-x-auto no-scrollbar px-1">
+            {slides.map((s, idx) => {
+              const isActive = idx === currentSlideIndex;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setCurrentSlideIndex(idx)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 ${
+                    isActive
+                      ? 'bg-white text-black shadow-md font-semibold'
+                      : 'bg-white/[0.06] text-neutral-400 hover:text-white hover:bg-white/[0.1]'
+                  }`}
+                >
+                  {s.type === 'photo' && <Sparkles className={`w-3 h-3 ${isActive ? 'text-amber-600' : 'text-amber-400'}`} />}
+                  {s.type === 'gif' && <Film className={`w-3 h-3 ${isActive ? 'text-emerald-600' : 'text-emerald-400'}`} />}
+                  {s.type === 'raw' && <Camera className={`w-3 h-3 ${isActive ? 'text-sky-600' : 'text-sky-400'}`} />}
+                  <span>{s.title}</span>
+                </button>
+              );
+            })}
           </div>
+        )}
 
-          <span className="text-[11px] font-mono text-neutral-400 bg-white/[0.06] px-2 py-0.5 rounded-md border border-white/[0.08]">
-            {currentSlideIndex + 1} / {slides.length}
-          </span>
-        </div>
-
-        {/* Media Frame Viewer with Swipe Gesture (Auto adapts to Landscape / Portrait / Square) */}
+        {/* Media Frame Container (Auto-centered, clean aspect ratio, no awkward stretch) */}
         <div
-          className="relative w-full min-h-[300px] max-h-[60vh] rounded-2xl overflow-hidden shadow-2xl border border-white/[0.1] bg-[#111317] flex items-center justify-center touch-pan-y p-1"
+          className="relative w-full h-[50vh] sm:h-[54vh] max-h-[520px] min-h-[300px] rounded-2xl overflow-hidden shadow-2xl border border-white/[0.08] bg-[#111317]/90 backdrop-blur-sm flex items-center justify-center touch-pan-y p-2"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
-          <img
-            key={currentSlide.url}
-            src={currentSlide.url}
-            alt={currentSlide.title}
-            className="w-full max-h-[58vh] object-contain select-none animate-fadeIn rounded-xl"
-          />
-
-          {/* Left Arrow Button */}
-          <button
-            onClick={handlePrev}
-            aria-label="Previous Slide"
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/90 backdrop-blur-md text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform active:scale-95"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-
-          {/* Right Arrow Button */}
-          <button
-            onClick={handleNext}
-            aria-label="Next Slide"
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/90 backdrop-blur-md text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform active:scale-95"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Carousel Dots & Subtitle */}
-        <div className="flex flex-col items-center gap-2 mt-3 w-full">
-          <div className="flex items-center gap-1.5">
-            {slides.map((s, idx) => (
-              <button
-                key={s.id}
-                onClick={() => setCurrentSlideIndex(idx)}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  idx === currentSlideIndex
-                    ? 'w-6 bg-white'
-                    : 'w-1.5 bg-white/30 hover:bg-white/50'
-                }`}
-                aria-label={`Go to slide ${idx + 1}`}
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 text-neutral-500">
+              <Loader2 className="w-6 h-6 animate-spin text-neutral-400" />
+              <span className="text-xs font-mono">Memuat foto...</span>
+            </div>
+          ) : (
+            <>
+              <img
+                key={currentSlide.url}
+                src={currentSlide.url}
+                alt={currentSlide.title}
+                className="max-h-full max-w-full w-auto h-auto object-contain select-none rounded-xl mx-auto shadow-sm"
               />
-            ))}
-          </div>
 
-          <p className="text-[11px] text-neutral-400 font-medium text-center">
-            {currentSlide.subtitle} • <span className="text-neutral-500 font-normal">Geser layar untuk melihat lainnya</span>
-          </p>
+              {/* Left Arrow (Only if multiple slides) */}
+              {slides.length > 1 && (
+                <button
+                  onClick={handlePrev}
+                  aria-label="Previous Slide"
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/90 backdrop-blur-md text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform active:scale-95"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Right Arrow (Only if multiple slides) */}
+              {slides.length > 1 && (
+                <button
+                  onClick={handleNext}
+                  aria-label="Next Slide"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/90 backdrop-blur-md text-white border border-white/15 flex items-center justify-center shadow-lg transition-transform active:scale-95"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              )}
+            </>
+          )}
         </div>
+
+        {/* Carousel Indicator Dots & Subtitle */}
+        {slides.length > 1 && (
+          <div className="flex flex-col items-center gap-1.5 mt-2.5 w-full">
+            <div className="flex items-center gap-1.5">
+              {slides.map((s, idx) => (
+                <button
+                  key={s.id}
+                  onClick={() => setCurrentSlideIndex(idx)}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                    idx === currentSlideIndex
+                      ? 'w-5 bg-white'
+                      : 'w-1.5 bg-white/30 hover:bg-white/50'
+                  }`}
+                  aria-label={`Lihat item ${idx + 1}`}
+                />
+              ))}
+            </div>
+            <p className="text-[11px] text-neutral-400 font-medium text-center">
+              {currentSlide.subtitle} • <span className="text-neutral-500">Geser untuk ganti</span>
+            </p>
+          </div>
+        )}
       </section>
 
       {/* ── Bottom Actions & Event Discovery ── */}
-      <footer className="w-full max-w-md flex flex-col gap-2 pb-3">
-        {/* Primary Download Button for Active Slide */}
+      <footer className="w-full max-w-md flex flex-col gap-2 pt-2 pb-3">
+        {/* Primary Download Button for Active Item */}
         <button
           onClick={handleDownloadActiveSlide}
-          className="w-full h-11 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs sm:text-sm shadow-lg flex items-center justify-center gap-2 active:scale-98 transition-all"
+          className="w-full h-11 rounded-xl bg-white hover:bg-neutral-100 text-black font-semibold text-xs sm:text-sm shadow-xl flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
         >
           {downloadSuccess ? (
             <>
@@ -316,54 +356,69 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
             </>
           ) : (
             <>
-              <Download className="w-4 h-4" />
-              <span>Download {currentSlide.title}</span>
+              <Download className="w-4 h-4 text-black" />
+              <span>Unduh {currentSlide.title} (HD)</span>
             </>
           )}
         </button>
 
-        {/* Secondary: Download All My Package & Share */}
+        {/* Secondary Actions */}
         <div className="flex gap-2">
-          <button
-            onClick={handleDownloadAllMyFiles}
-            className="flex-1 h-10 rounded-lg bg-[#16181D] hover:bg-[#1E2127] border border-white/[0.08] text-xs font-semibold text-neutral-200 flex items-center justify-center gap-1.5 transition-colors"
-          >
-            <Layers className="w-3.5 h-3.5 text-neutral-400" />
-            <span>Download Semua ({slides.length} File)</span>
-          </button>
+          {slides.length > 1 && (
+            <button
+              onClick={handleDownloadAllMyFiles}
+              className="flex-1 h-10 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <Layers className="w-3.5 h-3.5 text-neutral-400" />
+              <span>Semua File ({slides.length})</span>
+            </button>
+          )}
 
           <a
-            href={`https://api.whatsapp.com/send?text=Lihat%20foto%20dan%20GIF%20saya%20di%20${encodeURIComponent(meta?.eventName || 'Wedding')}%3A%20${typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : ''}`}
+            href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Lihat foto saya di ${meta?.eventName || 'MingleBooth'}: `)}${typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : ''}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-1 h-10 rounded-lg bg-[#16181D] hover:bg-[#1E2127] border border-white/[0.08] text-xs font-semibold text-neutral-200 flex items-center justify-center gap-1.5 transition-colors"
+            className="flex-1 h-10 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center justify-center gap-1.5 transition-colors"
           >
             <Share2 className="w-3.5 h-3.5 text-emerald-400" />
             <span>WhatsApp</span>
           </a>
-        </div>
-
-        {/* Bottom Helper: Browse Full Event Gallery */}
-        <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-xs">
-          <button
-            onClick={handleOpenFullGallery}
-            className="text-neutral-400 hover:text-white flex items-center gap-1.5 py-1 transition-colors text-[11px]"
-          >
-            <Grid className="w-3.5 h-3.5 text-neutral-400" />
-            <span>Lihat Galeri Lengkap Acara Ini</span>
-          </button>
 
           <button
             onClick={handleCopyLink}
-            className="text-neutral-400 hover:text-white flex items-center gap-1 py-1 transition-colors text-[11px]"
+            className="px-3.5 h-10 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-200 flex items-center justify-center gap-1.5 transition-colors"
+            title="Salin tautan foto"
           >
-            <Copy className="w-3 h-3" />
-            <span>{copied ? 'Tersalin!' : 'Salin Link'}</span>
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-neutral-400" />}
+            <span>{copied ? 'Disalin' : 'Salin'}</span>
           </button>
+        </div>
+
+        {/* Browse Entire Event Album Link */}
+        <div className="pt-2 border-t border-white/[0.06] flex items-center justify-center text-xs">
+          {meta?.eventId ? (
+            <Link
+              href={`/gallery/${meta.eventId}`}
+              className="text-neutral-400 hover:text-white flex items-center gap-1.5 py-1 transition-colors text-[11px]"
+            >
+              <Grid className="w-3.5 h-3.5 text-neutral-400" />
+              <span>Lihat Galeri Lengkap Seluruh Acara</span>
+              <ArrowRight className="w-3 h-3 text-neutral-400" />
+            </Link>
+          ) : (
+            <button
+              onClick={handleOpenFullGallery}
+              className="text-neutral-400 hover:text-white flex items-center gap-1.5 py-1 transition-colors text-[11px]"
+            >
+              <Grid className="w-3.5 h-3.5 text-neutral-400" />
+              <span>Lihat Galeri Lengkap Seluruh Acara</span>
+              <ArrowRight className="w-3 h-3 text-neutral-400" />
+            </button>
+          )}
         </div>
       </footer>
 
-      {/* ── Modal: Full Event Gallery Discovery ── */}
+      {/* ── Fallback Modal: Full Event Gallery Discovery ── */}
       {showFullGalleryModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-start p-4 animate-fadeIn">
           <div className="w-full max-w-lg bg-[#0F1115] border border-white/10 rounded-2xl p-4 sm:p-6 flex flex-col h-[85vh] max-h-[85vh] shadow-2xl">
@@ -441,47 +496,20 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
 function buildFallbackMeta(photoId: string): GalleryMeta {
   return {
     photoId,
-    eventName: 'Wedding Bayu & Irma',
-    dateFormatted: '29 August 2026',
-    hasGif: true,
-    rawCount: 2,
-    totalSlides: 4,
+    eventName: 'Acara Photobooth',
+    dateFormatted: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+    hasGif: false,
+    rawCount: 0,
+    totalSlides: 1,
     slides: [
       {
         id: 'slide_photo',
         type: 'photo',
-        title: 'Foto Berbingkai',
-        subtitle: 'Hasil Cetak Siap Cetak HD',
-        badge: 'HASIL CETAK',
+        title: 'Foto Cetak',
+        subtitle: 'Hasil Cetak Siap HD',
+        badge: 'FOTO CETAK',
         url: `/api/gallery/${photoId}?type=photo`,
         downloadName: `MingleBooth_Foto_${photoId}.jpg`,
-      },
-      {
-        id: 'slide_gif',
-        type: 'gif',
-        title: 'Animasi GIF',
-        subtitle: 'Boomerang dengan Bingkai Khusus',
-        badge: 'ANIMASI GIF',
-        url: `/api/gallery/${photoId}?type=gif`,
-        downloadName: `MingleBooth_Animasi_${photoId}.gif`,
-      },
-      {
-        id: 'slide_raw_1',
-        type: 'raw',
-        title: 'Foto Original #1',
-        subtitle: 'Jepretan Mentah Pose 1',
-        badge: 'POSE #1',
-        url: `/api/gallery/${photoId}?type=raw&index=1`,
-        downloadName: `MingleBooth_Original_Pose1_${photoId}.jpg`,
-      },
-      {
-        id: 'slide_raw_2',
-        type: 'raw',
-        title: 'Foto Original #2',
-        subtitle: 'Jepretan Mentah Pose 2',
-        badge: 'POSE #2',
-        url: `/api/gallery/${photoId}?type=raw&index=2`,
-        downloadName: `MingleBooth_Original_Pose2_${photoId}.jpg`,
       },
     ],
   };

@@ -172,7 +172,7 @@ export const StorageManagerModal: React.FC = () => {
               <h2 className="text-base font-bold text-white flex items-center gap-2">
                 Penyimpanan Foto & Folder Event
                 {isCustom ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/[0.08] text-neutral-200 border border-white/15">
                     Custom Drive
                   </span>
                 ) : (
@@ -260,7 +260,7 @@ export const StorageManagerModal: React.FC = () => {
                   Lokasi Aktif Foto Event Ini ({eventName})
                 </span>
                 {isCustom ? (
-                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-white/[0.08] text-neutral-200 border border-white/15">
                     Kustom
                   </span>
                 ) : (
@@ -281,8 +281,8 @@ export const StorageManagerModal: React.FC = () => {
             >
               {copied ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-emerald-400 font-semibold">Tersalin</span>
+                  <Check className="w-3.5 h-3.5 text-white" />
+                  <span className="text-white font-semibold">Tersalin</span>
                 </>
               ) : (
                 <>
@@ -304,7 +304,7 @@ export const StorageManagerModal: React.FC = () => {
               className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 transition-colors"
               title="Refresh status file"
             >
-              <RefreshCw className={`w-3 h-3 ${loadingStats ? 'animate-spin text-blue-400' : ''}`} />
+              <RefreshCw className={`w-3 h-3 ${loadingStats ? 'animate-spin text-white' : ''}`} />
               <span>Refresh</span>
             </button>
           </div>
@@ -313,21 +313,21 @@ export const StorageManagerModal: React.FC = () => {
             {/* Processed folder */}
             <div
               onClick={() => handleOpenFolderWithFeedback('processed')}
-              className="p-3 rounded-xl bg-[#181B20] border border-emerald-500/30 hover:border-emerald-400 cursor-pointer transition-all group flex flex-col justify-between shadow-sm hover:shadow-emerald-500/10"
+              className="p-3 rounded-xl bg-[#181B20] border border-white/10 hover:border-white/25 cursor-pointer transition-all group flex flex-col justify-between shadow-sm"
               title="Klik untuk membuka folder foto siap cetak di Finder/Explorer"
             >
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-1.5">
-                  <Image className="w-4 h-4 text-emerald-400" />
-                  <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                  <Image className="w-4 h-4 text-white" />
+                  <Printer className="w-3.5 h-3.5 text-neutral-300" />
                 </div>
-                <span className="text-[10px] font-mono text-emerald-400 font-semibold">
+                <span className="text-[10px] font-mono text-neutral-300 font-semibold">
                   processed/
                 </span>
               </div>
               <div>
                 <span className="text-lg font-bold text-white block">{stats.processedCount}</span>
-                <span className="text-[11px] text-emerald-300 font-medium">Foto Siap Cetak</span>
+                <span className="text-[11px] text-neutral-300 font-medium">Foto Siap Cetak</span>
                 <span className="text-[9px] text-neutral-400 block mt-0.5">Buka &amp; Print Ulang</span>
               </div>
             </div>
@@ -392,15 +392,15 @@ export const StorageManagerModal: React.FC = () => {
 
         {/* Open Notification Banner */}
         {openNotification && (
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2 text-xs text-emerald-300 animate-fadeIn">
-            <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <div className="p-3 rounded-xl bg-white/[0.06] border border-white/10 flex items-center gap-2 text-xs text-white animate-fadeIn">
+            <Check className="w-4 h-4 text-white flex-shrink-0" />
             <span>{openNotification}</span>
           </div>
         )}
 
         {/* Tip for vendor */}
-        <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/15 flex items-start gap-2.5">
-          <Sparkles className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+        <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-start gap-2.5">
+          <Sparkles className="w-4 h-4 text-neutral-400 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-neutral-300">
             <span className="font-semibold text-white">Tips Vendor: </span>
             Anda dapat memilih folder di **SSD Eksternal / Flashdisk** atau folder sinkronisasi **Google Drive / Dropbox Desktop** agar seluruh file otomatis ter-backup ke drive eksternal Anda.
@@ -422,10 +422,10 @@ export const StorageManagerModal: React.FC = () => {
               type="button"
               onClick={() => handleOpenFolderWithFeedback('processed')}
               disabled={isOpeningFolder}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-200 text-black text-xs font-semibold flex items-center gap-2 shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
               title="Buka folder foto berbingkai yang siap dicetak ke printer"
             >
-              <Printer className="w-4 h-4" />
+              <Printer className="w-4 h-4 text-black" />
               <span>Buka Foto Siap Cetak (processed/)</span>
             </button>
 
@@ -433,10 +433,10 @@ export const StorageManagerModal: React.FC = () => {
               type="button"
               onClick={() => handleOpenFolderWithFeedback()}
               disabled={isOpeningFolder}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-blue-600/20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white text-xs font-semibold flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
               title="Buka folder root event di macOS Finder atau Windows File Explorer"
             >
-              <FolderCheck className="w-4 h-4" />
+              <FolderCheck className="w-4 h-4 text-neutral-300" />
               <span>Semua Folder Event</span>
               <ExternalLink className="w-3 h-3 opacity-70" />
             </button>

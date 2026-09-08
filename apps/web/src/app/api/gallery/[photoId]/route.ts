@@ -40,8 +40,8 @@ export async function GET(
 
     // Find the event folder containing this photo
     let matchedEventDir: string | null = null;
-    let eventName = 'Wedding Bayu & Irma';
-    let dateFormatted = '29 August 2026';
+    let eventName = 'Acara Photobooth';
+    let dateFormatted = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
     for (const rootDir of searchDirs) {
       if (!fsSync.existsSync(rootDir)) continue;
@@ -81,6 +81,7 @@ export async function GET(
     if (type === 'meta') {
       let hasGif = false;
       let rawCount = 0;
+      let resolvedEventId: string | null = null;
 
       if (matchedEventDir) {
         const gifPossibles = [
@@ -125,7 +126,25 @@ export async function GET(
             .limit(1)
             .maybeSingle();
 
-          const resolvedEventId = pRec?.event_id || gRec?.event_id;
+          resolvedEventId = pRec?.event_id || gRec?.event_id || null;
+
+          // If not in database table, search storage events folder directly
+          if (!resolvedEventId) {
+            const { data: evFolders } = await client.storage.from('minglebooth-storage').list('events');
+            if (evFolders && evFolders.length > 0) {
+              for (const f of evFolders) {
+                const { data: subFiles } = await client.storage.from('minglebooth-storage').list(`events/${f.name}`);
+                if (subFiles && subFiles.some((sf) => sf.name.includes(photoId))) {
+                  resolvedEventId = f.name;
+                  if (subFiles.some((sf) => sf.name === `${photoId}.gif`)) {
+                    hasGif = true;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+
           if (resolvedEventId) {
             const { data: evRec } = await client
               .from('events')
@@ -210,6 +229,7 @@ export async function GET(
         {
           success: true,
           photoId,
+          eventId: resolvedEventId || null,
           eventName,
           dateFormatted,
           hasGif,
@@ -320,6 +340,19 @@ export async function GET(
               .getPublicUrl(records[0].cloud_storage_path);
             if (pubData?.publicUrl) {
               return NextResponse.redirect(pubData.publicUrl);
+            }
+          }
+
+          // Direct Storage Scan Fallback
+          const { data: evFolders } = await client.storage.from('minglebooth-storage').list('events');
+          if (evFolders && evFolders.length > 0) {
+            for (const ev of evFolders) {
+              const checkExt = type === 'gif' ? 'gif' : 'jpg';
+              const possiblePath = `events/${ev.name}/${photoId}.${checkExt}`;
+              const { data: pubData } = client.storage.from('minglebooth-storage').getPublicUrl(possiblePath);
+              if (pubData?.publicUrl) {
+                return NextResponse.redirect(pubData.publicUrl);
+              }
             }
           }
         }

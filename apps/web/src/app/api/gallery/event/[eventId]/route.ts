@@ -24,8 +24,8 @@ export async function GET(
 
   try {
     const client = getServiceSupabase();
-    let eventName = 'Wedding Bayu & Irma';
-    let eventDate = '2026-08-29';
+    let eventName = 'Acara Photobooth';
+    let eventDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
     let matchedEventId = eventId;
 
     // 1. Resolve Event details from Supabase if possible
@@ -76,11 +76,10 @@ export async function GET(
     if (matchedEventId && matchedEventId !== eventId) {
       candidateDirs.push(matchedEventId);
     }
-    // Also include default event folder if Bayu & Irma
+    // Also include default event folder if explicit test event
     if (
-      eventName.toLowerCase().includes('bayu') ||
       eventId === 'b739dae7-9a16-48e9-bc53-3fa159380a87' ||
-      eventId.includes('bayu')
+      eventId === 'evt_bayu_irma_2026'
     ) {
       candidateDirs.push('evt_bayu_irma_2026');
       candidateDirs.push('b739dae7-9a16-48e9-bc53-3fa159380a87');
@@ -249,7 +248,50 @@ export async function GET(
           }
         }
 
-        // 3c. Scan Raw Camera Shots in Supabase Storage
+        // 3c. Fallback scan main files directly in Supabase Storage in case database records were delayed/missing
+        try {
+          const { data: storageMainFiles } = await client.storage
+            .from('minglebooth-storage')
+            .list(`events/${matchedEventId}`);
+
+          if (storageMainFiles && storageMainFiles.length > 0) {
+            for (const f of storageMainFiles) {
+              if (f.name === 'raw' || f.name.startsWith('.')) continue;
+              const isJpg = f.name.endsWith('.jpg') || f.name.endsWith('.jpeg') || f.name.endsWith('.png');
+              const isGif = f.name.endsWith('.gif');
+              if (!isJpg && !isGif) continue;
+
+              const pid = f.name.replace(/\.[^/.]+$/, '');
+              const { data: pubData } = client.storage
+                .from('minglebooth-storage')
+                .getPublicUrl(`events/${matchedEventId}/${f.name}`);
+              const fileUrl = pubData?.publicUrl || `/api/gallery/${pid}?type=${isGif ? 'gif' : 'photo'}`;
+
+              if (photoMap.has(pid)) {
+                const existing = photoMap.get(pid)!;
+                if (isGif) {
+                  existing.hasGif = true;
+                  existing.gifUrl = fileUrl;
+                }
+              } else {
+                photoMap.set(pid, {
+                  photoId: pid,
+                  thumbUrl: fileUrl,
+                  fullUrl: fileUrl,
+                  gifUrl: isGif ? fileUrl : null,
+                  hasGif: isGif,
+                  rawShots: [],
+                  url: `/p/${pid}`,
+                  createdAt: (f as any).created_at || new Date().toISOString(),
+                });
+              }
+            }
+          }
+        } catch {
+          // Safe ignore fallback storage scan failure
+        }
+
+        // 3d. Scan Raw Camera Shots in Supabase Storage
         try {
           const { data: rawStorageFiles } = await client.storage
             .from('minglebooth-storage')

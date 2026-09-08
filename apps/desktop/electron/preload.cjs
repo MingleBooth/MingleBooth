@@ -28,9 +28,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   installCameraDriver: () => ipcRenderer.invoke('camera:install-driver'),
   releaseUsbLock: () => ipcRenderer.invoke('camera:release-usb-lock'),
   detectNativeCameras: () => ipcRenderer.invoke('camera:detect-cameras'),
+  connectNativeCamera: (targetCamera) => ipcRenderer.invoke('camera:connect', targetCamera),
+  disconnectNativeCamera: () => ipcRenderer.invoke('camera:disconnect'),
+  startCameraLiveView: () => ipcRenderer.invoke('camera:start-liveview'),
+  stopCameraLiveView: () => ipcRenderer.invoke('camera:stop-liveview'),
+  getNativeCameraState: () => ipcRenderer.invoke('camera:get-state'),
   startNativeTether: () => ipcRenderer.invoke('camera:start-native-tether'),
   stopNativeTether: () => ipcRenderer.invoke('camera:stop-native-tether'),
   triggerNativeCapture: () => ipcRenderer.invoke('camera:direct-capture'),
+  onCameraStateChange: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('camera:state-change', handler);
+    return () => ipcRenderer.removeListener('camera:state-change', handler);
+  },
+  onCameraLiveFrame: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('camera:live-frame', handler);
+    return () => ipcRenderer.removeListener('camera:live-frame', handler);
+  },
+  onCameraPhotoCaptured: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('camera:photo-captured', handler);
+    return () => ipcRenderer.removeListener('camera:photo-captured', handler);
+  },
   onDriverInstallLog: (callback) => {
     const handler = (_event, logMsg) => callback(logMsg);
     ipcRenderer.on('camera:driver-install-log', handler);

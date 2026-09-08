@@ -264,8 +264,8 @@ export const AdminTestingModal: React.FC = () => {
                 <Usb className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-xs font-bold text-white block">Direct Native USB Driver (Tanpa Software Pihak Ke-3)</span>
-                <span className="text-[11px] text-neutral-400">Hubungkan Sony / Canon / DSLR langsung ke MingleBooth via kabel USB</span>
+                <span className="text-xs font-bold text-white block">Direct Native USB Driver (Universal DSLR / Mirrorless)</span>
+                <span className="text-[11px] text-neutral-400">Hubungkan kamera DSLR / Mirrorless (Canon, Nikon, Sony, Fuji, Lumix) langsung via kabel USB</span>
               </div>
             </div>
             <span className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold border flex items-center gap-1.5 ${

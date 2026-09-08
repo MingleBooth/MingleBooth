@@ -39,6 +39,8 @@ import {
   CheckCircle2,
   Eye,
   Palette,
+  Plus,
+  CloudUpload,
 } from 'lucide-react';
 import { FrameHoleDetector, DetectedCutout } from '@minglebooth/template-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
@@ -49,6 +51,7 @@ import {
   OfflineCaptureItem,
 } from './lib/offlineStorage';
 import { VendorAuthGate } from './components/VendorAuthGate';
+import { EventManagerModal } from './components/EventManagerModal';
 import { API_BASE_URL } from './config';
 import logoHeader from './assets/logo-minglebooth-header.png';
 import appIcon from './assets/icon.png';
@@ -56,7 +59,7 @@ import appIcon from './assets/icon.png';
 interface DiscoveredCamera {
   deviceId: string;
   label: string;
-  type: 'webcam' | 'sony_tether';
+  type: 'webcam' | 'dslr_tether' | 'sony_tether';
 }
 
 interface EventItem {
@@ -152,29 +155,30 @@ const TabletStudioContent: React.FC = () => {
   const [previousPhase, setPreviousPhase] = useState<'setup' | 'kiosk' | 'review'>('setup');
 
   // Camera State
-  const [cameraMode, setCameraMode] = useState<'webcam' | 'sony'>('webcam');
+  const [cameraMode, setCameraMode] = useState<'webcam' | 'dslr' | 'sony'>('webcam');
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [selectedWebcamId, setSelectedWebcamId] = useState<string>('');
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isCameraLoading, setIsCameraLoading] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
-  // Sony / DSLR Tether Server State (Local Port 4848)
+  // Universal DSLR / Mirrorless Tether Server State (Local Port 4848)
   const [tetherUrl, setTetherUrl] = useState<string>('http://localhost:4848');
   const [tetherStatus, setTetherStatus] = useState<'checking' | 'connected' | 'disconnected'>('disconnected');
   const [tetherLiveFrame, setTetherLiveFrame] = useState<string | null>(null);
+  const [nativeCameraModel, setNativeCameraModel] = useState<string | null>(null);
+  const [isDetectingNative, setIsDetectingNative] = useState<boolean>(false);
+  const [cameraSessionState, setCameraSessionState] = useState<
+    'DISCONNECTED' | 'DETECTING' | 'CONNECTING' | 'CONNECTED' | 'READY' | 'CAPTURING' | 'TRANSFERRING' | 'PROCESSING' | 'COMPLETED' | 'ERROR'
+  >('DISCONNECTED');
+  const [cameraSessionError, setCameraSessionError] = useState<string | null>(null);
 
   // Events & Templates
-  const [events, setEvents] = useState<EventItem[]>([
-    {
-      id: 'default_event',
-      name: 'Pesta Pernikahan (Default Event)',
-      hostNames: 'Bayu & Irma',
-      date: new Date().toLocaleDateString('id-ID'),
-    },
-  ]);
-  const [selectedEventId, setSelectedEventId] = useState<string>('default_event');
-  const currentEvent = events.find((e) => e.id === selectedEventId) || events[0];
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string>('');
+  const [showEventManagerModal, setShowEventManagerModal] = useState<boolean>(false);
+  const [eventManagerInitialTab, setEventManagerInitialTab] = useState<'list' | 'create'>('create');
+  const currentEvent = events.find((e) => e.id === selectedEventId) || events[0] || null;
 
   const [templates, setTemplates] = useState<TemplateItem[]>(DEFAULT_TEMPLATES);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(DEFAULT_TEMPLATES[0].id);
@@ -190,6 +194,7 @@ const TabletStudioContent: React.FC = () => {
   const [customStorageDir, setCustomStorageDir] = useState<string>(() =>
     typeof window !== 'undefined' ? localStorage.getItem('mb_custom_storage_dir') || '' : ''
   );
+  const [tetherDisplayPath, setTetherDisplayPath] = useState<string>('~/Pictures/MingleBooth/Tether-Inbox');
   const [isLoadingVendorData, setIsLoadingVendorData] = useState<boolean>(false);
 
   // Kiosk Session Running State
@@ -221,6 +226,8 @@ const TabletStudioContent: React.FC = () => {
   const [selectedGalleryPreviewItem, setSelectedGalleryPreviewItem] = useState<OfflineCaptureItem | null>(null);
   const [galleryLightboxTab, setGalleryLightboxTab] = useState<'photo' | 'gif' | 'original'>('photo');
   const [lightboxRawIndex, setLightboxRawIndex] = useState<number>(0);
+  const [isSyncingAllToCloud, setIsSyncingAllToCloud] = useState<boolean>(false);
+  const [cloudSyncFeedback, setCloudSyncFeedback] = useState<string | null>(null);
 
   // Preview Framing Overlay Toggle (Clean full camera by default)
   const [showFrameOverlayInPreview, setShowFrameOverlayInPreview] = useState<boolean>(false);
@@ -233,6 +240,9 @@ const TabletStudioContent: React.FC = () => {
   const customFileInputRef = useRef<HTMLInputElement | null>(null);
   const customGifFileInputRef = useRef<HTMLInputElement | null>(null);
   const customWallpaperFileInputRef = useRef<HTMLInputElement | null>(null);
+  const isCapturingRef = useRef<boolean>(false);
+  const lastHandledPhotoRef = useRef<string | null>(null);
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Standby Wallpaper / Screensaver States
   const [enableStandbyWallpaper, setEnableStandbyWallpaper] = useState<boolean>(() => {
@@ -286,13 +296,135 @@ const TabletStudioContent: React.FC = () => {
       const videoInputs = devices.filter((d) => d.kind === 'videoinput');
       setCameras(videoInputs);
 
-      if (videoInputs.length > 0 && !selectedWebcamId) {
+      // Prioritaskan kamera DSLR / Mirrorless / Cam Link / video capture USB eksternal jika ada
+      const preferredCam = videoInputs.find((c) =>
+        /dslr|mirrorless|canon|nikon|sony|fuji|lumix|cam link|uvc|usb video|external|elgato|webcam/i.test(c.label)
+      );
+
+      if (preferredCam && (!selectedWebcamId || !/dslr|mirrorless|canon|nikon|sony|fuji|lumix|cam link|uvc|usb video|external|elgato/i.test(videoInputs.find((v) => v.deviceId === selectedWebcamId)?.label || ''))) {
+        setSelectedWebcamId(preferredCam.deviceId);
+      } else if (videoInputs.length > 0 && !selectedWebcamId) {
         setSelectedWebcamId(videoInputs[0].deviceId);
       }
     } catch (err) {
       console.warn('enumerateDevices error:', err);
     }
   }, [selectedWebcamId]);
+
+  // Deteksi perangkat USB otomatis saat dicolokkan (Hotplug listener)
+  useEffect(() => {
+    if (!navigator.mediaDevices?.addEventListener) return;
+    let usbReconnectTimer: any = null;
+    const handleDeviceChange = async () => {
+      console.log('[Camera] USB device change detected, auto-refreshing devices...');
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter((d) => d.kind === 'videoinput');
+        setCameras(videoInputs);
+
+        const newExternalCam = videoInputs.find((c) =>
+          /dslr|mirrorless|canon|nikon|sony|fuji|lumix|cam link|uvc|usb video|external|elgato/i.test(c.label)
+        );
+
+        if (newExternalCam && cameraMode === 'webcam') {
+          console.log('[Camera] Auto-switching to newly connected camera:', newExternalCam.label);
+          setSelectedWebcamId(newExternalCam.deviceId);
+          startWebcamStream(newExternalCam.deviceId);
+        }
+
+        // Auto-recover PC Remote connection when camera is plugged into USB
+        if (cameraMode !== 'webcam') {
+          if (usbReconnectTimer) clearTimeout(usbReconnectTimer);
+          usbReconnectTimer = setTimeout(async () => {
+            if (typeof window !== 'undefined' && (window as any).electronAPI?.detectNativeCameras) {
+              const detectRes = await (window as any).electronAPI.detectNativeCameras();
+              if (detectRes.success && detectRes.cameras && detectRes.cameras.length > 0) {
+                console.log('[Camera] USB plug detected: Auto-connecting camera...', detectRes.cameras[0].model);
+                setCameraSessionState('CONNECTING');
+                setCameraSessionError(null);
+                const connectRes = await (window as any).electronAPI.connectNativeCamera(detectRes.cameras[0]);
+                if (connectRes.success) {
+                  setNativeCameraModel(connectRes.camera?.model || detectRes.cameras[0].model);
+                  setTetherStatus('connected');
+                  setCameraSessionState('READY');
+                  setCameraSessionError(null);
+                }
+              }
+            }
+          }, 1500);
+        }
+      } catch (e) {
+        console.warn('devicechange error:', e);
+      }
+    };
+
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    return () => {
+      if (usbReconnectTimer) clearTimeout(usbReconnectTimer);
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+    };
+  }, [cameraMode]);
+
+  // Pemeriksaan Hardware Kamera Fisik untuk Mode PC Remote / Tether Studio
+  const checkNativeCameraHardware = useCallback(async () => {
+    setIsDetectingNative(true);
+    setCameraSessionState('CONNECTING');
+    setCameraSessionError(null);
+    try {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.detectNativeCameras) {
+        const detectRes = await (window as any).electronAPI.detectNativeCameras();
+        if (!detectRes.success || !detectRes.cameras || detectRes.cameras.length === 0) {
+          setNativeCameraModel(null);
+          setTetherStatus('disconnected');
+          setCameraSessionState('ERROR');
+          setCameraSessionError('PC Remote connection failed. Pastikan kamera di mode FOTO (M) ➔ USB Connection: PC Remote dan port USB tidak terkunci.');
+          return;
+        }
+
+        const targetCam = detectRes.cameras[0];
+        setNativeCameraModel(targetCam.model || 'Kamera Studio USB');
+
+        // Establish active PTP connection handshake
+        setCameraSessionState('CONNECTING');
+        setCameraSessionError(null);
+        if ((window as any).electronAPI?.connectNativeCamera) {
+          const connectRes = await (window as any).electronAPI.connectNativeCamera(targetCam);
+          if (connectRes.success) {
+            setNativeCameraModel(connectRes.camera?.model || targetCam.model);
+            setTetherStatus('connected');
+            setCameraSessionState('READY');
+            setCameraSessionError(null);
+            return;
+          } else {
+            setTetherStatus('disconnected');
+            setCameraSessionState('ERROR');
+            setCameraSessionError(connectRes.error || 'PC Remote connection failed. Pastikan kamera di mode FOTO (M) ➔ USB Connection: PC Remote dan port USB tidak terkunci.');
+            return;
+          }
+        }
+      }
+
+      // Web/Tablet fallback polling
+      const res = await fetch(`${tetherUrl}/api/tether/status`);
+      const data = await res.json();
+      if (data.cameraConnected) {
+        setTetherStatus('connected');
+        setCameraSessionState('READY');
+        setCameraSessionError(null);
+        if (data.camera?.model) setNativeCameraModel(data.camera.model);
+      } else {
+        setTetherStatus('disconnected');
+        setCameraSessionState('ERROR');
+        setCameraSessionError('PC Remote connection failed. Kamera tidak terhubung ke service lokal.');
+      }
+    } catch (err: any) {
+      setTetherStatus('disconnected');
+      setCameraSessionState('ERROR');
+      setCameraSessionError(err.message || 'PC Remote connection failed');
+    } finally {
+      setIsDetectingNative(false);
+    }
+  }, [tetherUrl]);
 
   const startWebcamStream = useCallback(async (deviceId?: string) => {
     setIsCameraLoading(true);
@@ -380,15 +512,15 @@ const TabletStudioContent: React.FC = () => {
       enumerateCameras();
     } catch (err: any) {
       console.error('Webcam connection failed:', err);
-      let msg = 'Kamera laptop tidak dapat diakses.';
+      let msg = 'Kamera tidak dapat diakses.';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         msg = 'Izin kamera belum aktif. Buka Pengaturan Mac > Privasi & Keamanan > Kamera, lalu centang MingleBooth Studio.';
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        msg = 'Kamera sedang dipakai oleh aplikasi lain (FaceTime, Zoom, atau Photo Booth). Silakan tutup aplikasi tersebut lalu klik Sambungkan Ulang.';
+        msg = 'Kamera sedang dipakai oleh aplikasi lain (seperti QuickTime, Photo Booth, OBS, FaceTime, atau browser). Silakan TUTUP aplikasi tersebut sepenuhnya, lalu klik Sambungkan Ulang.';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        msg = 'Tidak ada perangkat kamera yang terdeteksi di laptop ini.';
+        msg = 'Tidak ada perangkat kamera yang terdeteksi. Pastikan kabel USB tersambung dengan baik.';
       } else {
-        msg = `Kamera belum terhubung (${err.name || err.message}). Pastikan kamera laptop tidak terkunci.`;
+        msg = `Kamera belum terhubung (${err.name || err.message}). Pastikan kamera tidak terkunci.`;
       }
       setCameraError(msg);
     } finally {
@@ -458,9 +590,66 @@ const TabletStudioContent: React.FC = () => {
     }
   }, []);
 
-  // Monitor Sony Tether server if selected
+  // Initial mount: load tether info (native device path)
   useEffect(() => {
-    if (cameraMode !== 'sony') return;
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.getTetherInfo) {
+      (window as any).electronAPI.getTetherInfo().then((info: any) => {
+        if (info?.tetherDir) {
+          setTetherDisplayPath(info.tetherDir);
+        }
+      }).catch((e: any) => console.warn('[Tether] Could not get tether info:', e));
+    }
+  }, []);
+
+  // ── Listen to Native Camera IPC Events ──
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let unsubState: any;
+    let unsubLive: any;
+
+    if ((window as any).electronAPI?.onCameraStateChange) {
+      unsubState = (window as any).electronAPI.onCameraStateChange((payload: any) => {
+        if (payload?.state) {
+          setCameraSessionState(payload.state);
+          if (payload.state === 'DISCONNECTED') {
+            setTetherLiveFrame(null);
+            setNativeCameraModel(null);
+            setTetherStatus('disconnected');
+            setCameraSessionError(payload.error || null);
+          } else if (payload.state === 'CONNECTING' || payload.state === 'DETECTING') {
+            setCameraSessionError(null);
+          } else if (payload.state === 'READY' || payload.state === 'CONNECTED') {
+            setCameraSessionError(null);
+            setTetherStatus('connected');
+            if (payload.camera?.model) {
+              setNativeCameraModel(payload.camera.model);
+            }
+          } else if (payload.state === 'ERROR') {
+            setCameraSessionError(payload.error || 'Connection error');
+            setTetherStatus('disconnected');
+          }
+        }
+      });
+    }
+
+    if ((window as any).electronAPI?.onCameraLiveFrame) {
+      unsubLive = (window as any).electronAPI.onCameraLiveFrame((payload: any) => {
+        if (payload?.frameDataUrl) {
+          setTetherLiveFrame(payload.frameDataUrl);
+        }
+      });
+    }
+
+    return () => {
+      if (typeof unsubState === 'function') unsubState();
+      if (typeof unsubLive === 'function') unsubLive();
+    };
+  }, []);
+
+  // Monitor DSLR/Studio Tether server if selected
+  useEffect(() => {
+    if (cameraMode === 'webcam') return;
 
     let isMounted = true;
     const checkTether = async () => {
@@ -468,24 +657,34 @@ const TabletStudioContent: React.FC = () => {
         const res = await fetch(`${tetherUrl}/api/tether/status`);
         const data = await res.json();
         if (isMounted) {
-          setTetherStatus(data.success ? 'connected' : 'disconnected');
+          const isConn = Boolean(data.cameraConnected);
+          setTetherStatus(isConn ? 'connected' : 'disconnected');
+          if (data.cameraState) {
+            setCameraSessionState(data.cameraState);
+          }
+          if (data.camera?.model) {
+            setNativeCameraModel(data.camera.model);
+          }
         }
       } catch {
-        if (isMounted) setTetherStatus('disconnected');
+        if (isMounted) {
+          setTetherStatus('disconnected');
+          setCameraSessionState('DISCONNECTED');
+        }
       }
     };
 
     checkTether();
-    const interval = setInterval(checkTether, 2000);
+    const interval = setInterval(checkTether, 3000);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
   }, [cameraMode, tetherUrl]);
 
-  // Sony Live View Polling
+  // Studio Live View Polling (for tablet/web client mode)
   useEffect(() => {
-    if (cameraMode !== 'sony' || tetherStatus !== 'connected') return;
+    if (cameraMode === 'webcam' || tetherStatus !== 'connected') return;
 
     let isMounted = true;
     let timer: any = null;
@@ -495,13 +694,14 @@ const TabletStudioContent: React.FC = () => {
         const res = await fetch(`${tetherUrl}/api/tether/liveview`);
         if (res.ok) {
           const data = await res.json();
-          if (data.success && data.liveFrame && isMounted) {
-            setTetherLiveFrame(data.liveFrame);
+          const frame = data.frameDataUrl || data.liveFrame;
+          if (data.success && frame && isMounted) {
+            setTetherLiveFrame(frame);
           }
         }
       } catch {}
       if (isMounted) {
-        timer = setTimeout(pollFrame, 90);
+        timer = setTimeout(pollFrame, 100);
       }
     };
 
@@ -557,15 +757,23 @@ const TabletStudioContent: React.FC = () => {
       const evRes = await fetch(`${API_BASE_URL}/api/vendor/events`, { headers });
       if (evRes.ok) {
         const evData = await evRes.json();
-        if (Array.isArray(evData.events) && evData.events.length > 0) {
-          const mappedEvents = evData.events.map((e: any) => ({
-            id: e.id,
-            name: e.name,
-            hostNames: e.branding?.hostNames || e.branding?.eventName || e.name,
-            date: e.date,
-          }));
-          setEvents(mappedEvents);
-          setSelectedEventId(mappedEvents[0].id);
+        if (Array.isArray(evData.events)) {
+          if (evData.events.length > 0) {
+            const mappedEvents = evData.events.map((e: any) => ({
+              id: e.id,
+              name: e.name,
+              hostNames: e.branding?.hostNames || e.branding?.eventName || e.name,
+              date: e.date,
+            }));
+            setEvents(mappedEvents);
+            setSelectedEventId((prev) => {
+              if (prev && mappedEvents.some((m: any) => m.id === prev)) return prev;
+              return mappedEvents[0]?.id || '';
+            });
+          } else {
+            setEvents([]);
+            setSelectedEventId('');
+          }
         }
       }
 
@@ -640,7 +848,7 @@ const TabletStudioContent: React.FC = () => {
           map.set(p.photoId, {
             photoId: p.photoId,
             eventId: selectedEventId,
-            eventName: currentEvent.name,
+            eventName: currentEvent?.name || 'Photobooth Event',
             photoDataUrl: photoUrl,
             gifDataUrl: gifUrl,
             hasGif: Boolean(p.hasGif),
@@ -666,7 +874,141 @@ const TabletStudioContent: React.FC = () => {
     } finally {
       setIsEventGalleryLoading(false);
     }
-  }, [selectedEventId, currentEvent.name]);
+  }, [selectedEventId, currentEvent?.name]);
+
+  // ── CLOUD SYNC: Staged upload to avoid Vercel 4.5MB serverless payload limit ──
+  const uploadCaptureToCloud = async (payload: {
+    photoId: string;
+    eventId: string;
+    compositeDataUrl: string;
+    gifDataUrl?: string | null;
+    rawPhotos?: string[];
+  }): Promise<boolean> => {
+    const { photoId, eventId, compositeDataUrl, gifDataUrl, rawPhotos } = payload;
+    if (!eventId || !photoId || !compositeDataUrl) return false;
+
+    const token = localStorage.getItem('mb_license_token') || '';
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    let success = false;
+
+    try {
+      // Step 1: Upload main composite photo (< 1.2MB, creates Supabase photos record & storage file)
+      const photoRes = await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          photoId,
+          eventId,
+          fileDataUrl: compositeDataUrl,
+          type: 'photo',
+        }),
+      });
+
+      if (!photoRes.ok) {
+        const errJson = await photoRes.json().catch(() => ({}));
+        console.warn('[Cloud Sync Warning]: Failed to upload photo strip:', errJson?.error || photoRes.statusText);
+      } else {
+        console.log('[Cloud Sync Success]: Photo strip synced for', photoId);
+        success = true;
+      }
+
+      // Step 2: Upload GIF Boomerang if available (< 1.5MB)
+      if (gifDataUrl) {
+        try {
+          const gifRes = await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              photoId,
+              eventId,
+              fileDataUrl: gifDataUrl,
+              type: 'gif',
+            }),
+          });
+          if (gifRes.ok) {
+            console.log('[Cloud Sync Success]: GIF boomerang synced for', photoId);
+          }
+        } catch (gifErr) {
+          console.warn('[Cloud Sync Warning]: GIF sync error:', gifErr);
+        }
+      }
+
+      // Step 3: Upload raw camera shots sequentially (each pose individually < 1.5MB)
+      if (Array.isArray(rawPhotos) && rawPhotos.length > 0) {
+        for (let i = 0; i < rawPhotos.length; i++) {
+          const rawShot = rawPhotos[i];
+          if (!rawShot) continue;
+          try {
+            await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                photoId,
+                eventId,
+                fileDataUrl: rawShot,
+                type: 'raw',
+                rawIndex: i + 1,
+              }),
+            });
+          } catch (rErr) {
+            console.warn(`[Cloud Sync Notice]: Raw shot ${i + 1} upload notice:`, rErr);
+          }
+        }
+      }
+
+      return success;
+    } catch (err) {
+      console.warn('[Cloud Sync Error]:', err);
+      return false;
+    }
+  };
+
+  // Sync all local captures for the active event to Supabase Cloud
+  const handleSyncAllOfflineCapturesToCloud = async () => {
+    if (!selectedEventId) {
+      alert('Pilih acara terlebih dahulu.');
+      return;
+    }
+    setIsSyncingAllToCloud(true);
+    setCloudSyncFeedback('Mengecek foto lokal...');
+    try {
+      const localCaptures = await getOfflineCaptures(selectedEventId);
+      if (!localCaptures || localCaptures.length === 0) {
+        setCloudSyncFeedback('Belum ada foto lokal yang tersimpan untuk acara ini.');
+        setTimeout(() => setCloudSyncFeedback(null), 3500);
+        setIsSyncingAllToCloud(false);
+        return;
+      }
+
+      let successCount = 0;
+      for (let idx = 0; idx < localCaptures.length; idx++) {
+        const item = localCaptures[idx];
+        setCloudSyncFeedback(`Mengunggah ke Cloud (${idx + 1}/${localCaptures.length})...`);
+        const rawPhotos = (item.rawShots || []).map((r: any) => r.dataUrl || r.url).filter(Boolean);
+        const ok = await uploadCaptureToCloud({
+          photoId: item.photoId,
+          eventId: selectedEventId,
+          compositeDataUrl: item.photoDataUrl,
+          gifDataUrl: item.gifDataUrl,
+          rawPhotos,
+        });
+        if (ok) successCount++;
+      }
+
+      setCloudSyncFeedback(`Berhasil menyinkronkan ${successCount} sesi foto ke Cloud!`);
+      loadGalleryData();
+      setTimeout(() => setCloudSyncFeedback(null), 4000);
+    } catch (err: any) {
+      setCloudSyncFeedback(`Gagal sinkron: ${err?.message || 'Error'}`);
+      setTimeout(() => setCloudSyncFeedback(null), 4000);
+    } finally {
+      setIsSyncingAllToCloud(false);
+    }
+  };
 
   // Load Offline Captures & Supabase Cloud Captures whenever Event Gallery opens or event changes
   useEffect(() => {
@@ -698,7 +1040,7 @@ const TabletStudioContent: React.FC = () => {
     try {
       if (typeof window !== 'undefined' && (window as any).electronAPI?.openEventFolder) {
         const res = await (window as any).electronAPI.openEventFolder({
-          eventName: currentEvent.name,
+          eventName: currentEvent?.name || 'Photobooth',
           customBasePath: customStorageDir || undefined,
         });
         if (res && !res.success && res.error) {
@@ -889,7 +1231,7 @@ const TabletStudioContent: React.FC = () => {
   ]);
 
   // Camera Mode Switcher
-  const handleSwitchCameraMode = (mode: 'webcam' | 'sony') => {
+  const handleSwitchCameraMode = (mode: 'webcam' | 'dslr' | 'sony') => {
     setCameraMode(mode);
     setCameraError(null);
     if (mode === 'webcam') {
@@ -924,6 +1266,11 @@ const TabletStudioContent: React.FC = () => {
   const triggerPoseShot = (shotIdx: number) => {
     if (sessionStep === 'countdown' || sessionStep === 'processing') return;
 
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+
     if (countdownSeconds === 0) {
       executeShot(shotIdx);
       return;
@@ -941,9 +1288,11 @@ const TabletStudioContent: React.FC = () => {
         playBeep(880, 0.08);
       } else {
         clearInterval(timer);
+        countdownTimerRef.current = null;
         executeShot(shotIdx);
       }
     }, 1000);
+    countdownTimerRef.current = timer;
   };
 
   const executeShot = async (shotIdx: number) => {
@@ -952,48 +1301,90 @@ const TabletStudioContent: React.FC = () => {
 
     let frameData: string | null = null;
 
-    if (cameraMode === 'sony') {
+    if (cameraMode !== 'webcam') {
+      isCapturingRef.current = true;
       try {
-        const res = await fetch(`${tetherUrl}/api/tether/trigger`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ timeoutMs: 7000, mockFallback: true }),
-        });
-        const data = await res.json();
-        if (data.success && data.photoDataUrl) {
-          frameData = data.photoDataUrl;
+        setCameraSessionState('CAPTURING');
+        if (typeof window !== 'undefined' && (window as any).electronAPI?.triggerNativeCapture) {
+          const res = await (window as any).electronAPI.triggerNativeCapture();
+          if (res && res.success && res.photoDataUrl) {
+            frameData = res.photoDataUrl;
+            const photoKey = `${res.filename || 'shot'}_${res.byteSize || ''}`;
+            lastHandledPhotoRef.current = photoKey;
+            setCameraSessionState('PROCESSING');
+          } else {
+            const errMsg = res?.error || 'Capture failed';
+            setCameraSessionState('ERROR');
+            setCameraSessionError(errMsg);
+            setIsFlashing(false);
+            isCapturingRef.current = false;
+            alert(`Gagal mengambil foto dari kamera studio: ${errMsg}`);
+            setSessionStep('idle');
+            return;
+          }
+        } else {
+          // Web / Tablet fetch trigger
+          const res = await fetch(`${tetherUrl}/api/tether/trigger`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timeoutMs: 10000 }),
+          });
+          const data = await res.json();
+          if (data && data.success && data.photoDataUrl) {
+            frameData = data.photoDataUrl;
+            setCameraSessionState('PROCESSING');
+          } else {
+            const errMsg = data?.error || 'Photo transfer failed';
+            setCameraSessionState('ERROR');
+            setCameraSessionError(errMsg);
+            setIsFlashing(false);
+            isCapturingRef.current = false;
+            alert(`Gagal mengambil foto dari kamera studio: ${errMsg}`);
+            setSessionStep('idle');
+            return;
+          }
         }
-      } catch {}
-
-      if (!frameData && tetherLiveFrame) {
-        frameData = tetherLiveFrame;
+      } catch (err: any) {
+        setCameraSessionState('ERROR');
+        setCameraSessionError(err.message || 'Capture failed');
+        setIsFlashing(false);
+        isCapturingRef.current = false;
+        alert(`Error koneksi shutter kamera: ${err.message}`);
+        setSessionStep('idle');
+        return;
+      } finally {
+        isCapturingRef.current = false;
       }
     } else {
       frameData = grabVideoFrame();
     }
 
-    setTimeout(() => {
-      setIsFlashing(false);
+    setIsFlashing(false);
 
-      if (!frameData) {
-        alert('Gagal mengambil foto dari kamera. Pastikan kamera menyala dan terhubung dengan baik.');
-        setSessionStep('idle');
-        return;
+    if (!frameData) {
+      alert('Gagal mengambil foto dari kamera. Pastikan kamera menyala dan terhubung dengan baik.');
+      setSessionStep('idle');
+      return;
+    }
+
+    const nextPhotos = [...capturedPhotos];
+    nextPhotos[shotIdx] = frameData;
+    setCapturedPhotos(nextPhotos);
+
+    const nextIdx = shotIdx + 1;
+    if (nextIdx < shotsCount) {
+      setCurrentShotIndex(nextIdx);
+      setSessionStep('paused_between_poses');
+      if (cameraMode !== 'webcam') {
+        setCameraSessionState('READY');
       }
-
-      const nextPhotos = [...capturedPhotos];
-      nextPhotos[shotIdx] = frameData;
-      setCapturedPhotos(nextPhotos);
-
-      const nextIdx = shotIdx + 1;
-      if (nextIdx < shotsCount) {
-        setCurrentShotIndex(nextIdx);
-        setSessionStep('paused_between_poses');
-      } else {
-        setSessionStep('processing');
-        composeFinalPhoto(nextPhotos);
+    } else {
+      setSessionStep('processing');
+      if (cameraMode !== 'webcam') {
+        setCameraSessionState('COMPLETED');
       }
-    }, 180);
+      composeFinalPhoto(nextPhotos);
+    }
   };
 
   // ── 5. COMPOSE FINAL PHOTO & GIF BOOMERANG ──
@@ -1097,9 +1488,12 @@ const TabletStudioContent: React.FC = () => {
       const compositeDataUrl = canvas.toDataURL('image/jpeg', 0.95);
       setFinalPhotoDataUrl(compositeDataUrl);
 
-      // Unique Photo ID
+      // Unique Photo ID & Direct Guest Download URL with Instant Event Gallery Reveal
       const photoId = `MB_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      const galleryUrl = `https://www.minglebooth.id/gallery/${selectedEventId}?p=${photoId}`;
+      const targetEventId = selectedEventId || (currentEvent?.id ?? '');
+      const galleryUrl = targetEventId
+        ? `https://www.minglebooth.id/gallery/${targetEventId}?p=${photoId}`
+        : `https://www.minglebooth.id/p/${photoId}`;
       setGuestGalleryUrl(galleryUrl);
 
       // Generate QR Code
@@ -1129,7 +1523,7 @@ const TabletStudioContent: React.FC = () => {
       saveOfflineCapture({
         photoId,
         eventId: selectedEventId,
-        eventName: currentEvent.name,
+        eventName: currentEvent?.name || 'Photobooth Event',
         photoDataUrl: compositeDataUrl,
         gifDataUrl,
         hasGif: Boolean(gifDataUrl),
@@ -1140,7 +1534,7 @@ const TabletStudioContent: React.FC = () => {
       // Save directly to local SSD folder ~/Pictures/MingleBooth/[Nama Acara] or custom folder
       if (typeof window !== 'undefined' && (window as any).electronAPI?.saveCaptureFiles) {
         (window as any).electronAPI.saveCaptureFiles({
-          eventName: currentEvent.name,
+          eventName: currentEvent?.name || 'Photobooth Event',
           customBasePath: customStorageDir || undefined,
           photoId,
           photoBase64: compositeDataUrl,
@@ -1149,22 +1543,15 @@ const TabletStudioContent: React.FC = () => {
         }).catch((e: any) => console.warn('Could not save to local SSD:', e));
       }
 
-      // Background Cloud Sync to Supabase
+      // Background Cloud Sync to Supabase (Staged upload to prevent Vercel 4.5MB payload limit)
       if (navigator.onLine) {
-        fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('mb_license_token') || ''}`,
-          },
-          body: JSON.stringify({
-            photoId,
-            eventId: selectedEventId,
-            fileDataUrl: compositeDataUrl,
-            type: 'photo',
-            rawShots: photos,
-          }),
-        }).catch(() => {});
+        uploadCaptureToCloud({
+          photoId,
+          eventId: selectedEventId,
+          compositeDataUrl,
+          gifDataUrl,
+          rawPhotos: photos,
+        });
       }
 
       setReviewRawIndex(0);
@@ -1178,6 +1565,75 @@ const TabletStudioContent: React.FC = () => {
       alert('Gagal menyusun foto. Silakan coba lagi.');
     }
   };
+
+  // ── Auto-absorb high-res photos captured via PC Remote / Hot Folder ──
+  useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).electronAPI?.onTetherPhotoCaptured) {
+      return;
+    }
+
+    const unsubscribe = (window as any).electronAPI.onTetherPhotoCaptured((payload: any) => {
+      if (!payload?.photoDataUrl) return;
+
+      const photoKey = `${payload.filename || 'shot'}_${payload.byteSize || ''}`;
+      if (lastHandledPhotoRef.current === photoKey) {
+        console.log('[Tether] Duplicate photo ignored in UI:', photoKey);
+        return;
+      }
+
+      if (isCapturingRef.current) {
+        // Ignored: already handled by in-flight executeShot
+        return;
+      }
+      lastHandledPhotoRef.current = photoKey;
+
+      console.log('[Tether] 📸 Physical shutter photo detected from camera:', payload.filename);
+
+      // Cancel running countdown if guest took shot physically
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+
+      // If in setup or review, transition smoothly to kiosk
+      if (phase === 'setup') {
+        setPhase('kiosk');
+      } else if (phase === 'review') {
+        setFinalPhotoDataUrl(null);
+        setFinalGifDataUrl(null);
+        setResultTab('photo');
+        setPhase('kiosk');
+      }
+
+      // Trigger flash & shutter sound
+      setIsFlashing(true);
+      playShutterSound();
+      setTimeout(() => setIsFlashing(false), 180);
+
+      // Automatically store in current shot slot
+      setCapturedPhotos((prev) => {
+        const nextPhotos = (phase === 'review' || (sessionStep === 'idle' && currentShotIndex === 0)) ? [] : [...prev];
+        const targetIdx = currentShotIndex < shotsCount ? currentShotIndex : 0;
+        nextPhotos[targetIdx] = payload.photoDataUrl;
+
+        const nextIdx = targetIdx + 1;
+        if (nextIdx < shotsCount) {
+          setCurrentShotIndex(nextIdx);
+          setSessionStep('paused_between_poses');
+          setCameraSessionState('READY');
+        } else {
+          setSessionStep('processing');
+          setCameraSessionState('COMPLETED');
+          composeFinalPhoto(nextPhotos);
+        }
+        return nextPhotos;
+      });
+    });
+
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [currentShotIndex, shotsCount, composeFinalPhoto, phase, sessionStep]);
 
   // Direct Print
   const handlePrintPhoto = () => {
@@ -1197,11 +1653,13 @@ const TabletStudioContent: React.FC = () => {
     }, 200);
   };
 
-  // Keyboard navigation (Escape = return to setup, Space = shoot)
+  // Keyboard navigation (Escape = return to setup/kiosk, Space = shoot)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (phase === 'kiosk' || phase === 'review') {
+        if (phase === 'gallery') {
+          setPhase(previousPhase || 'setup');
+        } else if (phase === 'kiosk' || phase === 'review') {
           setPhase('setup');
           setSessionStep('idle');
           setCapturedPhotos([]);
@@ -1215,7 +1673,7 @@ const TabletStudioContent: React.FC = () => {
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [phase, sessionStep, currentShotIndex]);
+  }, [phase, previousPhase, sessionStep, currentShotIndex]);
 
   // Review Timer Countdown
   useEffect(() => {
@@ -1676,7 +2134,7 @@ const TabletStudioContent: React.FC = () => {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm font-semibold text-white truncate max-w-[220px] sm:max-w-md">
-                  Galeri Foto: {currentEvent.name}
+                  Galeri Foto: {currentEvent?.name || 'Acara Photobooth'}
                 </h2>
                 <span className="px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-medium text-neutral-300 flex-shrink-0">
                   Khusus Acara Terpilih
@@ -1706,6 +2164,26 @@ const TabletStudioContent: React.FC = () => {
               <FolderOpen className="w-3.5 h-3.5 text-neutral-300" />
               <span>Buka Folder</span>
             </button>
+
+            <button
+              onClick={handleSyncAllOfflineCapturesToCloud}
+              disabled={isSyncingAllToCloud}
+              className={`h-9 px-3 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+                isSyncingAllToCloud
+                  ? 'bg-blue-600/20 border-blue-500/30 text-blue-300 animate-pulse'
+                  : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400 hover:text-emerald-300'
+              }`}
+              title="Unggah semua foto lokal acara ini ke Cloud Supabase agar bisa di-scan dari HP"
+            >
+              <CloudUpload className={`w-3.5 h-3.5 ${isSyncingAllToCloud ? 'animate-bounce' : ''}`} />
+              <span>{isSyncingAllToCloud ? 'Menyinkronkan...' : 'Sinkronkan ke Cloud'}</span>
+            </button>
+
+            {cloudSyncFeedback && (
+              <span className="text-xs px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-medium">
+                {cloudSyncFeedback}
+              </span>
+            )}
 
             <button
               onClick={() => loadGalleryData()}
@@ -1766,7 +2244,7 @@ const TabletStudioContent: React.FC = () => {
           </div>
 
           <div className="text-xs text-neutral-400 hidden lg:block">
-            Acara aktif: <span className="text-white font-medium">{currentEvent.name}</span>
+            Acara aktif: <span className="text-white font-medium">{currentEvent?.name || 'Acara Photobooth'}</span>
           </div>
         </div>
 
@@ -1775,7 +2253,7 @@ const TabletStudioContent: React.FC = () => {
           {isEventGalleryLoading ? (
             <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-xs text-neutral-400 gap-3">
               <RefreshCw className="w-7 h-7 animate-spin text-white" />
-              <span>Memuat galeri acara {currentEvent.name}...</span>
+              <span>Memuat galeri acara {currentEvent?.name || 'Acara Photobooth'}...</span>
             </div>
           ) : filteredPhotos.length === 0 ? (
             <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center p-6 gap-3">
@@ -1785,7 +2263,7 @@ const TabletStudioContent: React.FC = () => {
               <div>
                 <h4 className="text-base font-semibold text-white">Belum Ada Sesi Foto</h4>
                 <p className="text-xs text-neutral-400 max-w-md mt-1.5 leading-relaxed">
-                  Foto yang diambil pada sesi photobooth acara <strong className="text-neutral-200">"{currentEvent.name}"</strong> akan otomatis tersimpan di laptop ini dan siap dicetak ulang atau diekspor.
+                  Foto yang diambil pada sesi photobooth acara <strong className="text-neutral-200">&quot;{currentEvent?.name || 'Acara Photobooth'}&quot;</strong> akan otomatis tersimpan di laptop ini dan siap dicetak ulang atau diekspor.
                 </p>
               </div>
               <button
@@ -2147,15 +2625,46 @@ const TabletStudioContent: React.FC = () => {
                       <span className="text-neutral-400 font-medium">Kamera Belum Terhubung</span>
                     </>
                   )
-                ) : tetherStatus === 'connected' ? (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                    <span className="text-white font-medium">Kamera Sony USB Siap</span>
-                  </>
                 ) : (
                   <>
-                    <span className="w-2 h-2 rounded-full bg-neutral-500" />
-                    <span className="text-neutral-400 font-medium">Menunggu Kamera Sony USB</span>
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                          ? 'bg-emerald-400 animate-pulse'
+                          : cameraSessionState === 'CAPTURING' || cameraSessionState === 'TRANSFERRING'
+                          ? 'bg-blue-400 animate-ping'
+                          : cameraSessionState === 'PROCESSING'
+                          ? 'bg-purple-400 animate-pulse'
+                          : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
+                          ? 'bg-amber-400 animate-spin'
+                          : cameraSessionState === 'ERROR'
+                          ? 'bg-rose-500'
+                          : 'bg-neutral-500'
+                      }`}
+                    />
+                    <span
+                      className={`font-medium ${
+                        cameraSessionState === 'ERROR'
+                          ? 'text-rose-400'
+                          : cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                          ? 'text-white'
+                          : 'text-neutral-400'
+                      }`}
+                    >
+                      {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                        ? nativeCameraModel || 'Kamera Studio Siap (PC Remote)'
+                        : cameraSessionState === 'CONNECTING'
+                        ? 'Menghubungkan via PC Remote...'
+                        : cameraSessionState === 'DETECTING'
+                        ? 'Memindai Kamera USB...'
+                        : cameraSessionState === 'CAPTURING'
+                        ? 'Memotret (Shutter PTP)...'
+                        : cameraSessionState === 'TRANSFERRING'
+                        ? 'Mentransfer Foto High-Res...'
+                        : cameraSessionState === 'ERROR'
+                        ? cameraSessionError || 'Error Kamera'
+                        : 'Kamera Belum Terhubung (PC Remote)'}
+                    </span>
                   </>
                 )}
               </span>
@@ -2195,6 +2704,10 @@ const TabletStudioContent: React.FC = () => {
                     autoPlay
                     playsInline
                     muted
+                    onLoadedMetadata={(e) => {
+                      const v = e.target as HTMLVideoElement;
+                      v.play().catch(() => {});
+                    }}
                     className="w-full h-full object-cover transform -scale-x-100"
                   />
                 ) : (
@@ -2240,33 +2753,68 @@ const TabletStudioContent: React.FC = () => {
                 )
               ) : tetherLiveFrame ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={tetherLiveFrame} alt="Sony Live View" className="w-full h-full object-cover" />
+                <img src={tetherLiveFrame} alt="Live View Studio" className="w-full h-full object-cover" />
               ) : (
                 <div className="flex flex-col items-center justify-center p-6 text-center text-xs text-neutral-400 gap-3 z-0">
-                  <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-300">
-                    <Camera className="w-6 h-6 text-white" />
+                  <div className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-300 relative shadow-xl">
+                    <Camera className="w-7 h-7 text-white" />
+                    <span
+                      className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-[#090A0C] ${
+                        cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                          ? 'bg-emerald-400 animate-pulse'
+                          : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
+                          ? 'bg-amber-400 animate-pulse'
+                          : cameraSessionState === 'ERROR'
+                          ? 'bg-rose-500'
+                          : 'bg-neutral-500'
+                      }`}
+                    />
                   </div>
                   <div>
-                    <p className="font-semibold text-white">Mode Kamera Sony / DSLR USB Siap</p>
-                    <p className="text-[11px] text-neutral-400 max-w-xs mt-1 leading-tight">
-                      {tetherStatus === 'connected'
-                        ? 'Kamera terdeteksi via kabel USB. Foto tajam otomatis tersinkron saat memotret.'
-                        : 'Hubungkan kamera via kabel USB (Mode PC Remote). Tombol potret akan langsung mengambil foto dengan flash.'}
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-300 bg-white/[0.06] px-2.5 py-0.5 rounded-full border border-white/10">
+                      Mode Foto Studio (PC Remote)
+                    </span>
+                    <p className="font-semibold text-white mt-1.5 text-sm">
+                      {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                        ? nativeCameraModel || 'Kamera Studio Shutter Siap'
+                        : cameraSessionState === 'CONNECTING'
+                        ? 'Menghubungkan ke Kamera via PC Remote...'
+                        : cameraSessionState === 'DETECTING'
+                        ? 'Memindai Port USB...'
+                        : cameraSessionState === 'ERROR'
+                        ? 'Sambungan Kamera Gagal'
+                        : 'Kamera Belum Terhubung'}
                     </p>
+                    {cameraSessionState === 'ERROR' && cameraSessionError ? (
+                      <p className="text-[11px] text-rose-300 max-w-sm mt-2 leading-relaxed bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20">
+                        ⚠️ {cameraSessionError}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-neutral-400 max-w-xs mt-1 leading-normal">
+                        Sambungkan kamera Sony melalui PC Remote. Atur kamera di mode <strong>FOTO (M) ➔ USB: PC Remote</strong>.
+                      </p>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      fetch(`${tetherUrl}/api/tether/status`)
-                        .then((r) => r.json())
-                        .then((d) => setTetherStatus(d.success ? 'connected' : 'disconnected'))
-                        .catch(() => setTetherStatus('disconnected'));
-                    }}
-                    className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Cek Sambungan Kamera</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={checkNativeCameraHardware}
+                      disabled={isDetectingNative}
+                      className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isDetectingNative ? 'animate-spin' : ''}`} />
+                      <span>{isDetectingNative ? 'Menghubungkan...' : 'Sambungkan Kamera PC Remote'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchCameraMode('webcam')}
+                      className="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-neutral-200 hover:text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Ganti ke mode Live View bergerak"
+                    >
+                      <Video className="w-3.5 h-3.5 text-neutral-300" />
+                      <span>Buka Live View Streaming</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -2294,31 +2842,60 @@ const TabletStudioContent: React.FC = () => {
                   <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
                     1. Pilih Acara
                   </label>
-                  <button
-                    type="button"
-                    onClick={fetchVendorData}
-                    disabled={isLoadingVendorData}
-                    className="text-[11px] text-neutral-300 hover:text-white flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
-                    title="Perbarui daftar acara dari server"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isLoadingVendorData ? 'animate-spin' : ''}`} />
-                    <span>{isLoadingVendorData ? 'Memperbarui...' : 'Perbarui Acara'}</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEventManagerInitialTab('create');
+                        setShowEventManagerModal(true);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white text-neutral-200 hover:text-black text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
+                      title="Tambah acara photobooth baru"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ Buat Acara</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={fetchVendorData}
+                      disabled={isLoadingVendorData}
+                      className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer p-1 rounded-md hover:bg-white/[0.06]"
+                      title="Perbarui daftar acara dari server"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isLoadingVendorData ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
                 </div>
                 <select
                   value={selectedEventId}
                   onChange={(e) => setSelectedEventId(e.target.value)}
                   className="w-full h-11 px-3.5 rounded-xl bg-[#1A1C24] border border-white/[0.08] text-xs font-medium text-white outline-none focus:border-white/30 transition-colors"
                 >
-                  {events.map((ev) => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.name} {ev.date ? `(${ev.date})` : ''}
-                    </option>
-                  ))}
+                  {events.length === 0 ? (
+                    <option value="">(Belum Ada Acara — Klik + Buat Acara)</option>
+                  ) : (
+                    events.map((ev) => (
+                      <option key={ev.id} value={ev.id}>
+                        {ev.name} {ev.date ? `(${ev.date})` : ''}
+                      </option>
+                    ))
+                  )}
                 </select>
-                <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-white/60" />
-                  <span>{events.length} Acara Siap Digunakan</span>
+                <div className="flex items-center justify-between text-[10px] text-neutral-400 pt-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${events.length > 0 ? 'bg-emerald-400' : 'bg-neutral-500'}`} />
+                    <span>{events.length} Acara Siap Digunakan</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEventManagerInitialTab(events.length === 0 ? 'create' : 'list');
+                      setShowEventManagerModal(true);
+                    }}
+                    className="text-[11px] text-neutral-400 hover:text-white transition-colors cursor-pointer font-medium hover:underline underline-offset-2"
+                  >
+                    Kelola Acara (CRUD)
+                  </button>
                 </div>
               </div>
 
@@ -2476,67 +3053,175 @@ const TabletStudioContent: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSwitchCameraMode('webcam')}
-                    className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                       cameraMode === 'webcam'
                         ? 'bg-white text-black shadow-sm'
                         : 'text-neutral-400 hover:text-white'
                     }`}
                   >
-                    <Laptop className="w-3.5 h-3.5" />
-                    <span>Webcam Laptop</span>
+                    <Video className="w-3.5 h-3.5" />
+                    <span>1. Live View Streaming</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSwitchCameraMode('sony')}
-                    className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      cameraMode === 'sony'
+                    onClick={() => handleSwitchCameraMode('dslr')}
+                    className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      cameraMode !== 'webcam'
                         ? 'bg-white text-black shadow-sm'
                         : 'text-neutral-400 hover:text-white'
                     }`}
                   >
                     <Camera className="w-3.5 h-3.5" />
-                    <span>Sony / DSLR USB</span>
+                    <span>2. PC Remote / Tether Studio</span>
                   </button>
                 </div>
 
-                {cameraMode === 'webcam' && cameras.length > 1 && (
-                  <select
-                    value={selectedWebcamId}
-                    onChange={(e) => {
-                      setSelectedWebcamId(e.target.value);
-                      startWebcamStream(e.target.value);
-                    }}
-                    className="w-full h-9 px-3 rounded-lg bg-[#1A1C24] border border-white/[0.06] text-[11px] text-neutral-300 outline-none"
-                  >
-                    {cameras.map((c, i) => (
-                      <option key={c.deviceId || i} value={c.deviceId}>
-                        {c.label || `Kamera ${i + 1}`}
-                      </option>
-                    ))}
-                  </select>
+                {cameraMode === 'webcam' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-neutral-400">Pilih Input Kamera:</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          enumerateCameras().then(() => {
+                            if (selectedWebcamId) startWebcamStream(selectedWebcamId);
+                          });
+                        }}
+                        className="text-[10px] text-neutral-300 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Segarkan daftar perangkat kamera"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        <span>Pindai Kamera</span>
+                      </button>
+                    </div>
+
+                    <select
+                      value={selectedWebcamId}
+                      onChange={(e) => {
+                        setSelectedWebcamId(e.target.value);
+                        startWebcamStream(e.target.value);
+                      }}
+                      className="w-full h-10 px-3 rounded-xl bg-[#1A1C24] border border-white/[0.08] text-xs text-white outline-none focus:border-white/30"
+                    >
+                      {cameras.map((c, i) => (
+                        <option key={c.deviceId || i} value={c.deviceId}>
+                          {c.label || `Kamera Video ${i + 1}`}
+                        </option>
+                      ))}
+                    </select>
+
+                    <p className="text-[10px] text-neutral-400 leading-relaxed bg-white/[0.03] p-2.5 rounded-xl border border-white/[0.05]">
+                      💡 <strong>Live View Streaming:</strong> Untuk webcam laptop, USB webcam eksternal, HDMI Capture Card (Cam Link), atau kamera mirrorless/DSLR dalam mode USB Streaming / Video. Video live preview akan langsung muncul di layar laptop.
+                    </p>
+                  </div>
                 )}
 
-                {cameraMode === 'sony' && (
-                  <div className="p-2.5 rounded-xl bg-[#1A1C24] border border-white/[0.06] flex items-center justify-between text-xs">
-                    <span className="text-neutral-400 flex items-center gap-2">
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          tetherStatus === 'connected' ? 'bg-white animate-pulse' : 'bg-neutral-500'
-                        }`}
-                      />
-                      <span>{tetherStatus === 'connected' ? 'Sony USB Siap' : 'Menunggu Sambungan USB'}</span>
-                    </span>
+                {cameraMode !== 'webcam' && (
+                  <div className="space-y-2.5">
+                    <div className="p-3 rounded-xl bg-[#1A1C24] border border-white/[0.06] space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-white font-medium flex items-center gap-2">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                                ? 'bg-emerald-400 animate-pulse'
+                                : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
+                                ? 'bg-amber-400 animate-pulse'
+                                : cameraSessionState === 'ERROR'
+                                ? 'bg-rose-500'
+                                : 'bg-neutral-500'
+                            }`}
+                          />
+                          <span>
+                            {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                              ? nativeCameraModel || 'Kamera Studio Shutter Siap'
+                              : cameraSessionState === 'CONNECTING'
+                              ? 'Menghubungkan via PC Remote...'
+                              : cameraSessionState === 'DETECTING'
+                              ? 'Memindai Port USB...'
+                              : cameraSessionState === 'ERROR'
+                              ? cameraSessionError || 'Error Kamera'
+                              : 'Kamera Belum Terhubung (PC Remote)'}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={checkNativeCameraHardware}
+                          disabled={isDetectingNative}
+                          className="text-[11px] text-neutral-300 hover:text-white underline cursor-pointer disabled:opacity-50"
+                        >
+                          {isDetectingNative ? 'Menghubungkan...' : 'Sambungkan PC Remote'}
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-neutral-400 pt-1 border-t border-white/[0.04]">
+                        <span>Jalur: Hot Folder Auto-Sync</span>
+                        <span className="font-mono text-neutral-300 text-[10px] bg-white/[0.06] border border-white/10 px-2 py-0.5 rounded">24MP+ RAW/JPG</span>
+                      </div>
+
+                      <div className="pt-2 flex items-center justify-between gap-2 border-t border-white/[0.04]">
+                        <span className="text-[10px] text-neutral-300 font-mono truncate max-w-[170px]" title={tetherDisplayPath}>
+                          {tetherDisplayPath}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (typeof window !== 'undefined' && (window as any).electronAPI?.openFolder) {
+                              (window as any).electronAPI.openFolder(tetherDisplayPath);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-200 text-[10px] font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <FolderOpen className="w-3 h-3 text-neutral-300" />
+                          <span>Buka Folder</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-white/[0.04] border border-white/10 text-neutral-300 text-[11px] space-y-1.5">
+                      <div className="font-semibold flex items-center gap-1.5 text-xs text-white">
+                        <Sparkles className="w-3.5 h-3.5 text-neutral-400" />
+                        <span>Cara Sinkron Foto Studio 24MP+ (Semua Merk Kamera):</span>
+                      </div>
+                      <p className="text-[10px] text-neutral-300 leading-relaxed">
+                        1. Hubungkan kamera DSLR / Mirrorless (Canon, Nikon, Sony, Fujifilm, Lumix) via kabel USB ke laptop.<br />
+                        2. Jika menggunakan software tethering bawaan kamera (Canon EOS Utility, Nikon NX Tether / digiCamControl, Sony Imaging Edge, Fujifilm X Acquire, Lightroom, dsb), atur <em>Save Destination / Hot Folder</em> ke folder <strong className="text-white font-mono break-all">{tetherDisplayPath}</strong>.<br />
+                        3. Begitu Anda menjepret di bodi kamera atau remote wireless, foto resolusi penuh <strong>otomatis langsung masuk ke bingkai</strong> tanpa perlu sentuh laptop!
+                      </p>
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => {
-                        fetch(`${tetherUrl}/api/tether/status`)
-                          .then((r) => r.json())
-                          .then((d) => setTetherStatus(d.success ? 'connected' : 'disconnected'))
-                          .catch(() => setTetherStatus('disconnected'));
+                      onClick={async () => {
+                        try {
+                          if (typeof window !== 'undefined' && (window as any).electronAPI?.triggerNativeCapture) {
+                            const d = await (window as any).electronAPI.triggerNativeCapture();
+                            if (d.success) {
+                              alert(`✅ Shutter Berhasil! Foto diterima: ${d.filename} (${(d.byteSize / (1024 * 1024)).toFixed(2)} MB)`);
+                            } else {
+                              alert(`⚠️ Shutter gagal: ${d.error || 'Tidak ada respon dari kamera'}`);
+                            }
+                            return;
+                          }
+                          const res = await fetch(`${tetherUrl}/api/tether/trigger`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ timeoutMs: 8000 }),
+                          });
+                          const d = await res.json();
+                          if (d.success) {
+                            alert('✅ Jalur Hot Folder Aktif! Sinyal kamera studio siap menerima foto.');
+                          } else {
+                            alert(`⚠️ Shutter gagal: ${d.error || 'Tidak ada respon'}`);
+                          }
+                        } catch (e: any) {
+                          alert('Gagal tes jalur: ' + e.message);
+                        }
                       }}
-                      className="text-[11px] text-neutral-300 hover:text-white underline cursor-pointer"
+                      className="w-full py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-neutral-200 text-xs font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
                     >
-                      Uji Sambungan
+                      <Camera className="w-3.5 h-3.5 text-neutral-300" />
+                      <span>Tes Sinyal Shutter Kamera</span>
                     </button>
                   </div>
                 )}
@@ -2793,6 +3478,12 @@ const TabletStudioContent: React.FC = () => {
             <div className="pt-4 border-t border-white/[0.06] mt-4">
               <button
                 onClick={() => {
+                  if (events.length === 0 || !selectedEventId) {
+                    alert('Silakan buat atau pilih acara terlebih dahulu sebelum memulai sesi photobooth.');
+                    setEventManagerInitialTab('create');
+                    setShowEventManagerModal(true);
+                    return;
+                  }
                   setPhase('kiosk');
                   setSessionStep('idle');
                   setCurrentShotIndex(0);
@@ -2808,6 +3499,23 @@ const TabletStudioContent: React.FC = () => {
         </main>
 
         {renderWallpaperSettingModal()}
+
+        <EventManagerModal
+          isOpen={showEventManagerModal}
+          onClose={() => setShowEventManagerModal(false)}
+          events={events}
+          selectedEventId={selectedEventId}
+          onSelectEvent={(id) => setSelectedEventId(id)}
+          onEventsUpdated={(updatedEvents, newSelectedId) => {
+            setEvents(updatedEvents);
+            if (newSelectedId && updatedEvents.some((e) => e.id === newSelectedId)) {
+              setSelectedEventId(newSelectedId);
+            } else {
+              setSelectedEventId(updatedEvents[0]?.id || '');
+            }
+          }}
+          initialTab={eventManagerInitialTab}
+        />
       </div>
     );
   }
@@ -2840,38 +3548,80 @@ const TabletStudioContent: React.FC = () => {
         )}
 
         {/* ── 100% FULL SCREEN CAMERA FEED (EDGE-TO-EDGE 1 TAB) ── */}
-        {cameraMode === 'sony' ? (
+        {cameraMode !== 'webcam' ? (
           tetherLiveFrame ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={tetherLiveFrame}
-              alt="Sony Live View"
-              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-            />
+            <div className="relative w-full h-full">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={tetherLiveFrame}
+                alt="Live View Studio"
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              />
+            </div>
           ) : (
             <div
               onClick={(e) => e.stopPropagation()}
               className="absolute inset-0 bg-[#090A0C] flex flex-col items-center justify-center p-6 text-center"
             >
-              <div className="w-16 h-16 rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-white mb-4 animate-pulse">
-                <Camera className="w-8 h-8 text-neutral-300" />
+              <div className="w-20 h-20 rounded-3xl bg-white/[0.05] border border-white/10 flex items-center justify-center text-white mb-5 shadow-2xl relative">
+                <Camera className="w-10 h-10 text-white" />
+                <span
+                  className={`absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-black ${
+                    cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                      ? 'bg-emerald-400 animate-pulse'
+                      : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
+                      ? 'bg-amber-400 animate-pulse'
+                      : cameraSessionState === 'ERROR'
+                      ? 'bg-rose-500'
+                      : 'bg-neutral-500'
+                  }`}
+                />
               </div>
-              <h2 className="text-lg font-semibold text-white mb-1">Kamera Sony / DSLR di Laptop Siap</h2>
-              <p className="text-xs text-neutral-400 max-w-sm mb-4 leading-relaxed">
-                Kamera Sony USB siap memotret dengan hasil tajam dan lampu flash fisik.
-              </p>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCameraMode('webcam');
-                  startWebcamStream();
-                }}
-                className="mt-2 px-5 py-2.5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-xl active:scale-95 cursor-pointer"
-              >
-                <Camera className="w-4 h-4 fill-black" />
-                <span>Gunakan Webcam Laptop</span>
-              </button>
+              <span className="text-[11px] font-mono tracking-widest text-neutral-300 uppercase bg-white/[0.06] border border-white/10 px-3 py-1 rounded-full mb-3">
+                Mode Foto Studio (PC Remote)
+              </span>
+              <h2 className="text-xl font-bold text-white mb-1">
+                {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                  ? nativeCameraModel || 'Kamera Studio Shutter Siap'
+                  : cameraSessionState === 'CONNECTING'
+                  ? 'Menghubungkan ke Kamera via PC Remote...'
+                  : cameraSessionState === 'DETECTING'
+                  ? 'Memindai Port USB...'
+                  : cameraSessionState === 'ERROR'
+                  ? 'Sambungan Kamera Gagal'
+                  : 'Kamera Belum Terhubung'}
+              </h2>
+              {cameraSessionState === 'ERROR' && cameraSessionError ? (
+                <p className="text-xs text-rose-300 max-w-md mb-6 leading-relaxed bg-rose-500/10 p-3 rounded-xl border border-rose-500/20">
+                  ⚠️ {cameraSessionError}
+                </p>
+              ) : (
+                <p className="text-xs text-neutral-400 max-w-md mb-6 leading-relaxed">
+                  Sambungkan kamera Sony melalui PC Remote. Atur kamera di mode <strong>FOTO (M) ➔ USB Connection: PC Remote</strong>.
+                </p>
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={checkNativeCameraHardware}
+                  disabled={isDetectingNative}
+                  className="px-5 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isDetectingNative ? 'animate-spin' : ''}`} />
+                  <span>{isDetectingNative ? 'Menghubungkan...' : 'Sambungkan Kamera PC Remote'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSwitchCameraMode('webcam');
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer"
+                >
+                  <Video className="w-4 h-4 text-neutral-300" />
+                  <span>Beralih ke Live View Streaming</span>
+                </button>
+              </div>
             </div>
           )
         ) : (
@@ -2880,6 +3630,10 @@ const TabletStudioContent: React.FC = () => {
             autoPlay
             playsInline
             muted
+            onLoadedMetadata={(e) => {
+              const v = e.target as HTMLVideoElement;
+              v.play().catch(() => {});
+            }}
             className="absolute inset-0 w-full h-full object-cover pointer-events-none transform -scale-x-100"
           />
         )}
@@ -2935,10 +3689,10 @@ const TabletStudioContent: React.FC = () => {
         {/* Subtle Event Watermark (Floating Elegantly in Top-Center) */}
         <div className="absolute top-6 inset-x-0 z-20 flex flex-col items-center justify-center pointer-events-none text-center">
           <span className="text-base font-semibold tracking-wider text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]">
-            {currentEvent.hostNames || currentEvent.name}
+            {currentEvent?.hostNames || currentEvent?.name || 'Photobooth'}
           </span>
           <span className="text-xs font-medium text-white/75 drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]">
-            {currentEvent.date || 'Photobooth Edition'}
+            {currentEvent?.date || 'Photobooth Edition'}
           </span>
         </div>
 
@@ -2989,7 +3743,7 @@ const TabletStudioContent: React.FC = () => {
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              setShowEventGalleryModal(true);
+              openEventGallery();
             }}
             className="h-10 px-4 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-white/20 hover:border-white/40 flex items-center gap-2 text-white/95 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all cursor-pointer group"
             title="Lihat Galeri Foto Acara"
@@ -3170,9 +3924,9 @@ const TabletStudioContent: React.FC = () => {
             <div className="absolute inset-x-6 bottom-16 z-30 flex flex-col items-center justify-center text-center gap-4 pointer-events-none">
               <div className="flex flex-col items-center gap-1 drop-shadow-md">
                 <span className="text-xs sm:text-sm font-semibold tracking-widest uppercase text-white/80">
-                  {currentEvent.name}
+                  {currentEvent?.name || 'MingleBooth Studio'}
                 </span>
-                {currentEvent.hostNames && (
+                {currentEvent?.hostNames && (
                   <span className="text-sm sm:text-base font-medium text-white">
                     {currentEvent.hostNames}
                   </span>
@@ -3403,10 +4157,68 @@ const TabletStudioContent: React.FC = () => {
   );
 };
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class StudioErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Studio render error caught by boundary:', error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-screen w-screen bg-[#0A0B0E] text-white flex flex-col items-center justify-center p-6 text-center select-none">
+          <div className="max-w-md w-full p-6 rounded-3xl bg-[#14161C] border border-white/10 space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 mx-auto flex items-center justify-center text-xl font-bold">
+              !
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Sistem Mengalami Kendala</h3>
+              <p className="text-xs text-neutral-400 mt-1">
+                Terjadi kesalahan tampilan sementara: {this.state.error?.message || 'Error tak terduga'}.
+              </p>
+            </div>
+            <button
+              onClick={this.handleReset}
+              className="w-full py-3 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs transition-colors cursor-pointer"
+            >
+              Muat Ulang Studio Photobooth
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export const App: React.FC = () => {
   return (
-    <VendorAuthGate>
-      <TabletStudioContent />
-    </VendorAuthGate>
+    <StudioErrorBoundary>
+      <VendorAuthGate>
+        <TabletStudioContent />
+      </VendorAuthGate>
+    </StudioErrorBoundary>
   );
 };

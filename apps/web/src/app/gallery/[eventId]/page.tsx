@@ -16,12 +16,14 @@ import {
   ExternalLink,
   X,
   ArrowLeft,
+  ArrowRight,
   Filter,
   Eye,
   Copy,
   FolderDown,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface RawShot {
   index: number;
@@ -50,6 +52,18 @@ interface EventGalleryData {
 
 export default function EventGalleryPage({ params }: { params: { eventId: string } }) {
   const { eventId } = params;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const photoParam = searchParams.get('p');
+
+  // Guest Personal Photo Spotlight (opened immediately on QR scan, dismissible to reveal full event gallery)
+  const [spotlightPhotoId, setSpotlightPhotoId] = useState<string | null>(photoParam || null);
+
+  useEffect(() => {
+    if (photoParam) {
+      setSpotlightPhotoId(photoParam);
+    }
+  }, [photoParam]);
 
   const [data, setData] = useState<EventGalleryData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +78,39 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
   // Lightbox Modal
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoItem | null>(null);
   const [lightboxTab, setLightboxTab] = useState<string>('photo'); // 'photo' | 'gif' | 'raw_1' | 'raw_2' ...
+
+  // Resolved active photo in modal (either clicked by user or spotlighted from QR scan ?p=...)
+  const activeModalPhoto = useMemo<PhotoItem | null>(() => {
+    const targetId = selectedPhoto?.photoId || spotlightPhotoId;
+    if (!targetId) return null;
+
+    const found = data?.photos?.find((p) => p.photoId === targetId);
+    if (found) return found;
+
+    return {
+      photoId: targetId,
+      thumbUrl: `/api/gallery/${targetId}?type=photo`,
+      fullUrl: `/api/gallery/${targetId}?type=photo`,
+      gifUrl: `/api/gallery/${targetId}?type=gif`,
+      hasGif: true,
+      url: `/api/gallery/${targetId}?type=photo`,
+      createdAt: new Date().toISOString(),
+      rawShots: [
+        { index: 1, url: `/api/gallery/${targetId}?type=raw&index=1` },
+        { index: 2, url: `/api/gallery/${targetId}?type=raw&index=2` },
+      ],
+    };
+  }, [selectedPhoto, spotlightPhotoId, data?.photos]);
+
+  const handleCloseLightbox = () => {
+    setSelectedPhoto(null);
+    setSpotlightPhotoId(null);
+    if (typeof window !== 'undefined' && window.location.search.includes('p=')) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('p');
+      window.history.replaceState(null, '', url.pathname + (url.search || ''));
+    }
+  };
 
   useEffect(() => {
     fetchGalleryData();
@@ -198,7 +245,7 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
 
           <Link
             href="/tablet"
-            className="h-8 px-3.5 rounded-lg bg-white hover:bg-neutral-200 text-black text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+            className="hidden md:flex h-8 px-3.5 rounded-lg bg-white hover:bg-neutral-200 text-black text-xs font-semibold items-center gap-1.5 transition-colors shadow-sm"
           >
             <Camera className="w-3.5 h-3.5" />
             <span>Buka Studio</span>
@@ -207,24 +254,28 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-8 flex flex-col gap-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-6 sm:py-8 flex flex-col gap-5 sm:gap-6">
         {/* Event Header Banner */}
-        <div className="p-6 sm:p-8 rounded-3xl bg-[#121318] border border-white/[0.08] shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+        <div className="p-5 sm:p-8 rounded-3xl bg-[#121318] border border-white/[0.08] shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
           <div className="flex flex-col gap-2 relative z-10">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-400/10 text-emerald-400 border border-emerald-400/20 uppercase tracking-wider flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Album Acara Live
               </span>
-              <span className="text-xs text-neutral-500 font-mono">
-                {data?.eventDate || '2026-08-29'}
+              <span className="text-xs text-neutral-400 font-mono">
+                {data?.eventDate || ''}
               </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              {data?.eventName || 'Wedding Bayu & Irma'}
+            <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight">
+              {loading ? (
+                <span className="inline-block w-44 h-8 bg-white/10 rounded-lg animate-pulse" />
+              ) : (
+                data?.eventName || 'Galeri Acara'
+              )}
             </h1>
             <p className="text-xs sm:text-sm text-neutral-400 max-w-xl leading-relaxed">
-              Arsip lengkap photobooth: Foto berbingkai cetak, animasi GIF boomerang, dan foto original (mentah) camera take setiap pose tamu.
+              Arsip lengkap photobooth: Foto berbingkai cetak, animasi GIF boomerang, dan foto original pose tamu.
             </p>
           </div>
 
@@ -280,10 +331,10 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
             <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Cari ID foto (misal: mb_...)"
+              placeholder="Cari ID foto (misal: MB_...)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-8 pl-8 pr-7 bg-[#1A1C20] border border-white/[0.06] rounded-lg text-xs text-white placeholder:text-neutral-500 outline-none focus:border-white/20 transition-colors"
+              className="w-full h-9 pl-8 pr-7 bg-[#1A1C20] border border-white/[0.06] rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-white/20 transition-colors"
             />
             {searchQuery && (
               <button
@@ -295,11 +346,11 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
             )}
           </div>
 
-          {/* 4-Way Media Filter Buttons */}
-          <div className="flex flex-wrap items-center bg-[#1A1C20] rounded-xl p-0.5 border border-white/[0.06] text-xs">
+          {/* 4-Way Media Filter Buttons with horizontal scroll on mobile */}
+          <div className="flex items-center overflow-x-auto no-scrollbar gap-1 bg-[#1A1C20] rounded-xl p-1 border border-white/[0.06] text-xs max-w-full">
             <button
               onClick={() => setActiveFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                 activeFilter === 'all'
                   ? 'bg-white text-black font-semibold shadow-sm'
                   : 'text-neutral-400 hover:text-white'
@@ -309,7 +360,7 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
             </button>
             <button
               onClick={() => setActiveFilter('photo')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                 activeFilter === 'photo'
                   ? 'bg-white text-black font-semibold shadow-sm'
                   : 'text-neutral-400 hover:text-white'
@@ -319,7 +370,7 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
             </button>
             <button
               onClick={() => setActiveFilter('gif')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap flex items-center gap-1 transition-all flex-shrink-0 ${
                 activeFilter === 'gif'
                   ? 'bg-white text-black font-semibold shadow-sm'
                   : 'text-neutral-400 hover:text-white'
@@ -330,7 +381,7 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
             </button>
             <button
               onClick={() => setActiveFilter('raw')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap flex items-center gap-1 transition-all flex-shrink-0 ${
                 activeFilter === 'raw'
                   ? 'bg-white text-black font-semibold shadow-sm'
                   : 'text-neutral-400 hover:text-white'
@@ -346,7 +397,7 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
         {loading ? (
           <div className="p-16 text-center text-xs text-neutral-500 font-mono flex flex-col items-center justify-center gap-3">
             <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-            <span>Memuat seluruh galeri foto acara...</span>
+            <span>Memuat galeri foto acara...</span>
           </div>
         ) : error ? (
           <div className="p-12 rounded-2xl bg-[#121318] border border-rose-500/20 text-center text-rose-400 text-xs">
@@ -361,17 +412,11 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
             <p className="text-xs text-neutral-400 max-w-sm">
               Mulai sesi foto di tablet booth untuk melihat seluruh momen tamu muncul secara langsung di album ini.
             </p>
-            <Link
-              href="/tablet"
-              className="mt-2 h-8 px-4 rounded-lg bg-white hover:bg-neutral-200 text-black text-xs font-semibold flex items-center gap-1.5 transition-colors"
-            >
-              <Camera className="w-3.5 h-3.5" />
-              <span>Buka Mode Tablet</span>
-            </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 items-start">
             {filteredPhotos.map((photo) => {
+              const isThisGuestPhoto = photo.photoId === photoParam || photo.photoId === spotlightPhotoId;
               // Determine thumbnail and default tab based on filter
               const thumbSrc =
                 activeFilter === 'raw' && photo.rawShots && photo.rawShots.length > 0
@@ -383,6 +428,7 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
                   key={photo.photoId}
                   onClick={() => {
                     setSelectedPhoto(photo);
+                    setSpotlightPhotoId(null);
                     if (activeFilter === 'gif' && photo.hasGif) {
                       setLightboxTab('gif');
                     } else if (activeFilter === 'raw' && photo.rawShots && photo.rawShots.length > 0) {
@@ -391,16 +437,28 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
                       setLightboxTab('photo');
                     }
                   }}
-                  className="group relative rounded-2xl bg-[#121318] border border-white/[0.08] hover:border-white/30 overflow-hidden cursor-pointer transition-all shadow-md hover:shadow-2xl flex flex-col"
+                  className={`group relative rounded-2xl bg-[#121318] border overflow-hidden cursor-pointer transition-all shadow-md hover:shadow-2xl flex flex-col self-start ${
+                    isThisGuestPhoto
+                      ? 'border-emerald-500 ring-2 ring-emerald-500/40 shadow-emerald-500/10'
+                      : 'border-white/[0.08] hover:border-white/30'
+                  }`}
                 >
                   {/* Visual Thumbnail */}
-                  <div className="w-full aspect-[3/4] bg-black relative flex items-center justify-center overflow-hidden">
+                  <div className="w-full aspect-[2/3] bg-black/50 relative flex items-center justify-center overflow-hidden">
+                    {/* Guest Photo Badge */}
+                    {isThisGuestPhoto && (
+                      <div className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-emerald-500 text-black text-[9px] font-extrabold shadow-md flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5 text-black" />
+                        <span>Foto Kamu</span>
+                      </div>
+                    )}
+
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={thumbSrc}
                       alt={photo.photoId}
                       loading="lazy"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
                     />
 
                     {/* Badges Container */}
@@ -454,42 +512,53 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
       </main>
 
       {/* ── Modal Lightbox Preview (Photo, GIF, Raw Takes) ── */}
-      {selectedPhoto && (
+      {activeModalPhoto && (
         <div
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fadeIn select-none"
-          onClick={() => setSelectedPhoto(null)}
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fadeIn select-none"
+          onClick={handleCloseLightbox}
         >
           <div
-            className="max-w-2xl w-full bg-[#121316] border border-white/15 rounded-3xl p-5 sm:p-6 flex flex-col gap-4 shadow-2xl relative my-auto max-h-[94vh] overflow-y-auto"
+            className="max-w-2xl w-full bg-[#121316] border border-white/15 rounded-3xl p-4 sm:p-6 flex flex-col gap-3.5 shadow-2xl relative my-auto max-h-[95vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header Modal */}
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 gap-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-mono text-neutral-400">ID: {selectedPhoto.photoId}</span>
-                {selectedPhoto.hasGif && (
+                {(activeModalPhoto.photoId === photoParam || activeModalPhoto.photoId === spotlightPhotoId) ? (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 shadow-sm">
+                    <Sparkles className="w-3 h-3 text-emerald-400" />
+                    Foto Sesi Anda
+                  </span>
+                ) : (
+                  <span className="text-xs font-mono text-neutral-400">ID: {activeModalPhoto.photoId}</span>
+                )}
+                {activeModalPhoto.hasGif && (
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400/10 text-amber-300 border border-amber-400/20 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-amber-400" />
-                    Animasi GIF
+                    <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                    GIF
                   </span>
                 )}
-                {selectedPhoto.rawShots && selectedPhoto.rawShots.length > 0 && (
+                {activeModalPhoto.rawShots && activeModalPhoto.rawShots.length > 0 && (
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-400/10 text-blue-300 border border-blue-400/20 flex items-center gap-1">
-                    <Camera className="w-3 h-3 text-blue-400" />
-                    {selectedPhoto.rawShots.length} Foto Original
+                    <Camera className="w-2.5 h-2.5 text-blue-400" />
+                    {activeModalPhoto.rawShots.length} Pose
                   </span>
                 )}
               </div>
+
+              {/* Prominent Tutup / Close Button */}
               <button
-                onClick={() => setSelectedPhoto(null)}
-                className="w-7 h-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 flex items-center justify-center transition-colors"
+                onClick={handleCloseLightbox}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all active:scale-95 border border-white/10 shadow-sm shrink-0"
+                title="Tutup foto & lihat seluruh album acara"
               >
+                <span>Tutup / Lihat Semua</span>
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Asset Tab Selector (Framed Composite, GIF, Raw Takes) */}
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-black/50 border border-white/[0.06] text-xs font-medium overflow-x-auto">
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-black/50 border border-white/[0.06] text-xs font-medium overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={() => setLightboxTab('photo')}
@@ -503,7 +572,7 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
                 <span>Foto Berbingkai</span>
               </button>
 
-              {selectedPhoto.hasGif && (
+              {activeModalPhoto.hasGif && (
                 <button
                   type="button"
                   onClick={() => setLightboxTab('gif')}
@@ -519,8 +588,8 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
               )}
 
               {/* Dynamic Raw Takes */}
-              {selectedPhoto.rawShots && selectedPhoto.rawShots.length > 0 ? (
-                selectedPhoto.rawShots.map((raw) => (
+              {activeModalPhoto.rawShots && activeModalPhoto.rawShots.length > 0 ? (
+                activeModalPhoto.rawShots.map((raw) => (
                   <button
                     key={raw.index}
                     type="button"
@@ -532,46 +601,33 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
                     }`}
                   >
                     <Camera className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Pose {raw.index} (Mentah)</span>
+                    <span>Pose {raw.index}</span>
                   </button>
                 ))
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setLightboxTab('raw_1')}
-                  className={`flex-1 py-1.5 px-2.5 rounded-lg flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
-                    lightboxTab === 'raw_1'
-                      ? 'bg-white text-black font-semibold shadow-sm'
-                      : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  <Camera className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Foto Mentah</span>
-                </button>
-              )}
+              ) : null}
             </div>
 
             {/* Visual Preview Frame */}
-            <div className="w-full max-h-[56vh] bg-black rounded-2xl border border-white/[0.08] flex items-center justify-center overflow-hidden p-2 relative">
+            <div className="w-full max-h-[54vh] bg-black/80 rounded-2xl border border-white/[0.08] flex items-center justify-center overflow-hidden p-2 relative">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={getLightboxPreviewUrl(selectedPhoto, lightboxTab)}
-                alt={selectedPhoto.photoId}
-                className="max-h-[52vh] max-w-full object-contain filter drop-shadow-2xl rounded-lg"
+                src={getLightboxPreviewUrl(activeModalPhoto, lightboxTab)}
+                alt={activeModalPhoto.photoId}
+                className="max-h-[50vh] max-w-full object-contain filter drop-shadow-2xl rounded-lg mx-auto"
               />
             </div>
 
-            {/* Action Buttons: Primary Download & QR Guest Link */}
+            {/* Action Buttons: Primary Download & WhatsApp */}
             <div className="flex flex-col gap-2 pt-1">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
-                    const url = getLightboxPreviewUrl(selectedPhoto, lightboxTab);
+                    const url = getLightboxPreviewUrl(activeModalPhoto, lightboxTab);
                     const isGif = lightboxTab === 'gif';
                     const isRaw = lightboxTab.startsWith('raw_');
                     const ext = isGif ? 'gif' : 'jpg';
                     const prefix = isGif ? 'Animasi' : isRaw ? `Raw_${lightboxTab.replace('raw_', 'Pose')}` : 'Foto';
-                    handleDownload(url, `MingleBooth_${prefix}_${selectedPhoto.photoId}.${ext}`);
+                    handleDownload(url, `MingleBooth_${prefix}_${activeModalPhoto.photoId}.${ext}`);
                   }}
                   className="flex-1 h-11 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98"
                 >
@@ -586,57 +642,25 @@ export default function EventGalleryPage({ params }: { params: { eventId: string
                   </span>
                 </button>
 
-                <Link
-                  href={`/p/${selectedPhoto.photoId}`}
+                <a
+                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Lihat foto saya di ${data?.eventName || 'MingleBooth'}: `)}${typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : ''}`}
                   target="_blank"
-                  className="h-11 px-4 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                  rel="noopener noreferrer"
+                  className="h-11 px-3.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
                 >
-                  <span>Halaman Tamu (QR)</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </Link>
+                  <Share2 className="w-4 h-4 text-emerald-400" />
+                  <span className="hidden sm:inline">WhatsApp</span>
+                </a>
               </div>
 
-              {/* Quick Individual Download Badges */}
-              <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] text-[11px] text-neutral-400">
-                <span>Unduh cepat format lain:</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() =>
-                      handleDownload(selectedPhoto.fullUrl, `MingleBooth_Foto_${selectedPhoto.photoId}.jpg`)
-                    }
-                    className="hover:text-white underline"
-                  >
-                    Foto Cetak
-                  </button>
-                  {selectedPhoto.hasGif && selectedPhoto.gifUrl && (
-                    <>
-                      <span>•</span>
-                      <button
-                        onClick={() =>
-                          handleDownload(selectedPhoto.gifUrl!, `MingleBooth_Animasi_${selectedPhoto.photoId}.gif`)
-                        }
-                        className="hover:text-amber-300 underline"
-                      >
-                        GIF Loop
-                      </button>
-                    </>
-                  )}
-                  {selectedPhoto.rawShots &&
-                    selectedPhoto.rawShots.map((raw) => (
-                      <React.Fragment key={raw.index}>
-                        <span>•</span>
-                        <button
-                          onClick={() =>
-                            handleDownload(raw.url, `MingleBooth_Raw_Pose${raw.index}_${selectedPhoto.photoId}.jpg`)
-                          }
-                          className="hover:text-blue-300 underline"
-                        >
-                          Pose {raw.index}
-                        </button>
-                      </React.Fragment>
-                    ))}
-                </div>
-              </div>
+              {/* Bottom Discovery Button to close & view full event album */}
+              <button
+                onClick={handleCloseLightbox}
+                className="w-full py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-medium text-neutral-300 flex items-center justify-center gap-2 border border-white/[0.06] transition-colors mt-1"
+              >
+                <span>Tutup foto ini untuk melihat seluruh album acara ({data?.totalPhotos || 0} foto)</span>
+                <ArrowRight className="w-3.5 h-3.5 text-neutral-400" />
+              </button>
             </div>
           </div>
         </div>
