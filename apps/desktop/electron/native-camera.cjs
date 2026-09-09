@@ -52,7 +52,7 @@ function cameraError(code, technicalDetail) {
   if (technicalDetail) {
     console.error(`[CameraManager][${code}] Technical: ${technicalDetail}`);
   }
-  return { ...err, technical: technicalDetail || '' };
+  return { ...err, error: err.message, message: err.message, technical: technicalDetail || '' };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -894,12 +894,54 @@ class NativeCameraService extends EventEmitter {
     const binary = this.findGphotoBinary();
     console.log('[CameraEngine] engine path =', binary || '(none)');
 
-    // 1. Primary: Run bundled gphoto2.exe --auto-detect
-    if (binary) {
-      console.log('[CameraEngine] running --auto-detect');
-      execFile(binary, ['--auto-detect'], { env: this.getGphotoSpawnEnv(binary), timeout: 7000 }, (err, stdout, stderr) => {
-        console.log('[CameraEngine] result =', stdout ? stdout.trim() : (err ? err.message : '(empty)'));
-        const cameras = [];
+    if (!binary) {
+      const err = cameraError('CAMERA_ENGINE_NOT_FOUND', 'Bundled camera engine not found on Windows');
+      this.updateState('ERROR', { error: err.message });
+      resolve({
+        success: false,
+        ...err,
+        cameras: [],
+        engineReady: false,
+        status: 'ERROR',
+        state: 'ERROR',
+      });
+      return;
+    }
+
+    // Step 1: Scan Windows PnP for physical USB camera presence
+    this._scanWindowsPnpCameras((pnpCameras) => {
+      console.log(`[CameraManager] Windows PnP hardware scan found ${pnpCameras.length} physical device(s):`, pnpCameras.map(c => c.model));
+
+      if (pnpCameras.length === 0) {
+        console.log('[CameraManager] No physical camera found in Windows PnP.');
+        this.finishDetection([], resolve);
+        return;
+      }
+
+      // Check if Sony a7C II or known camera is connected to apply USB ID override
+      const hasSonyA7C2 = pnpCameras.some(c => {
+        const m = (c.model || '').toLowerCase();
+        const id = (c.instanceId || '').toUpperCase();
+        return m.includes('ilce-7cm2') || m.includes('a7c ii') || m.includes('a7cii') || (id.includes('054C') && id.includes('0EAA'));
+      });
+
+      const autoDetectArgs = ['--auto-detect'];
+      if (hasSonyA7C2) {
+        autoDetectArgs.unshift('--usbid', '0x054c:0x0eaa=0x054c:0x0d56');
+      }
+
+      const spawnEnv = this.getGphotoSpawnEnv(binary);
+      console.log('[CameraEngine] Running bundled gphoto2 auto-detect:', binary, autoDetectArgs.join(' '));
+
+      // Step 2: Test bundled engine communication (--auto-detect)
+      execFile(binary, autoDetectArgs, { env: spawnEnv, timeout: 7000 }, (err, stdout, stderr) => {
+        const rawOutput = stdout ? stdout.trim() : (err ? err.message : '(empty)');
+        console.log('[CameraEngine] auto-detect result =', rawOutput);
+        if (stderr && stderr.trim()) {
+          console.warn('[CameraEngine] auto-detect stderr =', stderr.trim());
+        }
+
+        const engineCameras = [];
         if (!err && stdout) {
           const lines = stdout.split('\n');
           let tableStarted = false;
@@ -913,9 +955,13 @@ class NativeCameraService extends EventEmitter {
               if (match) {
                 const model = match[1].trim();
                 const port = match[2].trim();
-                cameras.push({
+                const pnpMatch = pnpCameras.find(p => p.model.toLowerCase().includes(model.toLowerCase()) || model.toLowerCase().includes(p.model.toLowerCase())) || pnpCameras[0];
+                engineCameras.push({
                   model,
                   port,
+                  instanceId: pnpMatch ? pnpMatch.instanceId : null,
+                  vendorId: pnpMatch ? pnpMatch.vendorId : null,
+                  productId: pnpMatch ? pnpMatch.productId : null,
                   source: 'bundled_gphoto2',
                   engine: 'bundled-windows-engine',
                 });
@@ -924,23 +970,46 @@ class NativeCameraService extends EventEmitter {
           }
         }
 
-        if (cameras.length > 0) {
-          console.log(`[CameraManager] Bundled engine auto-detect found ${cameras.length} camera(s):`, cameras.map(c => c.model));
-          this.finishDetection(cameras, resolve);
+        // Section 7 Critical Rule:
+        // DO NOT mark camera as READY merely because Windows PnP detects a Sony device!
+        // CAMERA READY must require the actual camera engine to establish communication.
+        if (engineCameras.length === 0) {
+          const primaryPnp = pnpCameras[0];
+          console.warn(`[CameraManager] ⚠️ Physical camera detected via Windows PnP (${primaryPnp.model}), but bundled gphoto2 --auto-detect found 0 cameras.`);
+          console.warn('[CameraManager] ⚠️ Cause: Windows driver (WPD/MTP) or camera USB mode is blocking libusb communication.');
+
+          const blockedMsg = `Kamera fisik terdeteksi di Windows (${primaryPnp.model}), tetapi camera engine (gphoto2) belum dapat mengakses port USB kamera.\nPastikan mode USB kamera diset ke "PC Remote" / "PC Remote (PTP)", bukan Mass Storage / MTP.`;
+
+          this.connectedCamera = null;
+          this.detectedCameras = [];
+          this.updateState('DISCONNECTED', {
+            cameras: [],
+            error: blockedMsg,
+            pnpDevice: primaryPnp,
+          });
+
+          resolve({
+            success: false,
+            cameras: [],
+            pnpDetected: true,
+            pnpCamera: primaryPnp,
+            engineReady: true,
+            status: 'DISCONNECTED',
+            state: 'DISCONNECTED',
+            error: blockedMsg,
+            message: blockedMsg,
+            hint: 'Kamera fisik terdeteksi di Windows, namun mode USB atau driver Windows belum mengizinkan akses PTP. Periksa menu kamera: USB Connection ➔ PC Remote.',
+          });
           return;
         }
 
-        // 2. Secondary: Scan Windows PnP for physical USB camera presence
-        this._scanWindowsPnpCameras(resolve);
+        console.log(`[CameraManager] Bundled engine auto-detect SUCCESS (${engineCameras.length} camera):`, engineCameras.map(c => c.model));
+        this.finishDetection(engineCameras, resolve);
       });
-      return;
-    }
-
-    // If no binary found, scan Windows PnP
-    this._scanWindowsPnpCameras(resolve);
+    });
   }
 
-  _scanWindowsPnpCameras(resolve) {
+  _scanWindowsPnpCameras(callback) {
     console.log('[CameraManager] Scanning Windows PnP devices for camera presence...');
 
     // PowerShell: scan for Image/Camera/WPD class devices + known camera vendor IDs
@@ -959,6 +1028,7 @@ class NativeCameraService extends EventEmitter {
           $devices += [PSCustomObject]@{
             model = $d.FriendlyName
             instanceId = $d.InstanceId
+            class = $d.Class
             status = $d.Status
           }
         }
@@ -980,7 +1050,20 @@ class NativeCameraService extends EventEmitter {
                 const name = item.model.trim();
                 // Filter out generic USB hubs and WPD disk devices
                 if (!/hub|root|composite|disk|storage|volume|partition/i.test(name)) {
-                  cameras.push({ model: name, port: 'usb:pnp', instanceId: item.instanceId, source: 'windows_pnp' });
+                  const vidMatch = item.instanceId ? item.instanceId.match(/VID_([0-9A-Fa-f]{4})/i) : null;
+                  const pidMatch = item.instanceId ? item.instanceId.match(/PID_([0-9A-Fa-f]{4})/i) : null;
+                  const vendorId = vidMatch ? parseInt(vidMatch[1], 16) : null;
+                  const productId = pidMatch ? parseInt(pidMatch[1], 16) : null;
+
+                  cameras.push({
+                    model: name,
+                    port: 'usb:pnp',
+                    instanceId: item.instanceId,
+                    class: item.class,
+                    vendorId,
+                    productId,
+                    source: 'windows_pnp',
+                  });
                 }
               }
             }
@@ -988,28 +1071,7 @@ class NativeCameraService extends EventEmitter {
             console.warn('[CameraManager] PowerShell JSON parse error:', parseErr.message);
           }
         }
-
-        if (cameras.length > 0) {
-          console.log(`[CameraManager] Windows PnP scan found ${cameras.length} camera(s):`, cameras.map(c => c.model));
-          this.finishDetection(cameras, resolve);
-          return;
-        }
-
-        // DEV_ONLY DCC fallback if explicitly enabled
-        if (IS_DEV_MODE) {
-          this.checkDigiCamControl().then((dccAvailable) => {
-            if (dccAvailable) {
-              this._detectCamerasViaDigiCamControl(resolve);
-            } else {
-              console.log('[CameraManager] No cameras found on Windows.');
-              this.finishDetection([], resolve);
-            }
-          });
-          return;
-        }
-
-        console.log('[CameraManager] No cameras found on Windows.');
-        this.finishDetection([], resolve);
+        callback(cameras);
       }
     );
   }
@@ -1095,7 +1157,17 @@ class NativeCameraService extends EventEmitter {
 
   getUsbidArgs() {
     const cam = this.connectedCamera || (this.detectedCameras && this.detectedCameras[0]);
-    if (cam && cam.vendorId === 1356 && cam.productId === 3754) {
+    if (!cam) return [];
+    const model = (cam.model || '').toLowerCase();
+    const instanceId = (cam.instanceId || '').toUpperCase();
+    const isSonyA7C2 =
+      (cam.vendorId === 1356 && cam.productId === 3754) ||
+      (cam.vendorId === 0x054c && cam.productId === 0x0eaa) ||
+      model.includes('ilce-7cm2') ||
+      model.includes('a7c ii') ||
+      model.includes('a7cii') ||
+      (instanceId.includes('054C') && instanceId.includes('0EAA'));
+    if (isSonyA7C2) {
       return ['--usbid', '0x054c:0x0eaa=0x054c:0x0d56'];
     }
     return [];
@@ -1209,6 +1281,7 @@ class NativeCameraService extends EventEmitter {
     // Bundled Windows camera engine
     const binary = this.findGphotoBinary();
     if (!binary) {
+      console.error('[CameraConnect] FAILED: Bundled camera engine not found on Windows');
       const err = cameraError('CAMERA_ENGINE_NOT_FOUND', 'Bundled camera engine not found on Windows');
       this.updateState('ERROR', { error: err.message });
       return {
@@ -1219,30 +1292,75 @@ class NativeCameraService extends EventEmitter {
     }
 
     return new Promise((resolve) => {
-      const args = [...this.getUsbidArgs(), '--summary'];
-      console.log('[CameraManager] Windows bundled engine handshake test:', binary, args);
+      const usbidArgs = this.getUsbidArgs();
+      const args = [...usbidArgs, '--summary'];
+      const spawnEnv = this.getGphotoSpawnEnv(binary);
 
+      console.log('[CameraConnect]');
+      console.log('Executable:');
+      console.log(binary);
+      console.log('Arguments:');
+      console.log(args.join(' '));
+      console.log('Environment:');
+      console.log(`CAMLIBS=${spawnEnv.CAMLIBS || '(none)'}`);
+      console.log(`IOLIBS=${spawnEnv.IOLIBS || '(none)'}`);
+
+      const startTime = Date.now();
+      let isTimedOut = false;
       const timer = setTimeout(() => {
+        isTimedOut = true;
+        const elapsed = Date.now() - startTime;
+        console.error('[CameraConnect] FAILED');
+        console.error('exitCode: null');
+        console.error('signal: SIGTERM');
+        console.error('timeout: true');
+        console.error(`elapsed time: ${elapsed}ms`);
+        console.error('stderr: Camera connection timed out after 12s');
+
         const err = cameraError('TIMEOUT', 'Camera connection timed out after 12s');
         this.updateState('ERROR', { error: err.message });
-        resolve({ success: false, ...err });
+        resolve({ success: false, ...err, timeout: true, elapsedTimeMs: elapsed });
       }, 12000);
 
-      execFile(binary, args, { env: this.getGphotoSpawnEnv(binary), timeout: 11000 }, (err, stdout, stderr) => {
+      execFile(binary, args, { env: spawnEnv, timeout: 11000 }, (err, stdout, stderr) => {
         clearTimeout(timer);
+        if (isTimedOut) return;
+
+        const elapsed = Date.now() - startTime;
+        const exitCode = err ? (err.code !== undefined ? err.code : (err.status !== undefined ? err.status : 1)) : 0;
+
         if (err) {
-          const technical = stderr || err.message;
-          console.error('[CameraManager] Windows camera handshake failed:', technical);
-          const cErr = cameraError('CAMERA_CONNECTION_FAILED', technical);
+          const technicalStderr = (stderr && stderr.trim()) || err.message || '(empty)';
+          const technicalStdout = (stdout && stdout.trim()) || '(empty)';
+
+          console.error('[CameraConnect] FAILED');
+          console.error(`exitCode: ${exitCode}`);
+          console.error(`elapsed time: ${elapsed}ms`);
+          console.error('stdout:');
+          console.error(technicalStdout);
+          console.error('stderr:');
+          console.error(technicalStderr);
+
+          const cErr = cameraError('CAMERA_CONNECTION_FAILED', technicalStderr);
           this.connectedCamera = null;
           this.updateState('ERROR', { error: cErr.message });
           resolve({
             success: false,
             ...cErr,
+            error: cErr.message,
+            message: cErr.message,
+            exitCode,
+            elapsedTimeMs: elapsed,
+            stdout: technicalStdout,
+            stderr: technicalStderr,
             hint: 'Pastikan kamera menyala, kabel USB terhubung dengan baik, dan mode USB kamera diset ke PC Remote.',
           });
           return;
         }
+
+        console.log('[CameraConnect] SUCCESS');
+        console.log('exitCode: 0');
+        console.log(`elapsed time: ${elapsed}ms`);
         this.handleSuccessfulConnection(cameraToConnect, stdout, resolve);
       });
     });
@@ -1965,38 +2083,124 @@ class NativeCameraService extends EventEmitter {
   async executeDirectCliCapture() {
     const binary = this.findGphotoBinary();
     if (!binary) {
+      console.error('[CameraCapture] FAILED: Camera engine binary not found.');
       const err = cameraError('CAMERA_ENGINE_NOT_FOUND', 'gphoto2 binary not found during capture');
       this.updateState('ERROR', { error: err.message });
-      return { success: false, ...err };
+      return { success: false, ...err, error: err.message, message: err.message };
     }
 
+    const spawnEnv = this.getGphotoSpawnEnv(binary);
     const filename = `capture_${Date.now()}.jpg`;
     const targetFilePath = path.join(this.tetherDir, filename);
+    const usbidArgs = this.getUsbidArgs();
     const args = [
-      ...this.getUsbidArgs(),
+      ...usbidArgs,
       '--capture-image-and-download',
       `--filename=${filename}`,
       '--keep',
     ];
 
-    console.log('[CameraManager] Direct PTP capture:', binary, args.join(' '));
+    console.log('[CameraCapture]');
+    console.log('Executable:');
+    console.log(binary);
+    console.log('Arguments:');
+    console.log(args.join(' '));
+    console.log('Working directory:');
+    console.log(this.tetherDir);
+    console.log('Environment:');
+    console.log(`CAMLIBS=${spawnEnv.CAMLIBS || '(none)'}`);
+    console.log(`IOLIBS=${spawnEnv.IOLIBS || '(none)'}`);
+
+    const startTime = Date.now();
 
     return new Promise((resolve) => {
+      let isTimedOut = false;
       const timer = setTimeout(() => {
+        isTimedOut = true;
+        const elapsed = Date.now() - startTime;
+        console.error('[CameraCapture] FAILED');
+        console.error('[CameraCapture]');
+        console.error('exitCode: null');
+        console.error('[CameraCapture]');
+        console.error('signal: SIGTERM');
+        console.error('[CameraCapture]');
+        console.error('timeout: true');
+        console.error('[CameraCapture]');
+        console.error(`elapsed time: ${elapsed}ms`);
+        console.error('[CameraCapture]');
+        console.error('stderr:');
+        console.error('gphoto2 capture timed out after 15s');
+
         const err = cameraError('TIMEOUT', 'gphoto2 capture timed out after 15s');
         this.updateState('ERROR', { error: err.message });
-        resolve({ success: false, ...err });
+        resolve({
+          success: false,
+          ...err,
+          error: err.message,
+          message: err.message,
+          exitCode: null,
+          signal: 'SIGTERM',
+          timeout: true,
+          elapsedTimeMs: elapsed,
+          stderr: 'gphoto2 capture timed out after 15s',
+          stdout: '',
+        });
       }, 15000);
 
-      execFile(binary, args, { cwd: this.tetherDir, env: this.getGphotoSpawnEnv(binary) }, async (err, stdout, stderr) => {
+      execFile(binary, args, { cwd: this.tetherDir, env: spawnEnv }, async (err, stdout, stderr) => {
         clearTimeout(timer);
+        if (isTimedOut) return;
+
+        const elapsed = Date.now() - startTime;
+        const exitCode = err ? (err.code !== undefined ? err.code : (err.status !== undefined ? err.status : 1)) : 0;
+        const signal = err ? (err.signal || 'none') : 'none';
+
         if (err) {
-          const technical = stderr || err.message;
-          console.error('[CameraManager] Direct capture error:', technical);
-          const cErr = cameraError('CAPTURE_FAILED', technical);
+          const technicalStderr = (stderr && stderr.trim()) || err.message || '(empty)';
+          const technicalStdout = (stdout && stdout.trim()) || '(empty)';
+
+          console.error('[CameraCapture] FAILED');
+          console.error('[CameraCapture]');
+          console.error(`exitCode: ${exitCode}`);
+          console.error('[CameraCapture]');
+          console.error(`signal: ${signal}`);
+          console.error('[CameraCapture]');
+          console.error('timeout: false');
+          console.error('[CameraCapture]');
+          console.error(`elapsed time: ${elapsed}ms`);
+          console.error('[CameraCapture]');
+          console.error('stdout:');
+          console.error(technicalStdout);
+          console.error('[CameraCapture]');
+          console.error('stderr:');
+          console.error(technicalStderr);
+
+          const cErr = cameraError('CAPTURE_FAILED', technicalStderr);
           this.updateState('ERROR', { error: cErr.message });
-          resolve({ success: false, ...cErr });
+          resolve({
+            success: false,
+            ...cErr,
+            error: cErr.message,
+            message: cErr.message,
+            exitCode,
+            signal,
+            timeout: false,
+            elapsedTimeMs: elapsed,
+            stdout: technicalStdout,
+            stderr: technicalStderr,
+          });
           return;
+        }
+
+        console.log('[CameraCapture] SUCCESS');
+        console.log('[CameraCapture]');
+        console.log('exitCode: 0');
+        console.log('[CameraCapture]');
+        console.log(`elapsed time: ${elapsed}ms`);
+        if (stdout && stdout.trim()) {
+          console.log('[CameraCapture]');
+          console.log('stdout:');
+          console.log(stdout.trim());
         }
 
         this.updateState('TRANSFERRING', { filename });
@@ -2005,7 +2209,14 @@ class NativeCameraService extends EventEmitter {
         if (!fs.existsSync(targetFilePath)) {
           const cErr = cameraError('DOWNLOAD_FAILED', `Downloaded file ${filename} not found in tether directory`);
           this.updateState('ERROR', { error: cErr.message });
-          resolve({ success: false, ...cErr });
+          resolve({
+            success: false,
+            ...cErr,
+            error: cErr.message,
+            message: cErr.message,
+            exitCode: 0,
+            elapsedTimeMs: elapsed,
+          });
           return;
         }
 
@@ -2013,18 +2224,32 @@ class NativeCameraService extends EventEmitter {
         if (stat.size < 1024) {
           const cErr = cameraError('DOWNLOAD_FAILED', `Captured file is too small (${stat.size} bytes)`);
           this.updateState('ERROR', { error: cErr.message });
-          resolve({ success: false, ...cErr });
+          resolve({
+            success: false,
+            ...cErr,
+            error: cErr.message,
+            message: cErr.message,
+            exitCode: 0,
+            elapsedTimeMs: elapsed,
+          });
           return;
         }
 
         const ingested = await this.ingestPhotoFile(targetFilePath, filename, 'ptp_direct_capture');
         if (ingested) {
           this.updateState('READY');
-          resolve(ingested);
+          resolve({ ...ingested, exitCode: 0, elapsedTimeMs: elapsed });
         } else {
           const err = cameraError('DOWNLOAD_FAILED', `Ingest failed for ${filename}`);
           this.updateState('ERROR', { error: err.message });
-          resolve({ success: false, ...err });
+          resolve({
+            success: false,
+            ...err,
+            error: err.message,
+            message: err.message,
+            exitCode: 0,
+            elapsedTimeMs: elapsed,
+          });
         }
       });
     });
