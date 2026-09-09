@@ -42,10 +42,14 @@ export const AdminTestingModal: React.FC = () => {
     activeNativeCameraModel,
     isInstallingDriver,
     driverInstallLogs,
+    cameraCapabilities,
+    cameraEngineSelfTest,
     installNativeDriver,
     detectNativeCameras,
     releaseUsbLock,
     triggerNativeDirectCapture,
+    runCameraSelfTest,
+    fetchCameraCapabilities,
   } = usePhotoboothStore();
 
   const [testLogs, setTestLogs] = useState<string[]>([]);
@@ -276,12 +280,12 @@ export const AdminTestingModal: React.FC = () => {
               {isNativeDriverInstalled ? (
                 <>
                   <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                  <span>Driver Universal: AKTIF</span>
+                  <span>{nativeDriverVersion || 'Camera Engine: AKTIF'}</span>
                 </>
               ) : (
                 <>
                   <AlertTriangle className="w-3 h-3 text-amber-400" />
-                  <span>Driver Belum Terpasang</span>
+                  <span>Camera Engine Tidak Ditemukan</span>
                 </>
               )}
             </span>
@@ -290,20 +294,42 @@ export const AdminTestingModal: React.FC = () => {
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {!isNativeDriverInstalled ? (
-              <button
-                disabled={isInstallingDriver}
-                onClick={async () => {
-                  addLog('Memulai pemasangan driver universal gphoto2 via Homebrew...');
-                  const ok = await installNativeDriver();
-                  addLog(ok ? 'Driver gphoto2 berhasil terpasang!' : 'Instalasi driver gagal.');
-                }}
-                className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>{isInstallingDriver ? 'Sedang Memasang Driver...' : 'Pasang Driver Otomatis (1-Klik via Homebrew)'}</span>
-              </button>
+              <div className="flex flex-col gap-2 w-full">
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 leading-relaxed">
+                  <div className="font-bold mb-1">⚠️ Camera Engine Belum Terpasang Lengkap</div>
+                  <div className="text-amber-300/80 mb-2">
+                    MingleBooth membutuhkan bundled camera engine untuk mengontrol kamera secara langsung via USB.
+                  </div>
+                  {typeof navigator !== 'undefined' && !navigator.userAgent.includes('Windows') && (
+                    <button
+                      disabled={isInstallingDriver}
+                      onClick={async () => {
+                        addLog('Memulai pemasangan driver universal via Homebrew...');
+                        const ok = await installNativeDriver();
+                        addLog(ok ? 'Driver berhasil terpasang!' : 'Instalasi driver gagal.');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>{isInstallingDriver ? 'Sedang Memasang Driver...' : 'Pasang via Homebrew (macOS)'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
             ) : (
               <>
+                <button
+                  onClick={async () => {
+                    addLog('Menjalankan Engine Self-Test...');
+                    const res = await runCameraSelfTest();
+                    addLog(`Hasil Self-Test: ${res?.ready ? 'OK' : 'FAIL'} (${res?.version || res?.engine || 'N/A'})`);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                >
+                  <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Uji Engine (Self-Test)</span>
+                </button>
+
                 <button
                   onClick={async () => {
                     addLog('Memindai kamera USB yang terhubung...');
@@ -316,17 +342,20 @@ export const AdminTestingModal: React.FC = () => {
                   <span>Pindai Kamera USB</span>
                 </button>
 
-                <button
-                  onClick={async () => {
-                    addLog('Melepaskan port USB dari Apple PTPCamera...');
-                    await releaseUsbLock();
-                    addLog('Port USB berhasil dibebaskan!');
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
-                >
-                  <Cpu className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Bebaskan Port USB (Kill PTPCamera)</span>
-                </button>
+                {/* macOS-only: kill PTPCamera daemon */}
+                {typeof navigator !== 'undefined' && !navigator.userAgent.includes('Windows') && (
+                  <button
+                    onClick={async () => {
+                      addLog('Melepaskan port USB dari Apple PTPCamera...');
+                      await releaseUsbLock();
+                      addLog('Port USB berhasil dibebaskan!');
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
+                  >
+                    <Cpu className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Bebaskan Port USB (Kill PTPCamera)</span>
+                  </button>
+                )}
 
                 <button
                   onClick={async () => {
@@ -342,6 +371,46 @@ export const AdminTestingModal: React.FC = () => {
               </>
             )}
           </div>
+
+          {/* Model Capabilities Card */}
+          {cameraCapabilities && (
+            <div className="p-3 rounded-lg bg-black/60 border border-white/10 flex flex-col gap-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  {cameraCapabilities.model}
+                </span>
+                <span className="text-[10px] font-mono text-neutral-400 bg-white/[0.05] px-2 py-0.5 rounded">
+                  Mode: {cameraCapabilities.usbModeRequired}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[11px] pt-1">
+                <div className="p-1.5 rounded bg-white/[0.03] border border-white/[0.05]">
+                  <span className="text-neutral-400 block text-[10px]">Remote Capture:</span>
+                  <strong className="text-emerald-400 font-mono">
+                    {cameraCapabilities.remoteCapture ? '✓ Didukung' : '❌ Tidak'}
+                  </strong>
+                </div>
+                <div className="p-1.5 rounded bg-white/[0.03] border border-white/[0.05]">
+                  <span className="text-neutral-400 block text-[10px]">Image Download:</span>
+                  <strong className="text-emerald-400 font-mono">
+                    {cameraCapabilities.imageDownload ? '✓ Didukung' : '❌ Tidak'}
+                  </strong>
+                </div>
+                <div className="p-1.5 rounded bg-white/[0.03] border border-white/[0.05]">
+                  <span className="text-neutral-400 block text-[10px]">Driver Default:</span>
+                  <strong className="text-cyan-400 font-mono">
+                    {cameraCapabilities.defaultDriverSupported ? '✓ PTP Siap' : '⚠️ Perlu Uji'}
+                  </strong>
+                </div>
+              </div>
+              {cameraCapabilities.notes && (
+                <div className="text-[10px] text-neutral-400 mt-0.5">
+                  {cameraCapabilities.notes}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Detected Cameras Status List */}
           {detectedNativeCameras.length > 0 && (
@@ -368,6 +437,7 @@ export const AdminTestingModal: React.FC = () => {
             </div>
           )}
         </div>
+
 
         {/* Storage Management Shortcut */}
         <div className="p-3 rounded-xl bg-[#181B20] border border-white/[0.06] flex items-center justify-between gap-3">

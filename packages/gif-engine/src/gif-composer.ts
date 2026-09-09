@@ -88,8 +88,8 @@ export class GifComposer {
 
     // 1. Load overlay frame if provided to determine natural aspect ratio
     let overlayImg: HTMLImageElement | null = null;
-    let targetWidth = options.width || 720;
-    let targetHeight = options.height || 900;
+    let targetWidth = options.width || 480;
+    let targetHeight = options.height || 640;
 
     if (frameOverlayBase64) {
       try {
@@ -98,8 +98,8 @@ export class GifComposer {
         const naturalH = overlayImg.naturalHeight || overlayImg.height;
 
         if (naturalW > 0 && naturalH > 0) {
-          // Scale to optimized dimensions (max dimension 960px for fast encoding & sharp HD preview)
-          const maxDim = 960;
+          // Scale to optimized dimensions (max dimension 600px for lightning-fast encoding & compact <400KB mobile GIFs)
+          const maxDim = 600;
           if (naturalW >= naturalH) {
             targetWidth = Math.min(naturalW, maxDim);
             targetHeight = Math.round((targetWidth * naturalH) / naturalW);

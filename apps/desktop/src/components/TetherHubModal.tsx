@@ -239,7 +239,7 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
             </div>
             <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
               <strong className="text-white block mb-0.5">📸 Nikon D &amp; Z-Series:</strong>
-              <span>Buka software resmi <em>Nikon NX Tether</em> atau <em>digiCamControl</em> ke folder <code className="text-neutral-200">Tether-Inbox</code>.</span>
+              <span>Buka software resmi <em>Nikon NX Tether</em> ke folder <code className="text-neutral-200">Tether-Inbox</code>.</span>
             </div>
           </div>
 

@@ -372,12 +372,14 @@ const TabletStudioContent: React.FC = () => {
     setCameraSessionError(null);
     try {
       if (typeof window !== 'undefined' && (window as any).electronAPI?.detectNativeCameras) {
+        console.log('[CameraFix-2026-09-09-v2] Renderer invoking camera:detect-cameras');
         const detectRes = await (window as any).electronAPI.detectNativeCameras();
+        console.log('[CameraFix-2026-09-09-v2] Renderer received camera detection response:', detectRes);
         if (!detectRes.success || !detectRes.cameras || detectRes.cameras.length === 0) {
           setNativeCameraModel(null);
           setTetherStatus('disconnected');
-          setCameraSessionState('ERROR');
-          setCameraSessionError('PC Remote connection failed. Pastikan kamera di mode FOTO (M) ➔ USB Connection: PC Remote dan port USB tidak terkunci.');
+          setCameraSessionState('DISCONNECTED');
+          setCameraSessionError(null);
           return;
         }
 
@@ -398,7 +400,7 @@ const TabletStudioContent: React.FC = () => {
           } else {
             setTetherStatus('disconnected');
             setCameraSessionState('ERROR');
-            setCameraSessionError(connectRes.error || 'PC Remote connection failed. Pastikan kamera di mode FOTO (M) ➔ USB Connection: PC Remote dan port USB tidak terkunci.');
+            setCameraSessionError(connectRes.error || 'Pastikan kamera menyala, kabel USB terhubung, dan mode USB diset ke PC Remote / PTP.');
             return;
           }
         }
@@ -919,18 +921,30 @@ const TabletStudioContent: React.FC = () => {
       // Step 2: Upload GIF Boomerang if available (< 1.5MB)
       if (gifDataUrl) {
         try {
-          const gifRes = await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              photoId,
-              eventId,
-              fileDataUrl: gifDataUrl,
-              type: 'gif',
-            }),
-          });
+          const uploadGifOnce = async () => {
+            return await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                photoId,
+                eventId,
+                fileDataUrl: gifDataUrl,
+                type: 'gif',
+              }),
+            });
+          };
+
+          let gifRes = await uploadGifOnce();
+          if (!gifRes.ok) {
+            console.warn('[Cloud Sync Warning]: GIF sync attempt 1 failed, retrying in 1s...', gifRes.status);
+            await new Promise((r) => setTimeout(r, 1000));
+            gifRes = await uploadGifOnce();
+          }
+
           if (gifRes.ok) {
             console.log('[Cloud Sync Success]: GIF boomerang synced for', photoId);
+          } else {
+            console.warn('[Cloud Sync Warning]: GIF sync failed with status:', gifRes.status);
           }
         } catch (gifErr) {
           console.warn('[Cloud Sync Warning]: GIF sync error:', gifErr);
@@ -1504,11 +1518,13 @@ const TabletStudioContent: React.FC = () => {
       let gifDataUrl: string | null = null;
       if (enableGif && photos.length > 0) {
         try {
+          const gifOverlay = gifOverlayPath || currentTemplate?.path || null;
+          const gifSlots = customGifCutouts.length > 0 ? customGifCutouts : (cutouts && cutouts.length > 0 ? cutouts : undefined);
           const gifResult = await GifComposer.composeGif(photos, {
             frameDelayMs: 600,
             playbackMode: 'boomerang',
-            frameOverlayBase64: gifOverlayPath,
-            cutoutSlots: customGifCutouts.length > 0 ? customGifCutouts : undefined,
+            frameOverlayBase64: gifOverlay,
+            cutoutSlots: gifSlots,
           });
           gifDataUrl = gifResult.dataUrl;
           setFinalGifDataUrl(gifDataUrl);
@@ -2652,18 +2668,18 @@ const TabletStudioContent: React.FC = () => {
                       }`}
                     >
                       {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                        ? nativeCameraModel || 'Kamera Studio Siap (PC Remote)'
+                        ? (nativeCameraModel ? `${nativeCameraModel} • ✓ Kamera Siap Digunakan` : '✓ Kamera Siap Digunakan')
                         : cameraSessionState === 'CONNECTING'
-                        ? 'Menghubungkan via PC Remote...'
+                        ? 'Menyiapkan kamera...'
                         : cameraSessionState === 'DETECTING'
-                        ? 'Memindai Kamera USB...'
+                        ? 'Mendeteksi kamera...'
                         : cameraSessionState === 'CAPTURING'
-                        ? 'Memotret (Shutter PTP)...'
+                        ? 'Mengambil foto...'
                         : cameraSessionState === 'TRANSFERRING'
-                        ? 'Mentransfer Foto High-Res...'
+                        ? 'Memproses foto...'
                         : cameraSessionState === 'ERROR'
-                        ? cameraSessionError || 'Error Kamera'
-                        : 'Kamera Belum Terhubung (PC Remote)'}
+                        ? cameraSessionError || 'Kamera tidak merespons'
+                        : 'Kamera Belum Terhubung'}
                     </span>
                   </>
                 )}
@@ -2776,13 +2792,13 @@ const TabletStudioContent: React.FC = () => {
                     </span>
                     <p className="font-semibold text-white mt-1.5 text-sm">
                       {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                        ? nativeCameraModel || 'Kamera Studio Shutter Siap'
+                        ? (nativeCameraModel ? `${nativeCameraModel} • ✓ Kamera Siap Digunakan` : '✓ Kamera Siap Digunakan')
                         : cameraSessionState === 'CONNECTING'
-                        ? 'Menghubungkan ke Kamera via PC Remote...'
+                        ? 'Menyiapkan kamera...'
                         : cameraSessionState === 'DETECTING'
-                        ? 'Memindai Port USB...'
+                        ? 'Mendeteksi port USB...'
                         : cameraSessionState === 'ERROR'
-                        ? 'Sambungan Kamera Gagal'
+                        ? 'Kamera Belum Terhubung'
                         : 'Kamera Belum Terhubung'}
                     </p>
                     {cameraSessionState === 'ERROR' && cameraSessionError ? (
@@ -2791,7 +2807,8 @@ const TabletStudioContent: React.FC = () => {
                       </p>
                     ) : (
                       <p className="text-[11px] text-neutral-400 max-w-xs mt-1 leading-normal">
-                        Sambungkan kamera Sony melalui PC Remote. Atur kamera di mode <strong>FOTO (M) ➔ USB: PC Remote</strong>.
+                        Hubungkan kamera via kabel USB. Pastikan kamera menyala dan diset ke mode <strong>FOTO ➔ USB: PC Remote / PTP</strong>.
+                        <span className="block mt-1 font-mono text-[9px] text-emerald-400/80">Build Marker: [CameraFix-2026-09-09-v2]</span>
                       </p>
                     )}
                   </div>
@@ -2803,7 +2820,7 @@ const TabletStudioContent: React.FC = () => {
                       className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isDetectingNative ? 'animate-spin' : ''}`} />
-                      <span>{isDetectingNative ? 'Menghubungkan...' : 'Sambungkan Kamera PC Remote'}</span>
+                      <span>{isDetectingNative ? 'Menyiapkan kamera...' : 'Sambungkan Kamera'}</span>
                     </button>
                     <button
                       type="button"
@@ -3185,7 +3202,7 @@ const TabletStudioContent: React.FC = () => {
                       </div>
                       <p className="text-[10px] text-neutral-300 leading-relaxed">
                         1. Hubungkan kamera DSLR / Mirrorless (Canon, Nikon, Sony, Fujifilm, Lumix) via kabel USB ke laptop.<br />
-                        2. Jika menggunakan software tethering bawaan kamera (Canon EOS Utility, Nikon NX Tether / digiCamControl, Sony Imaging Edge, Fujifilm X Acquire, Lightroom, dsb), atur <em>Save Destination / Hot Folder</em> ke folder <strong className="text-white font-mono break-all">{tetherDisplayPath}</strong>.<br />
+                        2. Jika menggunakan software tethering bawaan kamera (Canon EOS Utility, Nikon NX Tether, Sony Imaging Edge, Fujifilm X Acquire, Lightroom, dsb), atur <em>Save Destination / Hot Folder</em> ke folder <strong className="text-white font-mono break-all">{tetherDisplayPath}</strong>.<br />
                         3. Begitu Anda menjepret di bodi kamera atau remote wireless, foto resolusi penuh <strong>otomatis langsung masuk ke bingkai</strong> tanpa perlu sentuh laptop!
                       </p>
                     </div>

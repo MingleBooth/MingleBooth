@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   // Native Direct USB Camera Controls
   getNativeCameraStatus: () => ipcRenderer.invoke('camera:get-native-status'),
+  getCameraEngineSelfTest: () => ipcRenderer.invoke('camera:engine-self-test'),
+  getCameraCapabilities: (camera) => ipcRenderer.invoke('camera:get-capabilities', camera),
   installCameraDriver: () => ipcRenderer.invoke('camera:install-driver'),
   releaseUsbLock: () => ipcRenderer.invoke('camera:release-usb-lock'),
   detectNativeCameras: () => ipcRenderer.invoke('camera:detect-cameras'),

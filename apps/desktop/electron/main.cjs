@@ -53,37 +53,15 @@ function generateHardwareFingerprint() {
   return crypto.createHash('sha256').update(rawString).digest('hex').substring(0, 32);
 }
 
-// ── Trigger DSLR / Mirrorless Camera shutter via gphoto2 / digiCamControl (if available) ──
-function triggerUniversalCameraShutter(tetherDir) {
-  return new Promise((resolve) => {
-    // Try gphoto2 first (Mac/Linux - universal Canon/Nikon/Sony/Fuji)
-    exec('gphoto2 --capture-image-and-download --filename=%Y%m%d_%H%M%S.jpg', { cwd: tetherDir }, (err, stdout, stderr) => {
-      if (!err) {
-        console.log('[Electron] gphoto2 shutter triggered:', stdout);
-        resolve({ success: true, method: 'gphoto2' });
-        return;
-      }
-
-      // Try digiCamControl HTTP API (Windows - runs on port 5513 by default)
-      const http = require('http');
-      const req = http.get('http://127.0.0.1:5513//?CMD=Capture', (res) => {
-        let body = '';
-        res.on('data', (d) => (body += d));
-        res.on('end', () => {
-          console.log('[Electron] digiCamControl shutter triggered:', body);
-          resolve({ success: true, method: 'digiCamControl' });
-        });
-      });
-      req.on('error', () => {
-        // No auto-trigger available, tether server will wait for hot folder
-        resolve({ success: false, method: 'hotfolder_only', message: 'No auto-trigger available. Waiting for hot folder.' });
-      });
-      req.setTimeout(2000, () => {
-        req.destroy();
-        resolve({ success: false, method: 'hotfolder_only', message: 'Trigger timeout.' });
-      });
-    });
-  });
+// ── Camera shutter trigger — routed through NativeCameraService (bundled engine) ──
+// NOTE: The old triggerUniversalCameraShutter() calling bare 'gphoto2' via global PATH
+// has been removed. All camera operations now go through NativeCameraService which
+// uses absolute bundled binary paths and never relies on PATH.
+async function triggerUniversalCameraShutter(tetherDir) {
+  const nativeCamera = getNativeCameraService(tetherDir);
+  console.log('[Electron] camera:trigger-shutter → NativeCameraService.triggerDirectCapture()');
+  const result = await nativeCamera.triggerDirectCapture();
+  return result;
 }
 
 function createWindow() {
@@ -289,10 +267,13 @@ ipcMain.handle('app:toggle-kiosk-tab-fullscreen', () => {
   return false;
 });
 
-// ── Camera Shutter Trigger via USB (gphoto2 / digiCamControl) ──
+// ── Camera Shutter Trigger via USB (routed through NativeCameraService — bundled engine) ──
 ipcMain.handle('camera:trigger-shutter', async () => {
   const tetherServer = getTetherServer(4848);
   const result = await triggerUniversalCameraShutter(tetherServer.tetherDir);
+  if (!result.success && result.hint) {
+    console.warn('[Electron] Camera trigger failed with hint:', result.hint);
+  }
   return result;
 });
 
@@ -307,6 +288,18 @@ ipcMain.handle('camera:get-native-status', async () => {
   const tetherServer = getTetherServer(4848);
   const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
   return await nativeCamera.checkDriverStatus();
+});
+
+ipcMain.handle('camera:engine-self-test', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.runEngineSelfTest();
+});
+
+ipcMain.handle('camera:get-capabilities', async (event, camera) => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return nativeCamera.detectCameraCapabilities(camera);
 });
 
 ipcMain.handle('camera:install-driver', async () => {
@@ -326,9 +319,20 @@ ipcMain.handle('camera:release-usb-lock', async () => {
 });
 
 ipcMain.handle('camera:detect-cameras', async () => {
-  const tetherServer = getTetherServer(4848);
-  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
-  return await nativeCamera.detectConnectedCameras();
+  console.log('\n[CameraFix-2026-09-09-v2] detect-cameras handler loaded');
+  console.log('[CameraIPC] camera:detect-cameras invoked');
+  try {
+    const tetherServer = getTetherServer(4848);
+    const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+    const result = await nativeCamera.detectConnectedCameras();
+    console.log('[CameraFix-2026-09-09-v2] detect-cameras completed successfully. Result:', JSON.stringify(result));
+    return result;
+  } catch (error) {
+    console.error('[CameraIPC] detect-cameras FAILED');
+    console.error(error);
+    console.error(error?.stack);
+    throw error;
+  }
 });
 
 ipcMain.handle('camera:start-native-tether', async () => {
@@ -647,6 +651,14 @@ app.whenReady().then(async () => {
   try {
     const tetherServer = getTetherServer(4848);
     tetherServer.start();
+
+    // Camera Engine Startup Self-Test (logged to developer logs only)
+    const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+    nativeCamera.runEngineSelfTest().then((res) => {
+      console.log(`[StartupCameraTest] Engine: ${res.engine} | Ready: ${res.ready ? 'YES' : 'NO'}${res.version ? ' | ' + res.version : ''}`);
+    }).catch((err) => {
+      console.error('[StartupCameraTest] Engine self-test error:', err.message);
+    });
   } catch (e) {
     console.error('[Electron] Failed to start Tether Server:', e);
   }

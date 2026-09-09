@@ -12,7 +12,10 @@
     "electron:dev": "electron electron/main.cjs",
     "tether": "node electron/tether-server.cjs",
     "electron:build:mac": "tsc && vite build && electron-builder --mac",
-    "electron:build:win": "tsc && vite build && electron-builder --win"
+    "electron:build:win": "node scripts/check-win-camera-engine.cjs && tsc && vite build && electron-builder --win",
+    "camera:validate": "node scripts/check-win-camera-engine.cjs",
+    "camera:bundle-win": "node scripts/bundle-win-camera-engine.cjs",
+    "camera:validate-driver": "node scripts/validate-camera-driver.cjs"
   },
   "build": {
     "appId": "com.minglebooth.studio",
@@ -25,11 +28,13 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "!electron/native/**/*"
     ],
     "asarUnpack": [
       "electron/bin/**/*"
     ],
+    "afterPack": "./scripts/after-pack.cjs",
     "mac": {
       "category": "public.app-category.photography",
       "icon": "build/icon.icns",
@@ -47,10 +52,21 @@
       ]
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis",
         "portable"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "include": "build/installer.nsh"
     }
   },
   "dependencies": {

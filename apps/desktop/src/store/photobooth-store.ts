@@ -201,6 +201,8 @@ interface PhotoboothState {
   activeNativeCameraModel: string | null;
   isInstallingDriver: boolean;
   driverInstallLogs: string[];
+  cameraCapabilities: any | null;
+  cameraEngineSelfTest: any | null;
 
   initialize: () => Promise<void>;
   setEvent: (event: EventConfig) => void;
@@ -235,6 +237,8 @@ interface PhotoboothState {
   handleExternalPhotoCapture: (photoDataUrl: string, filename?: string) => Promise<void>;
   setHotFolderDir: (dir: string) => Promise<void>;
   checkNativeDriverStatus: () => Promise<void>;
+  runCameraSelfTest: () => Promise<any>;
+  fetchCameraCapabilities: (camera?: any) => Promise<any>;
   installNativeDriver: () => Promise<boolean>;
   detectNativeCameras: () => Promise<void>;
   releaseUsbLock: () => Promise<void>;
@@ -799,6 +803,8 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
     activeNativeCameraModel: null,
     isInstallingDriver: false,
     driverInstallLogs: [],
+    cameraCapabilities: null,
+    cameraEngineSelfTest: null,
 
     initialize: async () => {
       // Sync network status with real browser online/offline events
@@ -1277,7 +1283,22 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
               // Photo will arrive via file watcher in handleExternalPhotoCapture
               return;
             }
-            console.warn('[Capture] Native direct capture failed or no camera connected, falling back:', captureResult?.error);
+            // Show human-readable error from CameraManager (code + message + optional hint)
+            const userMessage = captureResult?.message
+              || captureResult?.error
+              || 'Gagal mengambil foto. Periksa koneksi kamera dan coba lagi.';
+            const technicalDetail = captureResult?.technical || captureResult?.code || '';
+            if (technicalDetail) {
+              console.warn('[Capture] Native capture failed:', captureResult?.code, '|', technicalDetail);
+            }
+            // If camera engine not found, show actionable hint
+            if (captureResult?.code === 'CAMERA_ENGINE_NOT_FOUND') {
+              console.error('[Capture] Camera engine not found. Reinstallation may be required.');
+              set({ sessionStep: 'idle' });
+              alert(`⚠️ ${userMessage}${captureResult?.hint ? '\n\n' + captureResult.hint : ''}`);
+              return;
+            }
+            console.warn('[Capture] Native direct capture failed, falling back to mock:', userMessage);
           }
 
           let photoDataUrl = '';
@@ -1586,11 +1607,15 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
       if (typeof window !== 'undefined' && (window as any).electronAPI?.getNativeCameraStatus) {
         try {
           const status = await (window as any).electronAPI.getNativeCameraStatus();
+          const isInstalled = Boolean(status?.installed);
+          const version = status?.version || status?.engine || '';
           set({
-            isNativeDriverInstalled: Boolean(status?.installed),
-            nativeDriverVersion: status?.version || '',
+            isNativeDriverInstalled: isInstalled,
+            nativeDriverVersion: version,
+            cameraEngineSelfTest: status?.selfTest || null,
           });
-          if (status?.installed) {
+          console.log('[NativeCamera] Engine status:', status?.engine || 'none', '| installed:', isInstalled);
+          if (isInstalled) {
             get().detectNativeCameras();
           }
         } catch (e) {
@@ -1599,9 +1624,36 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
       }
     },
 
+    runCameraSelfTest: async () => {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.getCameraEngineSelfTest) {
+        try {
+          const res = await (window as any).electronAPI.getCameraEngineSelfTest();
+          set({ cameraEngineSelfTest: res });
+          return res;
+        } catch (e) {
+          console.warn('Failed to run camera engine self-test:', e);
+        }
+      }
+      return null;
+    },
+
+    fetchCameraCapabilities: async (camera?: any) => {
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.getCameraCapabilities) {
+        try {
+          const cam = camera || (get().detectedNativeCameras[0] ?? null);
+          const caps = await (window as any).electronAPI.getCameraCapabilities(cam);
+          set({ cameraCapabilities: caps });
+          return caps;
+        } catch (e) {
+          console.warn('Failed to fetch camera capabilities:', e);
+        }
+      }
+      return null;
+    },
+
     installNativeDriver: async () => {
       if (typeof window !== 'undefined' && (window as any).electronAPI?.installCameraDriver) {
-        set({ isInstallingDriver: true, driverInstallLogs: ['Memulai instalasi driver universal gphoto2...'] });
+        set({ isInstallingDriver: true, driverInstallLogs: ['Memulai instalasi driver universal...'] });
         try {
           const res = await (window as any).electronAPI.installCameraDriver();
           set({ isInstallingDriver: false });
@@ -1630,6 +1682,9 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
               detectedNativeCameras: detected,
               activeNativeCameraModel: activeModel,
             });
+            if (activeModel || detected.length > 0) {
+              get().fetchCameraCapabilities(activeModel ? { model: activeModel } : detected[0]);
+            }
             if (detected.length > 0 && get().currentBrand === 'mock') {
               console.log('[NativeCamera] Auto-switching to detected USB camera:', activeModel);
               get().switchCameraBrand('device');
