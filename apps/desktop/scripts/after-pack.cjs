@@ -43,7 +43,17 @@ module.exports = async function afterPack(context) {
       }
 
       // 2. Check essential DLLs
-      const requiredDlls = ['libusb-1.0.dll', 'libltdl-7.dll'];
+      const requiredDlls = [
+        'libusb-1.0.dll',
+        'libltdl-7.dll',
+        'libpopt-0.dll',
+        'libreadline8.dll',
+        'libtermcap-0.dll',
+        'libsystre-0.dll',
+        'libtre-5.dll',
+        'libjpeg-8.dll',
+        'libxml2-16.dll',
+      ];
       for (const dll of requiredDlls) {
         if (fs.existsSync(path.join(winBinDir, dll))) {
           console.log(`  ✅ ${dll} bundled`);

@@ -41,6 +41,13 @@ const PACKAGES = [
   { name: 'libwinpthread', file: 'mingw-w64-x86_64-libwinpthread-14.0.0.r353.g6df76fa52-2-any.pkg.tar.zst' },
   { name: 'zlib', file: 'mingw-w64-x86_64-zlib-1.3.2-2-any.pkg.tar.zst' },
   { name: 'gcc-libs', file: 'mingw-w64-x86_64-gcc-libs-16.2.0-3-any.pkg.tar.zst' },
+  { name: 'popt', file: 'mingw-w64-x86_64-popt-1.19-2-any.pkg.tar.zst' },
+  { name: 'readline', file: 'mingw-w64-x86_64-readline-8.3.003-1-any.pkg.tar.zst' },
+  { name: 'termcap', file: 'mingw-w64-x86_64-termcap-1.3.1-7-any.pkg.tar.zst' },
+  { name: 'libsystre', file: 'mingw-w64-x86_64-libsystre-1.0.2-3-any.pkg.tar.zst' },
+  { name: 'libtre', file: 'mingw-w64-x86_64-libtre-0.9.0-2-any.pkg.tar.zst' },
+  { name: 'libjpeg-turbo', file: 'mingw-w64-x86_64-libjpeg-turbo-3.2.0-1-any.pkg.tar.zst' },
+  { name: 'libxml2', file: 'mingw-w64-x86_64-libxml2-2.15.4-1-any.pkg.tar.zst' },
 ];
 
 function ensureDir(dir) {
