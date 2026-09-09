@@ -52,6 +52,7 @@ import {
 } from './lib/offlineStorage';
 import { VendorAuthGate } from './components/VendorAuthGate';
 import { EventManagerModal } from './components/EventManagerModal';
+import { CameraDriverSetupModal } from './components/CameraDriverSetupModal';
 import { API_BASE_URL } from './config';
 import logoHeader from './assets/logo-minglebooth-header.png';
 import appIcon from './assets/icon.png';
@@ -169,7 +170,7 @@ const TabletStudioContent: React.FC = () => {
   const [nativeCameraModel, setNativeCameraModel] = useState<string | null>(null);
   const [isDetectingNative, setIsDetectingNative] = useState<boolean>(false);
   const [cameraSessionState, setCameraSessionState] = useState<
-    'DISCONNECTED' | 'DETECTING' | 'CONNECTING' | 'CONNECTED' | 'READY' | 'CAPTURING' | 'TRANSFERRING' | 'PROCESSING' | 'COMPLETED' | 'ERROR'
+    'DISCONNECTED' | 'DETECTING' | 'CONNECTING' | 'CONNECTED' | 'READY' | 'CAPTURING' | 'TRANSFERRING' | 'PROCESSING' | 'COMPLETED' | 'ERROR' | 'DRIVER_SETUP_REQUIRED'
   >('DISCONNECTED');
   const [cameraSessionError, setCameraSessionError] = useState<string | null>(null);
 
@@ -286,6 +287,8 @@ const TabletStudioContent: React.FC = () => {
   });
   const [isScreensaverActive, setIsScreensaverActive] = useState<boolean>(false);
   const [showWallpaperSettingModal, setShowWallpaperSettingModal] = useState<boolean>(false);
+  const [showDriverSetupModal, setShowDriverSetupModal] = useState<boolean>(false);
+  const [driverSetupCameraInfo, setDriverSetupCameraInfo] = useState<any>(null);
 
 
   // ── 1. HARDWARE DISCOVERY & WEBCAM INITIALIZATION (UNIVERSAL & ERROR-FREE) ──
@@ -376,10 +379,17 @@ const TabletStudioContent: React.FC = () => {
         const detectRes = await (window as any).electronAPI.detectNativeCameras();
         console.log('[CameraFix-2026-09-09-v2] Renderer received camera detection response:', detectRes);
         if (!detectRes.success || !detectRes.cameras || detectRes.cameras.length === 0) {
-          setNativeCameraModel(null);
-          setTetherStatus('disconnected');
-          setCameraSessionState('DISCONNECTED');
-          setCameraSessionError(null);
+          if (detectRes.state === 'DRIVER_SETUP_REQUIRED' || detectRes.requiresDriverSetup) {
+            setShowDriverSetupModal(true);
+            setDriverSetupCameraInfo(detectRes.pnpCamera || { model: detectRes.cameraModel || 'Sony ILCE-7CM2 (α7C II)' });
+            setCameraSessionState('DRIVER_SETUP_REQUIRED');
+            setCameraSessionError(detectRes.message || 'Pengaturan koneksi Windows diperlukan untuk kamera ini.');
+          } else {
+            setNativeCameraModel(null);
+            setTetherStatus('disconnected');
+            setCameraSessionState('DISCONNECTED');
+            setCameraSessionError(detectRes.message || null);
+          }
           return;
         }
 
@@ -2813,15 +2823,26 @@ const TabletStudioContent: React.FC = () => {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={checkNativeCameraHardware}
-                      disabled={isDetectingNative}
-                      className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isDetectingNative ? 'animate-spin' : ''}`} />
-                      <span>{isDetectingNative ? 'Menyiapkan kamera...' : 'Sambungkan Kamera'}</span>
-                    </button>
+                    {cameraSessionState === 'DRIVER_SETUP_REQUIRED' ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowDriverSetupModal(true)}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Siapkan Koneksi Kamera (WinUSB)</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={checkNativeCameraHardware}
+                        disabled={isDetectingNative}
+                        className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isDetectingNative ? 'animate-spin' : ''}`} />
+                        <span>{isDetectingNative ? 'Menyiapkan kamera...' : 'Sambungkan Kamera'}</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleSwitchCameraMode('webcam')}
@@ -3532,6 +3553,16 @@ const TabletStudioContent: React.FC = () => {
             }
           }}
           initialTab={eventManagerInitialTab}
+        />
+
+        <CameraDriverSetupModal
+          isOpen={showDriverSetupModal}
+          onClose={() => setShowDriverSetupModal(false)}
+          onSuccess={() => {
+            setShowDriverSetupModal(false);
+            checkNativeCameraHardware();
+          }}
+          cameraInfo={driverSetupCameraInfo}
         />
       </div>
     );

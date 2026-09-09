@@ -4,6 +4,8 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 const EventEmitter = require('events');
+const { DriverManager } = require('./driver-manager.cjs');
+const { CAMERA_SUPPORT_MATRIX, findSupportedCamera } = require('./camera-matrix.cjs');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Production Policy:
@@ -133,6 +135,20 @@ class NativeCameraService extends EventEmitter {
     }
 
     console.log(`[CameraManager] Initialized. Platform: ${process.platform}. Tether dir: ${this.tetherDir}`);
+
+    this.driverManager = new DriverManager({
+      rootPath: path.resolve(__dirname, '..'),
+      binDir: this.findGphotoBinary() ? path.dirname(this.findGphotoBinary()) : path.join(__dirname, 'bin', 'win'),
+      driverDevDir: path.resolve(__dirname, '..', 'driver-dev'),
+    });
+    this.driverManager.onStateChange((newState, payload) => {
+      this.emit('driverStateChange', { state: newState, payload });
+      if (newState === 'READY') {
+        this.updateState('READY');
+      } else if (newState === 'DRIVER_SETUP_REQUIRED') {
+        this.updateState('DRIVER_SETUP_REQUIRED', payload);
+      }
+    });
   }
 
   setTetherServer(tetherServer) {
@@ -785,6 +801,61 @@ class NativeCameraService extends EventEmitter {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // Windows: Dedicated WinUSB Driver Manager (Dev / QA Prototype)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  async getDriverState() {
+    return await this.driverManager.inspectDriverState();
+  }
+
+  async startDriverSetup() {
+    const res = await this.driverManager.startDriverSetup();
+    if (res.success) {
+      await this.detectConnectedCameras();
+    }
+    return res;
+  }
+
+  async rollbackDriver() {
+    const res = await this.driverManager.rollbackDriver();
+    await this.detectConnectedCameras();
+    return res;
+  }
+
+  /**
+   * Non-destructive camera readiness verification (NO SHUTTER / NO TEST SHOT)
+   * Asserts:
+   *   1. gphoto2 --summary completes successfully
+   *   2. gphoto2 --get-config /main/status/batterylevel reads property
+   */
+  async verifyCameraReadinessNonDestructive() {
+    const binary = this.findGphotoBinary();
+    if (!binary) return { ready: false, reason: 'Engine not found' };
+    const usbidArgs = this.getUsbidArgs();
+    const spawnEnv = this.getGphotoSpawnEnv(binary);
+
+    try {
+      const summaryOut = execSync(`"${binary}" ${usbidArgs.join(' ')} --summary`, {
+        env: spawnEnv,
+        encoding: 'utf8',
+        timeout: 12000,
+      });
+      const batteryOut = execSync(`"${binary}" ${usbidArgs.join(' ')} --get-config /main/status/batterylevel`, {
+        env: spawnEnv,
+        encoding: 'utf8',
+        timeout: 8000,
+      });
+      return {
+        ready: true,
+        summary: summaryOut.substring(0, 300),
+        battery: batteryOut.trim(),
+      };
+    } catch (e) {
+      return { ready: false, error: e.message };
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // CAMERA DETECTION
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -972,33 +1043,60 @@ class NativeCameraService extends EventEmitter {
 
         // Section 7 Critical Rule:
         // DO NOT mark camera as READY merely because Windows PnP detects a Sony device!
-        // CAMERA READY must require the actual camera engine to establish communication.
         if (engineCameras.length === 0) {
           const primaryPnp = pnpCameras[0];
           console.warn(`[CameraManager] ⚠️ Physical camera detected via Windows PnP (${primaryPnp.model}), but bundled gphoto2 --auto-detect found 0 cameras.`);
-          console.warn('[CameraManager] ⚠️ Cause: Windows driver (WPD/MTP) or camera USB mode is blocking libusb communication.');
 
-          const blockedMsg = `Kamera fisik terdeteksi di Windows (${primaryPnp.model}), tetapi camera engine (gphoto2) belum dapat mengakses port USB kamera.\nPastikan mode USB kamera diset ke "PC Remote" / "PC Remote (PTP)", bukan Mass Storage / MTP.`;
+          this.driverManager.inspectDriverState().then((driverState) => {
+            if (driverState.state === 'DRIVER_SETUP_REQUIRED') {
+              console.log('[CameraManager] Camera requires WinUSB driver setup. State -> DRIVER_SETUP_REQUIRED');
+              this.connectedCamera = null;
+              this.detectedCameras = [];
+              this.updateState('DRIVER_SETUP_REQUIRED', {
+                cameras: [],
+                pnpDevice: primaryPnp,
+                cameraModel: 'Sony ILCE-7CM2',
+                requiresDriverSetup: true,
+              });
 
-          this.connectedCamera = null;
-          this.detectedCameras = [];
-          this.updateState('DISCONNECTED', {
-            cameras: [],
-            error: blockedMsg,
-            pnpDevice: primaryPnp,
-          });
+              resolve({
+                success: false,
+                cameras: [],
+                pnpDetected: true,
+                pnpCamera: primaryPnp,
+                engineReady: true,
+                status: 'DRIVER_SETUP_REQUIRED',
+                state: 'DRIVER_SETUP_REQUIRED',
+                requiresDriverSetup: true,
+                cameraModel: 'Sony ILCE-7CM2',
+                message: 'Pengaturan koneksi Windows (WinUSB) diperlukan untuk Sony ILCE-7CM2.',
+                hint: 'Klik "Siapkan Koneksi Kamera" untuk mengizinkan pengaturan Windows satu kali.',
+              });
+              return;
+            }
 
-          resolve({
-            success: false,
-            cameras: [],
-            pnpDetected: true,
-            pnpCamera: primaryPnp,
-            engineReady: true,
-            status: 'DISCONNECTED',
-            state: 'DISCONNECTED',
-            error: blockedMsg,
-            message: blockedMsg,
-            hint: 'Kamera fisik terdeteksi di Windows, namun mode USB atau driver Windows belum mengizinkan akses PTP. Periksa menu kamera: USB Connection ➔ PC Remote.',
+            const blockedMsg = `Kamera fisik terdeteksi di Windows (${primaryPnp.model}), tetapi camera engine (gphoto2) belum dapat mengakses port USB kamera.\nPastikan mode USB kamera diset ke "PC Remote" / "PC Remote (PTP)", bukan Mass Storage / MTP.`;
+
+            this.connectedCamera = null;
+            this.detectedCameras = [];
+            this.updateState('DISCONNECTED', {
+              cameras: [],
+              error: blockedMsg,
+              pnpDevice: primaryPnp,
+            });
+
+            resolve({
+              success: false,
+              cameras: [],
+              pnpDetected: true,
+              pnpCamera: primaryPnp,
+              engineReady: true,
+              status: 'DISCONNECTED',
+              state: 'DISCONNECTED',
+              error: blockedMsg,
+              message: blockedMsg,
+              hint: 'Kamera fisik terdeteksi di Windows, namun mode USB atau driver Windows belum mengizinkan akses PTP. Periksa menu kamera: USB Connection ➔ PC Remote.',
+            });
           });
           return;
         }
@@ -1161,14 +1259,14 @@ class NativeCameraService extends EventEmitter {
     const model = (cam.model || '').toLowerCase();
     const instanceId = (cam.instanceId || '').toUpperCase();
     const isSonyA7C2 =
-      (cam.vendorId === 1356 && cam.productId === 3754) ||
-      (cam.vendorId === 0x054c && cam.productId === 0x0eaa) ||
+      (cam.vendorId === 1356 && (cam.productId === 3724 || cam.productId === 3754)) ||
+      (cam.vendorId === 0x054c && (cam.productId === 0x0e8c || cam.productId === 0x0eaa)) ||
       model.includes('ilce-7cm2') ||
       model.includes('a7c ii') ||
       model.includes('a7cii') ||
-      (instanceId.includes('054C') && instanceId.includes('0EAA'));
+      (instanceId.includes('054C') && (instanceId.includes('0E8C') || instanceId.includes('0EAA')));
     if (isSonyA7C2) {
-      return ['--usbid', '0x054c:0x0eaa=0x054c:0x0d56'];
+      return ['--usbid', '0x054c:0x0e8c=0x054c:0x0d56', '--usbid', '0x054c:0x0eaa=0x054c:0x0d56'];
     }
     return [];
   }

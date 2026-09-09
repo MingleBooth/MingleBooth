@@ -58,6 +58,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('camera:driver-install-log', handler);
     return () => ipcRenderer.removeListener('camera:driver-install-log', handler);
   },
+  // Windows Dedicated Driver Manager
+  getDriverState: () => ipcRenderer.invoke('camera:get-driver-state'),
+  startDriverSetup: () => ipcRenderer.invoke('camera:start-driver-setup'),
+  rollbackCameraDriver: () => ipcRenderer.invoke('camera:rollback-driver'),
+  onDriverStateChange: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('camera:driver-state-change', handler);
+    return () => ipcRenderer.removeListener('camera:driver-state-change', handler);
+  },
   // macOS Native Camera Permissions
   requestCameraAccess: () => ipcRenderer.invoke('camera:request-access'),
   getCameraAccessStatus: () => ipcRenderer.invoke('camera:get-status'),

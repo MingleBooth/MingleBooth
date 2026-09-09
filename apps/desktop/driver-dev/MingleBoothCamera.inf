@@ -1,0 +1,39 @@
+; ================================================================
+; MingleBooth Studio - Camera WinUSB Driver Package (Development / QA)
+; Strictly scoped to Sony ILCE-7CM2 (α7C II) in PC Remote mode
+; ================================================================
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGUID   = {88BAE032-5A81-49f0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = MingleBoothCamera.cat
+DriverVer   = 09/10/2026,1.0.0.0
+PnpLockdown = 1
+
+[Manufacturer]
+%ManufacturerName% = MingleBoothModel,NTamd64
+
+[MingleBoothModel.NTamd64]
+%DeviceName% = USB_Install, USB\VID_054C&PID_0E8C
+
+[USB_Install]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[USB_Install.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[USB_Install.HW]
+AddReg = Dev_AddReg
+
+[Dev_AddReg]
+; MingleBooth-specific DeviceInterfaceGUID for libusb-1.0 WinUSB device enumeration
+HKR,,DeviceInterfaceGUIDs,0x10000,"{CDBBD918-C988-447F-9C80-4F02E38A8DB3}"
+
+[Strings]
+ProviderName     = "MingleBooth"
+ManufacturerName = "MingleBooth"
+DeviceName       = "Sony ILCE-7CM2 (MingleBooth Studio Tether)"

@@ -312,6 +312,24 @@ ipcMain.handle('camera:install-driver', async () => {
   });
 });
 
+ipcMain.handle('camera:get-driver-state', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.getDriverState();
+});
+
+ipcMain.handle('camera:start-driver-setup', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.startDriverSetup();
+});
+
+ipcMain.handle('camera:rollback-driver', async () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  return await nativeCamera.rollbackDriver();
+});
+
 ipcMain.handle('camera:release-usb-lock', async () => {
   const tetherServer = getTetherServer(4848);
   const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
