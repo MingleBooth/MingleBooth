@@ -5,7 +5,14 @@ const os = require('os');
 const http = require('http');
 const EventEmitter = require('events');
 const { DriverManager } = require('./driver-manager.cjs');
-const { CAMERA_SUPPORT_MATRIX, findSupportedCamera } = require('./camera-matrix.cjs');
+const {
+  identifyCamera,
+  findSupportedCamera,
+  isCameraSupported,
+  DRIVER_STRATEGY,
+  VERIFICATION_STATUS,
+  CAMERA_SUPPORT_MATRIX,
+} = require('./camera-profiles/index.cjs');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Production Policy:
@@ -989,16 +996,14 @@ class NativeCameraService extends EventEmitter {
         return;
       }
 
-      // Check if Sony a7C II or known camera is connected to apply USB ID override
-      const hasSonyA7C2 = pnpCameras.some(c => {
-        const m = (c.model || '').toLowerCase();
-        const id = (c.instanceId || '').toUpperCase();
-        return m.includes('ilce-7cm2') || m.includes('a7c ii') || m.includes('a7cii') || (id.includes('054C') && id.includes('0EAA'));
-      });
+      // Universal Camera Profile Identification
+      const primaryPnp = pnpCameras[0];
+      const cameraProfile = identifyCamera(primaryPnp.vendorId, primaryPnp.productId, primaryPnp.model);
+      console.log(`[CameraManager] Identified Camera Profile: ${cameraProfile.brand} ${cameraProfile.model} [${cameraProfile.status}] (Strategy: ${cameraProfile.driverStrategy})`);
 
       const autoDetectArgs = ['--auto-detect'];
-      if (hasSonyA7C2) {
-        autoDetectArgs.unshift('--usbid', '0x054c:0x0eaa=0x054c:0x0d56');
+      if (cameraProfile && cameraProfile.backendOptions && Array.isArray(cameraProfile.backendOptions.usbidArgs)) {
+        autoDetectArgs.unshift(...cameraProfile.backendOptions.usbidArgs);
       }
 
       const spawnEnv = this.getGphotoSpawnEnv(binary);
@@ -1033,6 +1038,7 @@ class NativeCameraService extends EventEmitter {
                   instanceId: pnpMatch ? pnpMatch.instanceId : null,
                   vendorId: pnpMatch ? pnpMatch.vendorId : null,
                   productId: pnpMatch ? pnpMatch.productId : null,
+                  profile: cameraProfile,
                   source: 'bundled_gphoto2',
                   engine: 'bundled-windows-engine',
                 });
@@ -1042,47 +1048,20 @@ class NativeCameraService extends EventEmitter {
         }
 
         // Section 7 Critical Rule:
-        // DO NOT mark camera as READY merely because Windows PnP detects a Sony device!
+        // DO NOT mark camera as READY merely because Windows PnP detects a physical USB device!
         if (engineCameras.length === 0) {
-          const primaryPnp = pnpCameras[0];
           console.warn(`[CameraManager] ⚠️ Physical camera detected via Windows PnP (${primaryPnp.model}), but bundled gphoto2 --auto-detect found 0 cameras.`);
 
-          this.driverManager.inspectDriverState().then((driverState) => {
-            if (driverState.state === 'DRIVER_SETUP_REQUIRED') {
-              console.log('[CameraManager] Camera requires WinUSB driver setup. State -> DRIVER_SETUP_REQUIRED');
-              this.connectedCamera = null;
-              this.detectedCameras = [];
-              this.updateState('DRIVER_SETUP_REQUIRED', {
-                cameras: [],
-                pnpDevice: primaryPnp,
-                cameraModel: 'Sony ILCE-7CM2',
-                requiresDriverSetup: true,
-              });
-
-              resolve({
-                success: false,
-                cameras: [],
-                pnpDetected: true,
-                pnpCamera: primaryPnp,
-                engineReady: true,
-                status: 'DRIVER_SETUP_REQUIRED',
-                state: 'DRIVER_SETUP_REQUIRED',
-                requiresDriverSetup: true,
-                cameraModel: 'Sony ILCE-7CM2',
-                message: 'Pengaturan koneksi Windows (WinUSB) diperlukan untuk Sony ILCE-7CM2.',
-                hint: 'Klik "Siapkan Koneksi Kamera" untuk mengizinkan pengaturan Windows satu kali.',
-              });
-              return;
-            }
-
-            const blockedMsg = `Kamera fisik terdeteksi di Windows (${primaryPnp.model}), tetapi camera engine (gphoto2) belum dapat mengakses port USB kamera.\nPastikan mode USB kamera diset ke "PC Remote" / "PC Remote (PTP)", bukan Mass Storage / MTP.`;
-
+          // Check if camera is not yet verified or unsupported
+          if (cameraProfile.status === VERIFICATION_STATUS.NOT_YET_VERIFIED || cameraProfile.status === VERIFICATION_STATUS.UNSUPPORTED) {
+            const vendorMsg = cameraProfile.vendorMessage || 'Model kamera ini belum didukung MingleBooth.';
             this.connectedCamera = null;
             this.detectedCameras = [];
             this.updateState('DISCONNECTED', {
               cameras: [],
-              error: blockedMsg,
+              error: vendorMsg,
               pnpDevice: primaryPnp,
+              profile: cameraProfile,
             });
 
             resolve({
@@ -1093,10 +1072,85 @@ class NativeCameraService extends EventEmitter {
               engineReady: true,
               status: 'DISCONNECTED',
               state: 'DISCONNECTED',
-              error: blockedMsg,
-              message: blockedMsg,
-              hint: 'Kamera fisik terdeteksi di Windows, namun mode USB atau driver Windows belum mengizinkan akses PTP. Periksa menu kamera: USB Connection ➔ PC Remote.',
+              error: vendorMsg,
+              message: vendorMsg,
             });
+            return;
+          }
+
+          // Camera is SUPPORTED; evaluate Driver Strategy
+          if (cameraProfile.driverStrategy === DRIVER_STRATEGY.WINUSB_REQUIRED) {
+            this.driverManager.inspectDriverState().then((driverState) => {
+              if (driverState.state === 'DRIVER_SETUP_REQUIRED') {
+                console.log('[CameraManager] Camera requires driver setup. State -> DRIVER_SETUP_REQUIRED');
+                this.connectedCamera = null;
+                this.detectedCameras = [];
+                this.updateState('DRIVER_SETUP_REQUIRED', {
+                  cameras: [],
+                  pnpDevice: primaryPnp,
+                  cameraModel: cameraProfile.displayName,
+                  requiresDriverSetup: true,
+                });
+
+                resolve({
+                  success: false,
+                  cameras: [],
+                  pnpDetected: true,
+                  pnpCamera: primaryPnp,
+                  engineReady: true,
+                  status: 'DRIVER_SETUP_REQUIRED',
+                  state: 'DRIVER_SETUP_REQUIRED',
+                  requiresDriverSetup: true,
+                  cameraModel: cameraProfile.displayName,
+                  message: 'Pengaturan kamera diperlukan satu kali.',
+                  hint: 'Klik "Siapkan Koneksi Kamera" untuk mengizinkan pengaturan satu kali.',
+                });
+                return;
+              }
+
+              const blockedMsg = `Kamera terdeteksi di Windows (${primaryPnp.model}), tetapi camera engine belum dapat mengakses port USB kamera.\nPastikan mode USB kamera diset ke "${cameraProfile.recommendedMode || 'PC Remote'}".`;
+
+              this.connectedCamera = null;
+              this.detectedCameras = [];
+              this.updateState('DISCONNECTED', {
+                cameras: [],
+                error: blockedMsg,
+                pnpDevice: primaryPnp,
+              });
+
+              resolve({
+                success: false,
+                cameras: [],
+                pnpDetected: true,
+                pnpCamera: primaryPnp,
+                engineReady: true,
+                status: 'DISCONNECTED',
+                state: 'DISCONNECTED',
+                error: blockedMsg,
+                message: blockedMsg,
+              });
+            });
+            return;
+          }
+
+          // Fallback if driver strategy is not WINUSB_REQUIRED
+          this.connectedCamera = null;
+          this.detectedCameras = [];
+          this.updateState('DISCONNECTED', {
+            cameras: [],
+            error: 'Kamera tidak merespons.',
+            pnpDevice: primaryPnp,
+          });
+
+          resolve({
+            success: false,
+            cameras: [],
+            pnpDetected: true,
+            pnpCamera: primaryPnp,
+            engineReady: true,
+            status: 'DISCONNECTED',
+            state: 'DISCONNECTED',
+            message: 'Kamera terdeteksi namun belum siap.',
           });
           return;
         }
@@ -1256,17 +1310,9 @@ class NativeCameraService extends EventEmitter {
   getUsbidArgs() {
     const cam = this.connectedCamera || (this.detectedCameras && this.detectedCameras[0]);
     if (!cam) return [];
-    const model = (cam.model || '').toLowerCase();
-    const instanceId = (cam.instanceId || '').toUpperCase();
-    const isSonyA7C2 =
-      (cam.vendorId === 1356 && (cam.productId === 3724 || cam.productId === 3754)) ||
-      (cam.vendorId === 0x054c && (cam.productId === 0x0e8c || cam.productId === 0x0eaa)) ||
-      model.includes('ilce-7cm2') ||
-      model.includes('a7c ii') ||
-      model.includes('a7cii') ||
-      (instanceId.includes('054C') && (instanceId.includes('0E8C') || instanceId.includes('0EAA')));
-    if (isSonyA7C2) {
-      return ['--usbid', '0x054c:0x0e8c=0x054c:0x0d56', '--usbid', '0x054c:0x0eaa=0x054c:0x0d56'];
+    const profile = cam.profile || identifyCamera(cam.vendorId, cam.productId, cam.model);
+    if (profile && profile.backendOptions && Array.isArray(profile.backendOptions.usbidArgs)) {
+      return [...profile.backendOptions.usbidArgs];
     }
     return [];
   }

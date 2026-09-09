@@ -161,15 +161,12 @@ export const CameraDriverSetupModal: React.FC<CameraDriverSetupModalProps> = ({
             <div className="space-y-4">
               <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/[0.08] space-y-2 text-xs text-neutral-300 leading-relaxed">
                 <p>
-                  Kamera <strong className="text-white">{cameraName}</strong> terdeteksi dalam mode{' '}
-                  <strong className="text-white">PC Remote</strong>, namun Windows menguncinya dengan driver WPD/MTP bawaan.
-                </p>
-                <p>
-                  MingleBooth perlu melakukan <strong className="text-emerald-400">satu kali pengaturan Windows</strong> agar kamera dapat memotret berkecepatan tinggi secara langsung tanpa aplikasi pihak ketiga.
+                  Kamera <strong className="text-white">{cameraName}</strong> terdeteksi. MingleBooth memerlukan{' '}
+                  <strong className="text-emerald-400">pengaturan satu kali</strong> agar kamera dapat memotret dan mengirim foto secara langsung.
                 </p>
                 <div className="pt-2 flex items-center gap-2 text-[11px] text-neutral-400 border-t border-white/[0.06]">
                   <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Aman, resmi dari Windows (WinUSB), dan dapat dikembalikan kapan saja.</span>
+                  <span>Pengaturan resmi sistem dan dapat dipulihkan kapan saja.</span>
                 </div>
               </div>
 
@@ -214,18 +211,18 @@ export const CameraDriverSetupModal: React.FC<CameraDriverSetupModalProps> = ({
               </div>
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-white">
-                  {driverState === 'UAC_PENDING' && 'Menunggu Konfirmasi Windows (UAC)...'}
-                  {driverState === 'PREFLIGHT' && 'Memeriksa Profil & Kompatibilitas Port...'}
-                  {driverState === 'INSTALLING' && 'Mengonfigurasi Driver WinUSB Kamera...'}
-                  {driverState === 'RESTARTING' && 'Memulai Ulang Port USB Kamera...'}
-                  {driverState === 'VERIFYING_PNP' && 'Memverifikasi Status PnP Windows...'}
-                  {driverState === 'VERIFYING_LIBUSB' && 'Menguji Akses Port libusb...'}
-                  {driverState === 'VERIFYING_PTP' && 'Memverifikasi Respons PTP (Non-destructive)...'}
+                  {driverState === 'UAC_PENDING' && 'Menunggu Konfirmasi Izin Windows...'}
+                  {driverState === 'PREFLIGHT' && 'Memeriksa Kamera...'}
+                  {driverState === 'INSTALLING' && 'Menyiapkan Kamera...'}
+                  {driverState === 'RESTARTING' && 'Memulai Ulang Sambungan Kamera...'}
+                  {driverState === 'VERIFYING_PNP' && 'Menguji Koneksi Kamera...'}
+                  {driverState === 'VERIFYING_LIBUSB' && 'Menguji Respon Kamera...'}
+                  {driverState === 'VERIFYING_PTP' && 'Menguji Kesiapan Kamera...'}
                 </p>
                 <p className="text-xs text-neutral-400 max-w-xs">
                   {driverState === 'UAC_PENDING'
                     ? 'Silakan klik tombol "Yes" atau "Ya" pada dialog Windows yang muncul.'
-                    : 'Proses ini berlangsung secara otomatis tanpa mengoperasikan shutter kamera.'}
+                    : 'Proses ini berlangsung secara otomatis beberapa detik saja.'}
                 </p>
               </div>
             </div>

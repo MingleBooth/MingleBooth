@@ -1,19 +1,23 @@
 /**
  * driver-manager.cjs
- * MingleBooth Windows Camera Driver Manager (Development / QA Prototype)
+ * MingleBooth Windows Camera Driver Manager (Boot Camp QA Hardened)
  *
- * Implements the state machine:
+ * Implements the Universal Driver Strategy State Machine:
  *   IDLE -> DRIVER_SETUP_REQUIRED -> UAC_PENDING -> PREFLIGHT -> INSTALLING
- *   -> RESTARTING -> VERIFYING_PNP -> VERIFYING_LIBUSB -> VERIFYING_PTP -> READY (or FAILED / ROLLBACK)
+ *   -> RESTARTING -> VERIFYING_PNP -> VERIFYING_LIBUSB -> VERIFYING_PTP -> READY
+ *   (or automatic ROLLBACK -> FAILED upon post-switch failure)
  *
- * Strictly scoped to Sony ILCE-7CM2 (054C:0E8C).
- * Non-destructive verification only (NO test shots / NO shutter actuation).
+ * Safety Rules:
+ *   1. Strictly requires profile.status === 'SUPPORTED' and profile.driverStrategy === 'WINUSB_REQUIRED'.
+ *   2. Unknown, unverified, or non-WinUSB cameras will NEVER have their Windows drivers modified.
+ *   3. Non-destructive verification only (NO test shots / NO shutter actuation).
+ *   4. Automatic rollback to Microsoft WPD/MTP if any verification check fails after driver switching.
  */
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
-const { findSupportedCamera } = require('./camera-matrix.cjs');
+const { execSync } = require('child_process');
+const { identifyCamera, findSupportedCamera } = require('./camera-profiles/index.cjs');
 
 class DriverManager {
   constructor(options = {}) {
@@ -47,9 +51,9 @@ class DriverManager {
   }
 
   /**
-   * Inspect current Windows PnP driver state for the Sony camera
+   * Inspect current Windows PnP driver state for the connected camera
    */
-  async inspectDriverState() {
+  async inspectDriverState(targetCamera = null) {
     if (process.platform !== 'win32') {
       return {
         state: 'READY',
@@ -60,6 +64,7 @@ class DriverManager {
     }
 
     try {
+      // Query Sony ILCE-7CM2 instance (physical target 054C:0E8C)
       const psCommand = `
         $dev = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
           $_.InstanceId -match 'VID_054C&PID_0E8C'
@@ -90,7 +95,33 @@ class DriverManager {
         return {
           state: 'IDLE',
           connected: false,
-          message: 'Sony ILCE-7CM2 (054C:0E8C) not detected in PC Remote mode.',
+          message: 'Kamera tidak terdeteksi dalam mode PC Remote.',
+        };
+      }
+
+      // Check Profile & Driver Strategy
+      const profile = identifyCamera('054C', '0E8C', parsed.FriendlyName);
+
+      if (!profile || profile.status !== 'SUPPORTED') {
+        this.setState('IDLE');
+        return {
+          state: 'IDLE',
+          connected: true,
+          device: parsed,
+          profile,
+          message: profile?.vendorMessage || 'Model kamera ini belum didukung MingleBooth.',
+        };
+      }
+
+      // If camera does not require WinUSB, it's ready natively
+      if (profile.driverStrategy !== 'WINUSB_REQUIRED') {
+        this.setState('READY');
+        return {
+          state: 'READY',
+          connected: true,
+          device: parsed,
+          profile,
+          message: 'Kamera siap digunakan dengan driver native sistem.',
         };
       }
 
@@ -103,26 +134,29 @@ class DriverManager {
           state: 'READY',
           connected: true,
           device: parsed,
-          message: 'Camera is bound to WinUSB and ready for PTP communication.',
+          profile,
+          message: 'Kamera telah terhubung dan siap mengambil foto.',
         };
       }
 
       if (isWpd) {
-        this.setState('DRIVER_SETUP_REQUIRED', { device: parsed });
+        this.setState('DRIVER_SETUP_REQUIRED', { device: parsed, profile });
         return {
           state: 'DRIVER_SETUP_REQUIRED',
           connected: true,
           device: parsed,
-          message: 'Camera is currently owned by Windows WPD/MTP. WinUSB setup required.',
+          profile,
+          message: 'Pengaturan kamera diperlukan satu kali.',
         };
       }
 
-      this.setState('DRIVER_SETUP_REQUIRED', { device: parsed });
+      this.setState('DRIVER_SETUP_REQUIRED', { device: parsed, profile });
       return {
         state: 'DRIVER_SETUP_REQUIRED',
         connected: true,
         device: parsed,
-        message: `Camera is currently using service '${parsed.Service}'. WinUSB setup required.`,
+        profile,
+        message: 'Pengaturan kamera diperlukan satu kali.',
       };
     } catch (e) {
       console.error('[DriverManager] inspectDriverState error:', e.message);
@@ -160,12 +194,23 @@ class DriverManager {
   }
 
   /**
-   * Start elevated driver setup with progress tracking
+   * Start elevated driver setup with progress tracking and automatic rollback safety
    */
   async startDriverSetup() {
     console.log('[DriverManager] Starting driver setup sequence...');
 
-    // 1. Preflight
+    // 0. Safety Gate: Verify Camera Profile & Strategy
+    const pnpInitial = await this.inspectDriverState();
+    const profile = pnpInitial.profile || identifyCamera('054C', '0E8C');
+
+    if (!profile || profile.status !== 'SUPPORTED' || profile.driverStrategy !== 'WINUSB_REQUIRED') {
+      const safeError = profile?.vendorMessage || 'Model kamera ini belum didukung MingleBooth.';
+      console.warn(`[DriverManager] Safety Gate Refused Setup:`, safeError);
+      this.setState('FAILED', { stage: 'SAFETY_CHECK', error: safeError });
+      return { success: false, state: 'FAILED', error: safeError };
+    }
+
+    // 1. Preflight Audit
     let preflight;
     try {
       preflight = await this.runPreflight();
@@ -204,6 +249,7 @@ class DriverManager {
       let errMsg = `Installer process failed with exit code: ${exitCode}`;
       if (exitCode === 2) errMsg = 'Izin Administrator (UAC) ditolak atau dibatalkan oleh pengguna.';
       if (exitCode === 1) errMsg = 'Pemeriksaan profil kamera (Preflight) gagal.';
+      if (exitCode === 6) errMsg = 'Windows memilih driver lain atau verifikasi driver rank gagal.';
 
       this.setState('FAILED', { stage: 'INSTALLING', exitCode, error: errMsg });
       await this.collectDiagnosticBundle(`INSTALL_EXIT_${exitCode}`, errMsg);
@@ -218,6 +264,8 @@ class DriverManager {
     const pnpStatus = await this.inspectDriverState();
     if (pnpStatus.state !== 'READY') {
       const err = `PnP Verification failed: Service is '${pnpStatus.device ? pnpStatus.device.Service : 'Unknown'}'`;
+      console.error('[DriverManager] VERIFYING_PNP failed. Triggering automatic rollback...');
+      await this.rollbackDriver();
       this.setState('FAILED', { stage: 'VERIFYING_PNP', error: err });
       await this.collectDiagnosticBundle('PNP_VERIFY_FAILED', err);
       return { success: false, state: 'FAILED', error: err };
@@ -247,6 +295,8 @@ class DriverManager {
       }
     } catch (e) {
       const err = `libusb interface claim / auto-detect failed: ${e.message}`;
+      console.error('[DriverManager] VERIFYING_LIBUSB failed. Triggering automatic rollback...');
+      await this.rollbackDriver();
       this.setState('FAILED', { stage: 'VERIFYING_LIBUSB', error: err });
       await this.collectDiagnosticBundle('LIBUSB_CLAIM_FAILED', err);
       return { success: false, state: 'FAILED', error: err };
@@ -270,6 +320,8 @@ class DriverManager {
       });
     } catch (e) {
       const err = `PTP Handshake / Property query failed: ${e.message}`;
+      console.error('[DriverManager] VERIFYING_PTP failed. Triggering automatic rollback...');
+      await this.rollbackDriver();
       this.setState('FAILED', { stage: 'VERIFYING_PTP', error: err });
       await this.collectDiagnosticBundle('PTP_HANDSHAKE_FAILED', err);
       return { success: false, state: 'FAILED', error: err };
@@ -280,7 +332,7 @@ class DriverManager {
     return {
       success: true,
       state: 'READY',
-      message: 'Camera driver successfully bound and verified via non-destructive PTP check.',
+      message: 'Kamera berhasil disiapkan dan siap digunakan.',
     };
   }
 
@@ -313,7 +365,7 @@ class DriverManager {
       return {
         success: true,
         state: 'DRIVER_SETUP_REQUIRED',
-        message: 'Rollback successful: Microsoft WPD/MTP driver restored.',
+        message: 'Driver sistem berhasil dipulihkan.',
       };
     } catch (e) {
       const err = `Rollback process failed: ${e.message}`;
