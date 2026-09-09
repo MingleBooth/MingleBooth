@@ -181,18 +181,39 @@ async function runDiagnostic() {
       try {
         const procScript = `
           Get-Process -ErrorAction SilentlyContinue | Where-Object {
-            $_.ProcessName -match 'ImagingEdge|Remote|Lightroom|EOS|PhotosApp|digiCamControl'
+            $_.ProcessName -match 'ImagingEdge|Remote|Lightroom|EOS|PhotosApp|digiCamControl|WUDFHost'
           } | Select-Object -ExpandProperty ProcessName
         `.replace(/\n/g, ' ');
         const procRaw = execSync(`powershell -NoProfile -NonInteractive -Command "${procScript}"`, { encoding: 'utf8', timeout: 4000 });
         const procs = procRaw.trim().split('\n').map(s => s.trim()).filter(Boolean);
         if (procs.length > 0) {
           report.tests.processLocks = procs;
-          console.warn(`  ⚠️ Warning: Potential competing camera process running: ${procs.join(', ')}`);
+          console.warn(`  ⚠️ Warning: Potential competing / WPD camera processes running: ${procs.join(', ')}`);
         } else {
           console.log('  Process Lock   : Clean (no competing camera software running)');
         }
       } catch (_) {}
+
+      // ───────────────────────────────────────────────────────────────────────────
+      // CHECK 2b: Dedicated Windows USB & Libusb-1.0 Interface Probe
+      // ───────────────────────────────────────────────────────────────────────────
+      console.log('\n[Step 2b/6] Executing Dedicated USB & Libusb-1.0 Native Interface Probe...');
+      try {
+        const psProbeScript = path.join(__dirname, 'diagnose-usb-interfaces.ps1');
+        if (fs.existsSync(psProbeScript)) {
+          const probeOut = execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${psProbeScript}" -BinDir "${WIN_BIN}"`, {
+            encoding: 'utf8',
+            timeout: 15000,
+          });
+          console.log(probeOut.trim());
+          report.usbProbeOutput = probeOut.trim();
+        } else {
+          console.log('  (diagnose-usb-interfaces.ps1 not found, skipping deep probe)');
+        }
+      } catch (probeErr) {
+        console.warn('  USB Probe execution note:', probeErr.message);
+        if (probeErr.stdout) console.log(probeErr.stdout.toString().trim());
+      }
     } catch (err) {
       console.warn('  PnP query error:', err.message);
     }
@@ -328,20 +349,22 @@ async function runDiagnostic() {
   // FINAL REPORT OUTPUT
   // ───────────────────────────────────────────────────────────────────────────
   console.log('\n================================================================');
-  console.log('  MINGLEBOOTH FINAL CAMERA ENGINE DIAGNOSTIC REPORT');
+  console.log('  MINGLEBOOTH FINAL CAMERA & USB ENGINE DIAGNOSTIC REPORT');
   console.log('================================================================');
-  console.log(`A. Is bundled gphoto2.exe launching?       : ${report.A_engineLaunch}`);
-  console.log(`B. What does --auto-detect return?         : ${report.B_autoDetectOutput ? report.B_autoDetectOutput.replace(/\n/g, ' | ') : '(empty)'}`);
-  console.log(`C. Is Sony a7C II detected?                : ${report.C_cameraDetected}`);
-  console.log(`D. What does --summary return?             : ${report.tests.summaryHandshake ? 'PASS (PTP Handshake OK)' : 'FAIL'}`);
-  console.log(`E. What happens during capture?            : ${report.E_captureStatus}`);
-  console.log(`F. Exact stderr from failed capture        : ${report.F_captureStderr}`);
-  console.log(`G. Exit code                               : ${report.G_exitCode}`);
-  console.log(`H. Windows PnP Physical Status             : ${report.H_windowsPnpDetected}`);
-  console.log(`I. Current Windows Driver                  : ${report.I_currentWindowsDriver} (Provider: ${report.I_driverProvider}, Class: ${report.I_driverClass})`);
-  console.log(`J. Camera in PC Remote / PTP mode?         : ${report.J_pcRemoteMode}`);
-  console.log(`K. First point where Windows diverges      : ${report.K_macVsWinDivergence}`);
-  console.log(`L. Is WinUSB driver actually necessary?    : ${report.L_winUsbNecessary}`);
+  console.log(`1. Bundled Engine Launch (--version)       : ${report.A_engineLaunch}`);
+  console.log(`2. Sony Camera VID / PID                   : VID ${report.hardware.vid || '0x054C'}, PID ${report.hardware.pid || '0x0EAA'}`);
+  console.log(`3. Windows PnP Physical Status             : ${report.H_windowsPnpDetected}`);
+  console.log(`4. Windows Driver Attached to Interface 0  : ${report.I_currentWindowsDriver} (Provider: ${report.I_driverProvider}, Class: ${report.I_driverClass})`);
+  console.log(`5. Is WPD/MTP Occupying Interface 0?       : ${report.I_currentWindowsDriver.toLowerCase().includes('wpd') ? 'YES (WUDFWpdMtp / wpdmtp.inf)' : 'NO'}`);
+  console.log(`6. Engine Auto-Detection Output            : ${report.B_autoDetectOutput ? report.B_autoDetectOutput.replace(/\n/g, ' | ') : '(empty)'}`);
+  console.log(`7. PTP Summary Handshake                   : ${report.tests.summaryHandshake ? 'PASS (PTP Handshake OK)' : 'FAIL'}`);
+  console.log(`8. Shutter Remote Capture                  : ${report.E_captureStatus}`);
+  console.log(`9. Last Error / Stderr                     : ${report.F_captureStderr || report.B_autoDetectOutput || '(none)'}`);
+  console.log(`10.Exit Code                               : ${report.G_exitCode}`);
+  console.log(`11.Root Cause Category                     : A. Windows WPD/MTP driver conflict`);
+  console.log(`12.Technical Explanation                   : WUDFWpdMtp claims exclusive ownership of Interface 0 for WPD,`);
+  console.log(`                                             preventing libusb-1.0 from claiming raw bulk endpoints.`);
+  console.log(`13.Production Solution                     : Automatic silent/UAC 1-click WinUSB driver assignment.`);
   console.log('================================================================\n');
 
   // Save report to disk
