@@ -32,6 +32,9 @@ export default function VendorLoginPage() {
 
       if (res.ok && data.success) {
         localStorage.setItem('mb_web_user', JSON.stringify(data.user));
+        if (data.token) {
+          localStorage.setItem('mb_web_token', data.token);
+        }
         router.push(data.redirectUrl || '/dashboard');
       } else {
         setErrorMsg(data.error || 'Email atau password salah.');

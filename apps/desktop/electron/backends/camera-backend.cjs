@@ -9,8 +9,11 @@
  *   - SonyCrSdkBackend (future)
  */
 
-class CameraBackend {
+const { EventEmitter } = require('events');
+
+class CameraBackend extends EventEmitter {
   constructor(name, options = {}) {
+    super();
     if (new.target === CameraBackend) {
       throw new TypeError('Cannot construct CameraBackend instances directly; use a concrete backend subclass.');
     }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { createSignedToken } from '@/lib/auth-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,10 +18,23 @@ export async function POST(req: NextRequest) {
 
     // 1. Check if Superadmin by email or role
     if (cleanEmail === 'superadmin@minglebooth.com' || cleanEmail === 'admin@minglebooth.com') {
+      const adminPayload = {
+        userId: '00000000-0000-0000-0000-000000000001',
+        email: cleanEmail,
+        fullName: 'Super Administrator',
+        role: 'SUPER_ADMIN',
+        orgId: '00000000-0000-0000-0000-000000000000',
+        orgName: 'MingleBooth HQ',
+        issuedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+      const token = createSignedToken(adminPayload);
+
       return NextResponse.json({
         success: true,
+        token,
         user: {
-          id: '00000000-0000-0000-0000-000000000001',
+          id: adminPayload.userId,
           email: cleanEmail,
           fullName: 'Super Administrator',
           role: 'SUPER_ADMIN',
@@ -33,38 +47,42 @@ export async function POST(req: NextRequest) {
     const { data: userProfile } = await client
       .from('user_profiles')
       .select('*, organizations(*)')
-      .eq('email', cleanEmail)
+      .ilike('email', cleanEmail)
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (userProfile) {
-      const isSuper = userProfile.role === 'SUPER_ADMIN';
-      return NextResponse.json({
-        success: true,
-        user: {
-          id: userProfile.id,
-          email: userProfile.email,
-          fullName: userProfile.full_name || 'Vendor Owner',
-          role: userProfile.role || 'VENDOR_STAFF',
-          org: userProfile.organizations,
-        },
-        redirectUrl: isSuper ? '/admin' : '/dashboard',
-      });
+    if (!userProfile) {
+      return NextResponse.json(
+        { error: 'Email atau password salah. Pastikan akun Anda telah terdaftar.' },
+        { status: 401 }
+      );
     }
 
-    // 3. Fallback for vendor login demo
-    const { data: defaultOrg } = await client.from('organizations').select('*').limit(1).single();
+    const isSuper = userProfile.role === 'SUPER_ADMIN';
+    const org = userProfile.organizations;
+    const sessionPayload = {
+      userId: userProfile.id,
+      email: userProfile.email,
+      fullName: userProfile.full_name || 'Vendor Owner',
+      role: userProfile.role || 'VENDOR_STAFF',
+      orgId: userProfile.organization_id || org?.id,
+      orgName: org?.name || 'Vendor Studio',
+      issuedAt: new Date().toISOString(),
+      expiresAt: org?.subscription_expires_at || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+    const token = createSignedToken(sessionPayload);
 
     return NextResponse.json({
       success: true,
+      token,
       user: {
-        id: 'vendor_user_1',
-        email: cleanEmail,
-        fullName: defaultOrg?.name || 'ABC Photobooth Studio',
-        role: 'VENDOR_OWNER',
-        org: defaultOrg,
+        id: userProfile.id,
+        email: userProfile.email,
+        fullName: userProfile.full_name || 'Vendor Owner',
+        role: userProfile.role || 'VENDOR_STAFF',
+        org: userProfile.organizations,
       },
-      redirectUrl: '/dashboard',
+      redirectUrl: isSuper ? '/admin' : '/dashboard',
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Login gagal' }, { status: 500 });

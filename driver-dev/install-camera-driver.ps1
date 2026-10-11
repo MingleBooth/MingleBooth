@@ -38,11 +38,23 @@ Write-Log "================================================================" "Cy
 Write-Log "  MINGLEBOOTH ELEVATED DRIVER INSTALLATION HELPER (QA HARDENED)" "Cyan"
 Write-Log "================================================================" "Cyan"
 
-# 1. Elevation Check
+# 1. Elevation Check & safe self-elevation
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Log "[ERROR] Administrator privileges required. Elevation denied or cancelled." "Red"
-    exit 2
+    try {
+        $argStr = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+        if ($InfPath) {
+            $argStr += " -InfPath `"$InfPath`""
+        }
+        if ($Force) {
+            $argStr += " -Force"
+        }
+        $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argStr -Verb RunAs -Wait -PassThru
+        exit $proc.ExitCode
+    } catch {
+        Write-Log "[ERROR] Administrator privileges required. Elevation denied or cancelled: $($_.Exception.Message)" "Red"
+        exit 2
+    }
 }
 
 # 2. Locate INF File

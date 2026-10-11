@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { verifyServerAuth } from '@/lib/auth-server';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'create_admin',
+        'Penambahan akun admin dinonaktifkan pada Vercel Preview.'
+      );
+    }
+
+    const auth = await verifyServerAuth(req);
+    if (!auth.isValid) {
+      return NextResponse.json({ error: auth.error, code: 'AUTH_REQUIRED' }, { status: auth.status || 401 });
+    }
+    if (!auth.isSuperAdmin) {
+      return NextResponse.json({ error: 'Superadmin role required', code: 'ORG_ACCESS_DENIED' }, { status: 403 });
+    }
+
     const body = await req.json();
     const { email, fullName, role = 'SUPER_ADMIN' } = body;
 
@@ -52,6 +69,21 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'delete_admin',
+        'Penghapusan akun admin dinonaktifkan pada Vercel Preview.'
+      );
+    }
+
+    const auth = await verifyServerAuth(req);
+    if (!auth.isValid) {
+      return NextResponse.json({ error: auth.error, code: 'AUTH_REQUIRED' }, { status: auth.status || 401 });
+    }
+    if (!auth.isSuperAdmin) {
+      return NextResponse.json({ error: 'Superadmin role required', code: 'ORG_ACCESS_DENIED' }, { status: 403 });
+    }
+
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('id');
 

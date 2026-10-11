@@ -66,6 +66,8 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
   const [eventPhotos, setEventPhotos] = useState<EventPhotoItem[]>([]);
   const [loadingEventPhotos, setLoadingEventPhotos] = useState(false);
 
+  const [imageLoadErrors, setImageLoadErrors] = useState<Record<string, boolean>>({});
+
   // Touch Swipe Handling
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
@@ -188,6 +190,10 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
   };
 
   const handleDownloadActiveSlide = () => {
+    if (imageLoadErrors[currentSlide.url]) {
+      alert('File foto belum tersedia untuk diunduh.');
+      return;
+    }
     const link = document.createElement('a');
     link.href = currentSlide.url;
     link.download = currentSlide.downloadName;
@@ -199,8 +205,13 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
   };
 
   const handleDownloadAllMyFiles = async () => {
-    for (let i = 0; i < slides.length; i++) {
-      const s = slides[i];
+    const validSlides = slides.filter((s) => !imageLoadErrors[s.url]);
+    if (validSlides.length === 0) {
+      alert('Tidak ada file foto yang tersedia untuk diunduh.');
+      return;
+    }
+    for (let i = 0; i < validSlides.length; i++) {
+      const s = validSlides[i];
       const link = document.createElement('a');
       link.href = s.url;
       link.download = s.downloadName;
@@ -301,6 +312,20 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
               <div className="w-5 h-5 border-2 border-neutral-700 border-t-white rounded-full animate-spin" />
               <span className="text-[10px] uppercase tracking-widest font-mono">Memuat...</span>
             </div>
+          ) : imageLoadErrors[currentSlide.url] ? (
+            <div className="flex flex-col items-center justify-center p-6 text-center gap-3 text-neutral-400 select-none animate-fadeIn">
+              <div className="w-14 h-14 rounded-2xl bg-neutral-900 border border-neutral-800 flex items-center justify-center text-neutral-400 shadow-md">
+                <Camera className="w-6 h-6 stroke-[1.5]" />
+              </div>
+              <div className="flex flex-col gap-1 max-w-xs">
+                <span className="text-xs font-bold uppercase tracking-wider text-white">
+                  {currentSlide.type === 'raw' ? 'Foto Original Tidak Tersedia' : 'Foto Belum Siap'}
+                </span>
+                <span className="text-[11px] text-neutral-500 leading-relaxed">
+                  File ini sedang diproses atau belum tersinkronisasi dari booth.
+                </span>
+              </div>
+            </div>
           ) : (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -308,6 +333,9 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
                 key={currentSlide.url}
                 src={currentSlide.url}
                 alt={currentSlide.title}
+                onError={() => {
+                  setImageLoadErrors((prev) => ({ ...prev, [currentSlide.url]: true }));
+                }}
                 className="max-h-full max-w-full w-auto h-auto object-contain select-none mx-auto filter drop-shadow-2xl"
               />
 
@@ -365,7 +393,8 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
         {/* Primary High-Contrast Download Button */}
         <button
           onClick={handleDownloadActiveSlide}
-          className="w-full h-12 bg-white hover:bg-neutral-200 text-black font-bold text-xs uppercase tracking-[0.15em] rounded-lg shadow-xl flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
+          disabled={Boolean(imageLoadErrors[currentSlide.url])}
+          className="w-full h-12 bg-white hover:bg-neutral-200 text-black font-bold text-xs uppercase tracking-[0.15em] rounded-lg shadow-xl flex items-center justify-center gap-2 active:scale-[0.99] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {downloadSuccess ? (
             <>

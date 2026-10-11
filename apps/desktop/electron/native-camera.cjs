@@ -13,6 +13,7 @@ const {
   VERIFICATION_STATUS,
   CAMERA_SUPPORT_MATRIX,
 } = require('./camera-profiles/index.cjs');
+const { getBackendForProfile, SonyCameraBackend } = require('./backends/index.cjs');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Production Policy:
@@ -132,6 +133,7 @@ class NativeCameraService extends EventEmitter {
     this.tetherServerRef = null;
     this.wasExplicitlyStoppingLiveView = false;
     this.selfTestResult = null;
+    this.sonyBackend = null;
 
     if (!fs.existsSync(this.tetherDir)) {
       try {
@@ -882,44 +884,41 @@ class NativeCameraService extends EventEmitter {
         return;
       }
 
-      // ── macOS: try gphoto2 --auto-detect first, fallback to ioreg ─────────
-      const binary = this.findGphotoBinary();
-      console.log('[CameraEngine] engine path =', binary || '(none)');
-      if (!binary) {
-        // No gphoto2 CLI, fall back to ioreg USB scan
-        this._detectMacOSCamerasViaIoreg(resolve);
-        return;
-      }
-
-      console.log('[CameraEngine] running --auto-detect');
-      execFile(binary, ['--auto-detect'], { timeout: 8000 }, (err, stdout) => {
-        console.log('[CameraEngine] result =', stdout ? stdout.trim() : (err ? err.message : '(empty)'));
-        if (err || !stdout) {
-          this._detectMacOSCamerasViaIoreg(resolve);
+      // ── macOS: Scan via ioreg first (non-intrusive USB hardware scan) ──────
+      this._detectMacOSCamerasViaIoreg((ioregRes) => {
+        if (ioregRes && ioregRes.success && ioregRes.cameras && ioregRes.cameras.length > 0) {
+          resolve(ioregRes);
           return;
         }
 
-        const lines = stdout.trim().split('\n');
-        const cameras = [];
+        // Fallback: if ioreg found no camera, try gphoto2 --auto-detect if available
+        const binary = this.findGphotoBinary();
+        if (!binary) {
+          this.finishDetection([], resolve);
+          return;
+        }
 
-        for (let i = 2; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-          const match = line.match(/^(.+?)\s{2,}(usb:\S+.*)$/);
-          if (match) {
-            cameras.push({ model: match[1].trim(), port: match[2].trim() });
-          } else {
-            cameras.push({ model: line, port: 'usb' });
+        console.log('[CameraEngine] running --auto-detect fallback');
+        execFile(binary, ['--auto-detect'], { timeout: 8000 }, (err, stdout) => {
+          if (err || !stdout) {
+            this.finishDetection([], resolve);
+            return;
           }
-        }
 
-        if (cameras.length > 0) {
+          const lines = stdout.trim().split('\n');
+          const cameras = [];
+          for (let i = 2; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            const match = line.match(/^(.+?)\s{2,}(usb:\S+.*)$/);
+            if (match) {
+              cameras.push({ model: match[1].trim(), port: match[2].trim() });
+            } else {
+              cameras.push({ model: line, port: 'usb' });
+            }
+          }
           this.finishDetection(cameras, resolve);
-          return;
-        }
-
-        // gphoto2 found no cameras, try ioreg fallback
-        this._detectMacOSCamerasViaIoreg(resolve);
+        });
       });
     });
   }
@@ -968,23 +967,7 @@ class NativeCameraService extends EventEmitter {
   }
 
   _detectWindowsCameras(resolve) {
-    console.log('[CameraManager] Detecting Windows cameras via bundled engine...');
-    const binary = this.findGphotoBinary();
-    console.log('[CameraEngine] engine path =', binary || '(none)');
-
-    if (!binary) {
-      const err = cameraError('CAMERA_ENGINE_NOT_FOUND', 'Bundled camera engine not found on Windows');
-      this.updateState('ERROR', { error: err.message });
-      resolve({
-        success: false,
-        ...err,
-        cameras: [],
-        engineReady: false,
-        status: 'ERROR',
-        state: 'ERROR',
-      });
-      return;
-    }
+    console.log('[CameraManager] Detecting Windows cameras...');
 
     // Step 1: Scan Windows PnP for physical USB camera presence
     this._scanWindowsPnpCameras((pnpCameras) => {
@@ -996,10 +979,59 @@ class NativeCameraService extends EventEmitter {
         return;
       }
 
-      // Universal Camera Profile Identification
+      // Inspect all returned devices and select Sony α7C II target (do NOT assume pnpCameras[0])
+      const sonyTarget = pnpCameras.find((dev) =>
+        dev.backendType === 'sony-sdk' ||
+        dev.backend === 'sony-sdk' ||
+        (dev.vendorId === 1356 && dev.productId === 3724) ||
+        (dev.vendorId === 0x054c && dev.productId === 0x0e8c) ||
+        /VID_054C.*PID_0E8C/i.test(dev.instanceId || '') ||
+        /ILCE-7CM2|Sony Remote Control Camera/i.test(dev.friendlyName || dev.model || '') ||
+        /ILCE-7CM2/i.test(dev.instanceId || '')
+      );
+
+      if (sonyTarget) {
+        console.log('[CameraManager] Sony α7C II detected via Windows PnP — delegating to Sony Camera Remote SDK.');
+        const sonyProfile = identifyCamera(sonyTarget.vendorId || 1356, sonyTarget.productId || 3724, sonyTarget.rawModel || sonyTarget.friendlyName || sonyTarget.model);
+        const sonyCam = {
+          model: 'Sony α7C II',
+          rawModel: sonyTarget.rawModel || sonyTarget.friendlyName || 'ILCE-7CM2',
+          friendlyName: sonyTarget.friendlyName || 'Sony Remote Control Camera',
+          vendorId: sonyTarget.vendorId || 1356,
+          productId: sonyTarget.productId || 3724,
+          instanceId: sonyTarget.instanceId,
+          port: 'usb:sony-sdk',
+          source: 'sony-sdk',
+          engine: 'Sony Camera Remote SDK 2.02.00',
+          backend: 'sony-sdk',
+          backendType: 'sony-sdk',
+          profile: sonyProfile,
+        };
+        this.finishDetection([sonyCam], resolve);
+        return;
+      }
+
+      // Non-Sony PnP camera fallback
       const primaryPnp = pnpCameras[0];
       const cameraProfile = identifyCamera(primaryPnp.vendorId, primaryPnp.productId, primaryPnp.model);
       console.log(`[CameraManager] Identified Camera Profile: ${cameraProfile.brand} ${cameraProfile.model} [${cameraProfile.status}] (Strategy: ${cameraProfile.driverStrategy})`);
+
+      const binary = this.findGphotoBinary();
+      console.log('[CameraEngine] engine path =', binary || '(none)');
+
+      if (!binary) {
+        const err = cameraError('CAMERA_ENGINE_NOT_FOUND', 'Bundled camera engine not found on Windows');
+        this.updateState('ERROR', { error: err.message });
+        resolve({
+          success: false,
+          ...err,
+          cameras: [],
+          engineReady: false,
+          status: 'ERROR',
+          state: 'ERROR',
+        });
+        return;
+      }
 
       const autoDetectArgs = ['--auto-detect'];
       if (cameraProfile && cameraProfile.backendOptions && Array.isArray(cameraProfile.backendOptions.usbidArgs)) {
@@ -1164,32 +1196,14 @@ class NativeCameraService extends EventEmitter {
   _scanWindowsPnpCameras(callback) {
     console.log('[CameraManager] Scanning Windows PnP devices for camera presence...');
 
-    // PowerShell: scan for Image/Camera/WPD class devices + known camera vendor IDs
-    const psScript = `
-      $devices = @()
-      $classes = @('Camera', 'Image', 'WPD', 'USB')
-      $vendorIds = @('VID_054C', 'VID_04A9', 'VID_04B0', 'VID_0411', 'VID_04DA', 'VID_07B4')
-      $allDevices = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue
-      foreach ($d in $allDevices) {
-        $isCamera = $false
-        if ($d.Class -in $classes) { $isCamera = $true }
-        foreach ($vid in $vendorIds) {
-          if ($d.InstanceId -match $vid) { $isCamera = $true }
-        }
-        if ($isCamera -and $d.Status -eq 'OK') {
-          $devices += [PSCustomObject]@{
-            model = $d.FriendlyName
-            instanceId = $d.InstanceId
-            class = $d.Class
-            status = $d.Status
-          }
-        }
-      }
-      $devices | ConvertTo-Json -Depth 2
-    `.trim();
+    // Robust single PowerShell pipeline targeting Sony α7C II and camera devices across complete present PnP list
+    const psCmd =
+      'Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | ' +
+      'Where-Object { $_.InstanceId -match \'VID_054C.*PID_0E8C\' -or $_.FriendlyName -match \'ILCE-7CM2|Sony Remote Control Camera\' -or $_.Class -in @(\'Camera\',\'Image\',\'WPD\') -or $_.InstanceId -match \'VID_(04A9|04B0|0411|04DA|07B4)\' } | ' +
+      'Select-Object FriendlyName, InstanceId, Class, Status | ConvertTo-Json -Compress';
 
     exec(
-      `powershell -NoProfile -NonInteractive -Command "${psScript.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`,
+      `powershell -NoProfile -NonInteractive -Command "${psCmd}"`,
       { timeout: 8000 },
       (winErr, winOut) => {
         const cameras = [];
@@ -1198,23 +1212,40 @@ class NativeCameraService extends EventEmitter {
             let parsed = JSON.parse(winOut.trim());
             if (!Array.isArray(parsed)) parsed = [parsed];
             for (const item of parsed) {
-              if (item && item.model && typeof item.model === 'string') {
-                const name = item.model.trim();
-                // Filter out generic USB hubs and WPD disk devices
-                if (!/hub|root|composite|disk|storage|volume|partition/i.test(name)) {
-                  const vidMatch = item.instanceId ? item.instanceId.match(/VID_([0-9A-Fa-f]{4})/i) : null;
-                  const pidMatch = item.instanceId ? item.instanceId.match(/PID_([0-9A-Fa-f]{4})/i) : null;
-                  const vendorId = vidMatch ? parseInt(vidMatch[1], 16) : null;
-                  const productId = pidMatch ? parseInt(pidMatch[1], 16) : null;
+              if (item) {
+                const name = (item.FriendlyName || item.model || '').trim();
+                const instanceId = item.InstanceId || item.instanceId || '';
+                const devClass = item.Class || item.class || '';
+                const devStatus = item.Status || item.status || '';
+
+                const isSony =
+                  /VID_054C.*PID_0E8C/i.test(instanceId) ||
+                  /ILCE-7CM2|Sony Remote Control Camera/i.test(name) ||
+                  /ILCE-7CM2/i.test(instanceId);
+
+                // Filter out generic USB hubs and WPD disk devices unless it's our Sony camera
+                if (isSony || !/hub|root|composite|disk|storage|volume|partition/i.test(name)) {
+                  const vidMatch = instanceId ? instanceId.match(/VID_([0-9A-Fa-f]{4})/i) : null;
+                  const pidMatch = instanceId ? instanceId.match(/PID_([0-9A-Fa-f]{4})/i) : null;
+                  const vendorId = vidMatch ? parseInt(vidMatch[1], 16) : (isSony ? 1356 : null);
+                  const productId = pidMatch ? parseInt(pidMatch[1], 16) : (isSony ? 3724 : null);
+
+                  const modelName = isSony ? 'Sony α7C II' : (name || 'Kamera USB');
 
                   cameras.push({
-                    model: name,
-                    port: 'usb:pnp',
-                    instanceId: item.instanceId,
-                    class: item.class,
+                    model: modelName,
+                    friendlyName: name || modelName,
+                    rawModel: name || modelName,
+                    instanceId,
+                    class: devClass,
+                    status: devStatus,
                     vendorId,
                     productId,
-                    source: 'windows_pnp',
+                    port: isSony ? 'usb:sony-sdk' : 'usb:pnp',
+                    source: isSony ? 'sony-sdk' : 'windows_pnp',
+                    engine: isSony ? 'Sony Camera Remote SDK 2.02.00' : 'bundled-windows-engine',
+                    backend: isSony ? 'sony-sdk' : 'gphoto2',
+                    backendType: isSony ? 'sony-sdk' : 'gphoto2',
                   });
                 }
               }
@@ -1258,18 +1289,41 @@ class NativeCameraService extends EventEmitter {
     console.log('[CameraManager] detection completed');
     const enrichedCameras = (cameras || []).map((c) => {
       const caps = this.detectCameraCapabilities(c);
+      const profile = c.profile || identifyCamera(c.vendorId, c.productId, c.model);
+      const isSonySdk =
+        (process.platform === 'darwin' || process.platform === 'win32') &&
+        (profile?.backendType === 'sony-sdk' ||
+          (c.vendorId === 1356 && c.productId === 3724) ||
+          /ILCE-7CM2|7CM2/i.test(c.model || ''));
+
       return {
-        model: c.model || 'Kamera Studio USB',
-        port: c.port || 'usb',
-        source: c.source || 'native',
-        engine: c.engine || 'bundled-windows-engine',
+        model: isSonySdk ? (profile?.displayName || 'Sony α7C II') : (c.model || 'Kamera Studio USB'),
+        rawModel: c.model,
+        vendorId: c.vendorId,
+        productId: c.productId,
+        manufacturer: isSonySdk ? 'Sony' : (profile?.brand || 'Unknown'),
+        port: isSonySdk ? 'usb:sony-sdk' : (c.port || 'usb'),
+        source: isSonySdk ? 'sony-sdk' : (c.source || 'native'),
+        engine: isSonySdk ? 'Sony Camera Remote SDK 2.02.00' : (c.engine || (process.platform === 'darwin' ? 'gphoto2' : 'bundled-windows-engine')),
+        backend: isSonySdk ? 'sony-sdk' : (profile?.backendType || 'gphoto2'),
+        profile,
         detected: true,
-        connected: Boolean(this.connectedCamera && this.connectedCamera.model === c.model),
-        capabilities: {
-          capture: caps.remoteCapture ?? true,
-          download: caps.imageDownload ?? true,
-          liveView: caps.liveView ?? true,
-        },
+        connected: Boolean(
+          this.connectedCamera &&
+            (this.connectedCamera.model === c.model || (isSonySdk && this.connectedCamera.backend === 'sony-sdk'))
+        ),
+        capabilities: isSonySdk
+          ? {
+              capture: true,
+              download: true,
+              liveView: true,
+              batteryStatus: true,
+            }
+          : {
+              capture: caps.remoteCapture ?? true,
+              download: caps.imageDownload ?? true,
+              liveView: caps.liveView ?? true,
+            },
       };
     });
 
@@ -1341,9 +1395,74 @@ class NativeCameraService extends EventEmitter {
       return { success: false, ...err };
     }
 
+    if (process.platform === 'win32') {
+      console.log('[WIN-TRACE] selected camera:', cameraToConnect.model);
+    }
     console.log('[CameraManager] Connecting to:', cameraToConnect.model);
 
-    // ── Windows path ───────────────────────────────────────────────────────
+    // ── Official Sony Camera Remote SDK 2.02.00 for verified ILCE-7CM2 (macOS & Windows) ──
+    const isSonyIlce7cm2 =
+      cameraToConnect.backend === 'sony-sdk' ||
+      cameraToConnect.profile?.backendType === 'sony-sdk' ||
+      /ILCE-7CM2|7CM2/i.test(cameraToConnect.model || '') ||
+      (cameraToConnect.vendorId === 1356 && cameraToConnect.productId === 3724);
+
+    if ((process.platform === 'darwin' || process.platform === 'win32') && isSonyIlce7cm2) {
+      if (process.platform === 'win32') {
+        console.log('[WIN-TRACE] backend selected: sony-sdk');
+      }
+      console.log('[CameraManager] Routing connection to SonyCameraBackend (Sony Camera Remote SDK 2.02.00)...');
+      if (!this.sonyBackend) {
+        this.sonyBackend = getBackendForProfile(cameraToConnect.profile || { backendType: 'sony-sdk' }, {
+          tetherDir: this.tetherDir,
+        });
+      }
+
+      const connRes = await this.sonyBackend.connect(cameraToConnect.profile);
+      if (connRes.success) {
+        if (this.sonyBackend) {
+          this.sonyBackend.removeAllListeners('liveFrame');
+          this.sonyBackend.on('liveFrame', (frame) => {
+            this.emit('liveFrame', frame);
+          });
+          this.sonyBackend.removeAllListeners('stateChange');
+          this.sonyBackend.on('stateChange', (payload) => {
+            if (payload?.state === 'DISCONNECTED') {
+              this.isLiveViewActive = false;
+              this.connectedCamera = null;
+              this.updateState('DISCONNECTED', payload);
+            }
+          });
+        }
+        this.connectedCamera = {
+          model: connRes.model || cameraToConnect.model || 'Sony ILCE-7CM2',
+          displayName: 'Sony α7C II',
+          port: 'usb:sony-sdk',
+          engine: 'Sony Camera Remote SDK 2.02.00',
+          backend: 'sony-sdk',
+          connectedAt: Date.now(),
+          profile: cameraToConnect.profile,
+          capabilities: {
+            capture: true,
+            download: true,
+            liveView: true,
+            batteryStatus: true,
+          },
+        };
+        this.activeCameraModel = this.connectedCamera.model;
+        this.errorMessage = null;
+        this.updateState('CONNECTED', { camera: this.connectedCamera, error: null });
+        this.updateState('READY', { camera: this.connectedCamera, error: null });
+        return { success: true, camera: this.connectedCamera, state: 'READY' };
+      } else {
+        const cErr = cameraError('CAMERA_CONNECTION_FAILED', connRes.error);
+        this.connectedCamera = null;
+        this.updateState('ERROR', { error: cErr.message });
+        return { success: false, ...cErr };
+      }
+    }
+
+    // ── Windows path for other cameras (bundled gphoto2) ───────────────────
     if (process.platform === 'win32') {
       return this._connectWindowsCamera(cameraToConnect);
     }
@@ -1697,6 +1816,15 @@ class NativeCameraService extends EventEmitter {
   // ───────────────────────────────────────────────────────────────────────────
 
   startLiveView() {
+    if (process.platform === 'win32') {
+      console.log('[WIN-LV] backend startLiveView called');
+    }
+    if (this.sonyBackend && this.connectedCamera && this.connectedCamera.backend === 'sony-sdk') {
+      this.isLiveViewActive = true;
+      this.sonyBackend.startLiveView();
+      return;
+    }
+
     // Hub handles live view natively
     if (this.hubProcess && !this.hubProcess.killed) {
       this.isLiveViewActive = true;
@@ -1828,6 +1956,12 @@ class NativeCameraService extends EventEmitter {
 
   stopLiveView() {
     this.wasExplicitlyStoppingLiveView = true;
+    if (this.sonyBackend && this.connectedCamera && this.connectedCamera.backend === 'sony-sdk') {
+      this.sonyBackend.stopLiveView();
+      this.isLiveViewActive = false;
+      return;
+    }
+
     if (this.hubProcess && !this.hubProcess.killed) {
       try { this.hubProcess.stdin.write('PAUSE_PREVIEW\n'); } catch (e) {}
       this.isLiveViewActive = false;
@@ -1882,6 +2016,14 @@ class NativeCameraService extends EventEmitter {
 
   async disconnectCamera() {
     console.log('[CameraManager] Disconnecting camera...');
+    if (this.sonyBackend) {
+      try {
+        await this.sonyBackend.disconnect();
+      } catch (e) {
+        console.warn('[CameraManager] Error disconnecting sonyBackend:', e.message);
+      }
+      this.sonyBackend = null;
+    }
     this.stopUnifiedHubSession();
     this.stopLiveView();
     this.stopNativeTether();
@@ -2084,6 +2226,9 @@ class NativeCameraService extends EventEmitter {
         this.tetherServerRef.markProcessed(baseName, stat.size, stat.mtimeMs);
       }
 
+      if (process.platform === 'win32') {
+        console.log('[WIN-CAPTURE] photoCaptured emitted:', photoPayload.filename);
+      }
       this.emit('photoCaptured', photoPayload);
       this.updateState('READY', { lastCapturedFile: photoPayload.filename });
 
@@ -2110,7 +2255,46 @@ class NativeCameraService extends EventEmitter {
       return { success: false, error: 'Camera is busy' };
     }
 
+    if (process.platform === 'win32') {
+      console.log('[WIN-CAPTURE] triggerDirectCapture called');
+    }
     console.log('[CameraManager] Capture triggered. Platform:', process.platform, '| State:', this.state);
+
+    // ── CASE SONY: SonyCameraBackend active (Official Sony Camera Remote SDK 2.02.00) ──
+    if (this.connectedCamera && (this.connectedCamera.backend === 'sony-sdk' || this.sonyBackend)) {
+      console.log('[CameraManager] Triggering direct capture via SonyCameraBackend (Official Sony SDK)...');
+      this.updateState('CAPTURING');
+      const filename = `capture_${Date.now()}.JPG`;
+      const targetFilePath = path.join(this.tetherDir, filename);
+
+      if (!this.sonyBackend) {
+        this.sonyBackend = getBackendForProfile(this.connectedCamera.profile || { backendType: 'sony-sdk' }, {
+          tetherDir: this.tetherDir,
+        });
+      }
+
+      const capRes = await this.sonyBackend.capture(this.connectedCamera.profile, targetFilePath, options);
+      if (!capRes.success) {
+        console.error('[CameraManager] Sony capture failed:', capRes.error);
+        const cErr = cameraError('CAPTURE_FAILED', capRes.error);
+        this.updateState('ERROR', { error: cErr.message });
+        return { success: false, ...cErr };
+      }
+
+      if (process.platform === 'win32') {
+        console.log('[WIN-CAPTURE] ingestPhotoFile called:', capRes.filePath);
+      }
+      this.updateState('TRANSFERRING', { filename });
+      const ingested = await this.ingestPhotoFile(capRes.filePath, path.basename(capRes.filePath), 'sony_sdk');
+      if (ingested) {
+        this.updateState('READY');
+        return { ...ingested, success: true, elapsedTimeMs: capRes.durationMs };
+      } else {
+        const cErr = cameraError('DOWNLOAD_FAILED', 'Gagal memproses file foto Sony');
+        this.updateState('ERROR', { error: cErr.message });
+        return { success: false, ...cErr };
+      }
+    }
 
     // ── CASE 0: Unified Hub process running (macOS/Linux, Sony) ───────────
     if (this.hubProcess && !this.hubProcess.killed) {

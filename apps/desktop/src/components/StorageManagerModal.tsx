@@ -13,7 +13,7 @@ import {
   Layers,
   Image,
   Film,
-  Sparkles,
+  Info,
   RefreshCw,
   Printer,
 } from 'lucide-react';
@@ -400,7 +400,7 @@ export const StorageManagerModal: React.FC = () => {
 
         {/* Tip for vendor */}
         <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-start gap-2.5">
-          <Sparkles className="w-4 h-4 text-neutral-400 flex-shrink-0 mt-0.5" />
+          <Info className="w-4 h-4 text-neutral-400 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-neutral-300">
             <span className="font-semibold text-white">Tips Vendor: </span>
             Anda dapat memilih folder di **SSD Eksternal / Flashdisk** atau folder sinkronisasi **Google Drive / Dropbox Desktop** agar seluruh file otomatis ter-backup ke drive eksternal Anda.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 import { getServiceSupabase } from '@/lib/supabase';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,15 +28,29 @@ function getDataDirectory(): string {
  */
 export async function GET(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'cron_cleanup',
+        'Cron cleanup dinonaktifkan pada Vercel Preview untuk melindungi data retensi foto produksi.'
+      );
+    }
+
     const authHeader = req.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
 
-    // Verify Vercel Cron Secret if set
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      const isDev = process.env.NODE_ENV !== 'production';
-      if (!isDev) {
-        return NextResponse.json({ error: 'Unauthorized cron request' }, { status: 401 });
-      }
+    // Fail-closed authentication
+    if (!cronSecret) {
+      return NextResponse.json(
+        { error: 'Server misconfiguration: CRON_SECRET is required', code: 'CRON_SECRET_REQUIRED' },
+        { status: 500 }
+      );
+    }
+
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json(
+        { error: 'Unauthorized cron request', code: 'CRON_AUTH_REQUIRED' },
+        { status: 401 }
+      );
     }
 
     const client = getServiceSupabase();

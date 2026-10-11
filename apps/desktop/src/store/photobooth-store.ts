@@ -874,9 +874,13 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
       syncManager.setUploadHandler(async (item, onProgress) => {
         onProgress(25);
         try {
+          const token = typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null;
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+
           const resp = await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
               photoId: item.entityId,
               eventId: item.eventId,
@@ -919,7 +923,11 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
 
     fetchEventsFromCloud: async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/vendor/events`);
+        const token = typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const res = await fetch(`${API_BASE_URL}/api/vendor/events`, { headers });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.events) && data.events.length > 0) {
@@ -960,7 +968,11 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
 
     fetchTemplatesFromCloud: async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/vendor/templates`);
+        const token = typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const res = await fetch(`${API_BASE_URL}/api/vendor/templates`, { headers });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.templates) && data.templates.length > 0) {
@@ -1293,9 +1305,8 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
             }
             // If camera engine not found, show actionable hint
             if (captureResult?.code === 'CAMERA_ENGINE_NOT_FOUND') {
-              console.error('[Capture] Camera engine not found. Reinstallation may be required.');
+              console.error('[Capture] Camera engine not found. Reinstallation may be required.', userMessage, captureResult?.hint);
               set({ sessionStep: 'idle' });
-              alert(`⚠️ ${userMessage}${captureResult?.hint ? '\n\n' + captureResult.hint : ''}`);
               return;
             }
             console.warn('[Capture] Native direct capture failed, falling back to mock:', userMessage);

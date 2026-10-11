@@ -23,13 +23,13 @@ module.exports = {
   primaryPidDec: 3724,
   supportedPidsHex: ['0E8C'],
 
-  // Per-camera driver strategy: requires scoped WinUSB on Windows to avoid WPD interface lock
-  driverStrategy: DRIVER_STRATEGY.WINUSB_REQUIRED,
+  // Per-camera driver strategy: uses official Sony Remote Camera Driver (libusbK) on Windows
+  driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
 
-  // Camera backend execution details
-  backendType: 'gphoto2',
+  // Camera backend execution details: official verified Sony Camera Remote SDK 2.02.00 ('sony-sdk')
+  backendType: 'sony-sdk',
   backendOptions: {
-    // Dynamic mapping flag passed to bundled gphoto2 engine
+    // Dynamic mapping flag passed to bundled gphoto2 engine if fallback ever invoked
     usbidArgs: ['--usbid', '0x054c:0x0e8c=0x054c:0x0d56'],
   },
 
@@ -47,7 +47,7 @@ module.exports = {
   capabilities: {
     capture: true,
     download: true,
-    liveView: false,
+    liveView: true,
     batteryStatus: true,
   },
 };

@@ -22,12 +22,17 @@ Write-Host "================================================================" -F
 Write-Host "Target Driver Package: $PSScriptRoot\MingleBoothCamera.inf"
 Write-Host ""
 
-# 1. Require Administrator
+# 1. Require Administrator & safe self-elevation
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "[ERROR] Administrator privileges are required to configure driver test-signing." -ForegroundColor Red
-    Write-Host "Please re-run this script in an elevated PowerShell session." -ForegroundColor Yellow
-    exit 2
+    try {
+        $argStr = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+        $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argStr -Verb RunAs -Wait -PassThru
+        exit $proc.ExitCode
+    } catch {
+        Write-Host "[ERROR] Administrator privileges are required to configure driver test-signing: $($_.Exception.Message)" -ForegroundColor Red
+        exit 2
+    }
 }
 
 # 2. Check Windows Test Signing Mode

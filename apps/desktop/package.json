@@ -1,6 +1,6 @@
 {
   "name": "@minglebooth/desktop",
-  "version": "1.0.0",
+  "version": "1.0.0-rc.1",
   "type": "module",
   "description": "MingleBooth Studio — Professional Operator Desktop Application",
   "author": "MingleBooth Team",
@@ -29,10 +29,28 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "!electron/native/**/*"
+      "driver-dev/**/*",
+      "!electron/native/**/*",
+      "electron/native/windows/sony_camera_runner.exe",
+      "electron/native/windows/sony_camera_runner_win.exe",
+      "electron/native/windows/libusb-1.0.dll",
+      "electron/native/windows/Cr_Core.dll",
+      "electron/native/windows/CrAdapter/**/*"
     ],
     "asarUnpack": [
-      "electron/bin/**/*"
+      "electron/bin/**/*",
+      "driver-dev/**/*",
+      "electron/native/windows/sony_camera_runner.exe",
+      "electron/native/windows/sony_camera_runner_win.exe",
+      "electron/native/windows/libusb-1.0.dll",
+      "electron/native/windows/Cr_Core.dll",
+      "electron/native/windows/CrAdapter/**/*"
+    ],
+    "extraFiles": [
+      {
+        "from": "MingleBooth-Camera-QA.bat",
+        "to": "MingleBooth-Camera-QA.bat"
+      }
     ],
     "afterPack": "./scripts/after-pack.cjs",
     "mac": {

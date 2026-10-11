@@ -1,34 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
+import { validateLynkSignature } from '@/lib/lynk';
+import { executePaymentSettlement } from '@/lib/billing-settlement';
 import { getServiceSupabase } from '@/lib/supabase';
+import { getActivePricingCatalog, getOrderSnapshot } from '@/lib/pricing';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * Validate Lynk.id Webhook Signature using SHA256
- * signatureString = amount + ref_id + message_id + secret_key
- */
-function validateLynkSignature(
-  refId: string,
-  amount: string | number,
-  messageId: string,
-  receivedSignature: string,
-  secretKey: string
-): boolean {
-  if (!secretKey) return true; // Allow dev testing if secret key is not set
-  const signatureString = `${amount}${refId}${messageId}${secretKey}`;
-  const calculatedSignature = crypto
-    .createHash('sha256')
-    .update(signatureString)
-    .digest('hex');
-  return calculatedSignature === receivedSignature;
-}
-
 export async function POST(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'billing_webhook',
+        'Webhook settlement billing dinonaktifkan pada Vercel Preview.'
+      );
+    }
+
     const rawBody = await req.json();
     const receivedSignature = req.headers.get('x-lynk-signature') || '';
     const secretKey = process.env.LYNK_MERCHANT_KEY || '';
+
+    // 1. Server Configuration Check in Production
+    if (process.env.NODE_ENV === 'production' && !secretKey) {
+      return NextResponse.json(
+        { error: 'Server misconfiguration: LYNK_MERCHANT_KEY is required in production' },
+        { status: 500 }
+      );
+    }
+
+    // 2. Webhook Signature Validation (Fail-closed when configured or in production)
+    if (secretKey || process.env.NODE_ENV === 'production') {
+      if (!receivedSignature) {
+        return NextResponse.json({ error: 'Missing Lynk.id signature' }, { status: 401 });
+      }
+    }
 
     const { event, data } = rawBody;
 
@@ -39,70 +44,95 @@ export async function POST(req: NextRequest) {
     const { message_action, message_id, message_data } = data;
 
     if (message_action !== 'SUCCESS' || !message_data) {
-      return NextResponse.json({ message: 'Payment not successful' }, { status: 200 });
+      return NextResponse.json({ message: 'Payment not successful', status: message_action }, { status: 200 });
     }
 
     const { refId, totals, customer, items } = message_data;
-    const grandTotal = totals?.grandTotal ?? 0;
+    const grandTotal = Number(totals?.grandTotal ?? 0);
 
-    // Verify cryptographic signature if secret key is set
-    if (secretKey && receivedSignature) {
+    // Verify cryptographic signature
+    if (secretKey || receivedSignature) {
       const isValid = validateLynkSignature(
-        refId,
+        refId || '',
         grandTotal.toString(),
-        message_id,
+        message_id || '',
         receivedSignature,
         secretKey
       );
 
       if (!isValid) {
-        console.error('[Lynk Webhook] Invalid Signature received:', receivedSignature);
         return NextResponse.json({ error: 'Invalid Lynk.id signature' }, { status: 401 });
       }
     }
 
-    const client = getServiceSupabase();
-
-    const itemTitle = (items?.[0]?.title || '').toLowerCase();
-
-    // 1. Determine billing duration (Bulanan: 30 hari, Tahunan: 365 hari)
-    const isMonthly =
-      itemTitle.includes('bulan') ||
-      itemTitle.includes('month') ||
-      grandTotal === 549000 ||
-      grandTotal === 1099000 ||
-      grandTotal === 2199000;
-    const durationDays = isMonthly ? 30 : 365;
-
-    // 2. Determine plan tier & device quota
-    let planTier = 'pro';
-    let maxDevices = 3;
-
-    if (
-      itemTitle.includes('business') ||
-      grandTotal === 2199000 ||
-      grandTotal >= 5000000
-    ) {
-      planTier = 'business';
-      maxDevices = 10;
-    } else if (
-      itemTitle.includes('starter') ||
-      grandTotal === 549000 ||
-      grandTotal === 1499000 ||
-      (grandTotal < 1000000 && !itemTitle.includes('pro'))
-    ) {
-      planTier = 'starter';
-      maxDevices = 1;
-    } else {
-      // Pro tier: Rp 1.099.000 (bulanan) or Rp 2.999.000 (tahunan)
-      planTier = 'pro';
-      maxDevices = 3;
+    const orderRef = refId || (message_id ? `LYNK-${message_id}` : null);
+    if (!orderRef) {
+      return NextResponse.json({ error: 'Missing order reference' }, { status: 400 });
     }
 
-    // 3. Find Organization (by customer email or auto-provision / fallback)
-    let orgId: string | null = null;
+    // 3. Lookup Pre-Registered Order Snapshot (Immutable Source of Truth)
+    const client = getServiceSupabase();
+    const { data: existingPayment } = await client
+      .from('payments')
+      .select('*')
+      .eq('order_id', orderRef)
+      .maybeSingle();
 
-    if (customer?.email) {
+    let planTier: 'starter' | 'pro' | 'business';
+    let durationDays: number;
+    let targetOrgId: string | null = existingPayment?.organization_id || null;
+
+    if (existingPayment) {
+      if (!targetOrgId) {
+        return NextResponse.json(
+          { error: `MISSING_ORGANIZATION: Order ${orderRef} is not bound to a valid organization` },
+          { status: 400 }
+        );
+      }
+
+      // Cross-validate item title against pre-registered plan
+      const itemTitle = (items?.[0]?.title || '').toLowerCase();
+      const itemPlan = itemTitle.includes('business') ? 'business' : (itemTitle.includes('starter') ? 'starter' : (itemTitle.includes('pro') ? 'pro' : null));
+      if (existingPayment.plan_tier && itemPlan && itemPlan !== existingPayment.plan_tier) {
+        return NextResponse.json(
+          { error: `PLAN_MISMATCH: Order ${orderRef} is pre-registered for ${existingPayment.plan_tier} plan but requested ${itemPlan}` },
+          { status: 400 }
+        );
+      }
+
+      // Authoritative commercial snapshot resolution (preserves original pricing & terms)
+      const snapshot = getOrderSnapshot(orderRef);
+      planTier = existingPayment.plan_tier as any;
+      durationDays = existingPayment.duration_days
+        ? Number(existingPayment.duration_days)
+        : (snapshot?.durationDays ?? (existingPayment.billing_interval === 'monthly' ? 30 : (itemTitle.includes('bulan') || itemTitle.includes('month') ? 30 : 365)));
+
+      const expectedAmount = Number(existingPayment.amount_idr);
+      if (grandTotal < expectedAmount) {
+        return NextResponse.json(
+          { error: `PAYMENT_AMOUNT_INSUFFICIENT: Received ${grandTotal} IDR, expected ${expectedAmount} IDR` },
+          { status: 400 }
+        );
+      }
+      if (grandTotal > expectedAmount) {
+        return NextResponse.json(
+          { error: `PAYMENT_AMOUNT_MISMATCH: Received ${grandTotal} IDR, expected ${expectedAmount} IDR` },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Direct Webhook without pre-registered order:
+      // Authoritative check: Look up user profile by verified customer email ONLY
+      if (!customer?.email) {
+        return NextResponse.json(
+          {
+            error: `MISSING_ORGANIZATION: Order reference '${orderRef}' has no pre-registered snapshot and no customer email`,
+            code: 'MISSING_ORGANIZATION',
+          },
+          { status: 400 }
+        );
+      }
+
       const cleanEmail = customer.email.trim().toLowerCase();
       const { data: userProfile } = await client
         .from('user_profiles')
@@ -111,108 +141,89 @@ export async function POST(req: NextRequest) {
         .limit(1)
         .maybeSingle();
 
-      if (userProfile?.organization_id) {
-        orgId = userProfile.organization_id;
+      if (!userProfile?.organization_id) {
+        return NextResponse.json(
+          {
+            error: `MISSING_ORGANIZATION: No registered organization found for customer email '${cleanEmail}'`,
+            code: 'MISSING_ORGANIZATION',
+          },
+          { status: 400 }
+        );
+      }
+
+      targetOrgId = userProfile.organization_id;
+
+      // Resolve dynamically against published pricing catalog
+      const catalog = await getActivePricingCatalog();
+      const itemTitle = (items?.[0]?.title || '').toLowerCase();
+      const isTestItem = itemTitle.includes('test') || orderRef.includes('TEST');
+
+      // Check for price match in catalog
+      const matchedPrice = catalog.prices.find((p) => p.amountIdr === grandTotal && p.isActive);
+
+      if (matchedPrice) {
+        planTier = matchedPrice.planId;
+        durationDays = matchedPrice.durationDays;
+      } else if (isTestItem) {
+        // Fallback for test items in sandbox
+        planTier = itemTitle.includes('business') ? 'business' : (itemTitle.includes('starter') ? 'starter' : 'pro');
+        durationDays = (itemTitle.includes('bulan') || itemTitle.includes('month')) ? 30 : 365;
+      } else {
+        return NextResponse.json(
+          {
+            error: `UNRECOGNIZED_SUBSCRIPTION_AMOUNT: Received payment of ${grandTotal} IDR does not match any active subscription plan.`,
+            code: 'AMOUNT_MISMATCH',
+          },
+          { status: 400 }
+        );
       }
     }
 
-    // If customer paid but doesn't have an organization yet, auto-provision one
-    if (!orgId && customer?.email) {
-      const cleanEmail = customer.email.trim().toLowerCase();
-      const vendorName = customer.name?.trim() || cleanEmail.split('@')[0];
-      const orgSlug = `${vendorName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Math.random().toString(36).substring(2, 7)}`;
-
-      const { data: createdOrg, error: createOrgErr } = await client
-        .from('organizations')
-        .insert({
-          name: vendorName,
-          slug: orgSlug,
-          plan_tier: planTier,
-          subscription_status: 'active',
-          subscription_expires_at: new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString(),
-          max_devices_quota: maxDevices,
-        })
-        .select('id')
-        .maybeSingle();
-
-      if (!createOrgErr && createdOrg) {
-        orgId = createdOrg.id;
-        console.log(`[Lynk Webhook] Auto-provisioned organization ${orgId} for customer ${cleanEmail} (${durationDays} days)`);
-      }
-    }
-
-    if (!orgId) {
-      const { data: defaultOrg } = await client
-        .from('organizations')
-        .select('id')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      orgId = defaultOrg?.id || null;
-    }
-
-    if (!orgId) {
-      return NextResponse.json({ error: 'No organization found to assign license' }, { status: 400 });
-    }
-
-    // 4. Extend Subscription Expiry Date by +30 or +365 Days (preserve remaining days if still active)
-    const { data: orgData } = await client
-      .from('organizations')
-      .select('id, subscription_expires_at')
-      .eq('id', orgId)
-      .maybeSingle();
-
-    const currentExpiryMs = orgData?.subscription_expires_at ? new Date(orgData.subscription_expires_at).getTime() : 0;
-    const baseTimeMs = currentExpiryMs > Date.now() ? currentExpiryMs : Date.now();
-    const expiresAt = new Date(baseTimeMs + durationDays * 24 * 60 * 60 * 1000).toISOString();
-
-    const { error: orgUpdateError } = await client
-      .from('organizations')
-      .update({
-        subscription_status: 'active',
-        subscription_expires_at: expiresAt,
-        plan_tier: planTier,
-        max_devices_quota: maxDevices,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', orgId);
-
-    if (orgUpdateError) {
-      console.error('[Lynk Webhook] Org update failed:', orgUpdateError);
-      return NextResponse.json({ error: orgUpdateError.message }, { status: 500 });
-    }
-
-    // 4. Record Payment in Supabase payments table
-    const { error: payError } = await client
-      .from('payments')
-      .upsert(
+    if (!targetOrgId) {
+      return NextResponse.json(
         {
-          order_id: refId || `LYNK-${Date.now()}`,
-          organization_id: orgId,
-          plan_tier: planTier,
-          amount_idr: grandTotal,
-          payment_status: 'PAID',
-          payment_link_url: 'https://lynk.id',
-          provider_transaction_id: message_id,
-          paid_at: new Date().toISOString(),
+          error: `MISSING_ORGANIZATION: No authorized organization bound to order '${orderRef}'`,
+          code: 'MISSING_ORGANIZATION',
         },
-        { onConflict: 'order_id' }
+        { status: 400 }
       );
-
-    if (payError) {
-      console.warn('[Lynk Webhook] Payment log notice:', payError.message);
     }
+
+    // 4. Execute Exactly-Once Settlement via Unified Billing Engine
+    const settlement = await executePaymentSettlement({
+      orderId: orderRef,
+      organizationId: targetOrgId,
+      customerEmail: customer?.email,
+      planTier,
+      amountIdr: grandTotal,
+      durationDays,
+      providerTransactionId: message_id,
+      paymentLinkUrl: 'https://lynk.id',
+    });
 
     return NextResponse.json({
       success: true,
-      message: `Lynk.id payment verified! License extended for 365 days until ${expiresAt}.`,
-      planTier,
-      maxDevices,
-      expiresAt,
-      refId,
-    });
+      message: settlement.isDuplicate
+        ? 'Payment already processed (idempotent)'
+        : `Lynk.id payment verified! License extended until ${settlement.expiresAt}.`,
+      planTier: settlement.planTier,
+      maxDevices: settlement.maxDevicesQuota,
+      expiresAt: settlement.expiresAt,
+      refId: settlement.orderId,
+      durationDays: settlement.durationDays,
+      isDuplicate: settlement.isDuplicate,
+    }, { status: 200 });
   } catch (err: any) {
-    console.error('[Lynk Webhook Exception]:', err);
-    return NextResponse.json({ error: err?.message || 'Internal server error' }, { status: 500 });
+    const isValidationErr = err.message && (
+      err.message.includes('ORGANIZATION_MISMATCH') ||
+      err.message.includes('PLAN_MISMATCH') ||
+      err.message.includes('INVALID_PLAN_TIER') ||
+      err.message.includes('INVALID_AMOUNT') ||
+      err.message.includes('INVALID_DURATION') ||
+      err.message.includes('PAYMENT_AMOUNT_INSUFFICIENT') ||
+      err.message.includes('PAYMENT_AMOUNT_MISMATCH')
+    );
+    const status = isValidationErr ? 400 : 500;
+    return NextResponse.json({ error: err?.message || 'Internal server error' }, { status });
   }
 }

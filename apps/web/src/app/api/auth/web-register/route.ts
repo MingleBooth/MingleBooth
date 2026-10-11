@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { createSignedToken } from '@/lib/auth-server';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'registration',
+        'Pendaftaran organisasi baru dinonaktifkan pada Vercel Preview untuk melindungi database produksi bersama.'
+      );
+    }
+
     const body = await req.json();
     const { studioName, email, password, plan = 'pro', cycle = 'yearly' } = body;
 
@@ -53,7 +62,10 @@ export async function POST(req: NextRequest) {
 
     // 3. Create or provision organization
     const orgSlug = `${cleanStudioName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Math.random().toString(36).substring(2, 7)}`;
-    const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+    // Newly registered unpaid organizations receive pending_payment status with zero paid entitlement.
+    // In current DB schema, subscription_expires_at has a NOT NULL constraint, so epoch (1970-01-01)
+    // is set to avoid granting a misleading future expiry before payment is settled.
+    const unpaidEpochExpiry = new Date(0).toISOString();
 
     const { data: newOrg, error: orgError } = await client
       .from('organizations')
@@ -62,7 +74,7 @@ export async function POST(req: NextRequest) {
         slug: orgSlug,
         plan_tier: normalizedPlan,
         subscription_status: 'pending_payment',
-        subscription_expires_at: expiresAt,
+        subscription_expires_at: unpaidEpochExpiry,
         max_devices_quota: maxDevices,
       })
       .select('*')
@@ -112,26 +124,18 @@ export async function POST(req: NextRequest) {
       console.warn('[Web Register] Profile insert notice:', profileErr.message);
     }
 
-    // 5. Determine Lynk.id checkout URL for pre-filling
-    const lynkMapYearly: Record<string, string> = {
-      starter: process.env.NEXT_PUBLIC_LYNK_URL_STARTER || 'https://lynk.id/minglebooth/r6k3kdyxj7vw',
-      pro: process.env.NEXT_PUBLIC_LYNK_URL_PRO || 'https://lynk.id/minglebooth/4gx630xzzq8r',
-      business: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS || 'https://lynk.id/minglebooth/d4jm3v31kypm',
-    };
-
-    const lynkMapMonthly: Record<string, string> = {
-      starter: process.env.NEXT_PUBLIC_LYNK_URL_STARTER_MONTHLY || 'https://lynk.id/minglebooth/llx2p98w1qlp',
-      pro: process.env.NEXT_PUBLIC_LYNK_URL_PRO_MONTHLY || 'https://lynk.id/minglebooth/eqj6xmrjd51r',
-      business: process.env.NEXT_PUBLIC_LYNK_URL_BUSINESS_MONTHLY || 'https://lynk.id/minglebooth/zr78ewnemej1',
-    };
-
-    const baseLynkUrl = cycle === 'monthly' ? lynkMapMonthly[normalizedPlan] : lynkMapYearly[normalizedPlan];
-    const separator = baseLynkUrl.includes('?') ? '&' : '?';
-    const checkoutUrl = `${baseLynkUrl}${separator}email=${encodeURIComponent(cleanEmail)}`;
+    // 5. Generate authenticated bearer token for vendor session
+    const sessionToken = createSignedToken({
+      userId,
+      email: cleanEmail,
+      orgId: newOrg.id,
+      role: 'VENDOR_OWNER',
+    });
 
     return NextResponse.json({
       success: true,
-      message: 'Registrasi akun vendor berhasil!',
+      message: 'Registrasi akun vendor gratis berhasil!',
+      token: sessionToken,
       user: {
         id: userId,
         email: cleanEmail,
@@ -139,8 +143,7 @@ export async function POST(req: NextRequest) {
         role: 'VENDOR_OWNER',
         org: newOrg,
       },
-      checkoutUrl,
-      redirectUrl: `/billing?registered=1&plan=${normalizedPlan}&cycle=${cycle}&email=${encodeURIComponent(cleanEmail)}`,
+      redirectUrl: '/dashboard?welcome=1',
     });
   } catch (err: any) {
     console.error('[Web Register Exception]:', err);

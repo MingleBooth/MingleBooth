@@ -1,56 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { verifyServerAuth, corsHeaders } from '@/lib/auth-server';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
 export const dynamic = 'force-dynamic';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-org-id, x-vendor-email',
-};
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });
 }
 
 /**
- * Live Supabase Events API — Multi-Tenant Isolated
+ * Live Supabase Events API — Authenticated & Multi-Tenant Isolated
  */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await verifyServerAuth(req);
+    if (!auth.success) {
+      return NextResponse.json(
+        { error: auth.error, code: auth.code },
+        { status: auth.status, headers: corsHeaders }
+      );
+    }
+
     const client = getServiceSupabase();
-    const vendorEmail = req.headers.get('x-vendor-email') || req.nextUrl.searchParams.get('email');
-    const orgIdHeader = req.headers.get('x-org-id') || req.nextUrl.searchParams.get('orgId');
-
-    let orgId = orgIdHeader;
-
-    // Resolve Organization by User Email if provided
-    if (!orgId && vendorEmail) {
-      const { data: userProfile } = await client
-        .from('user_profiles')
-        .select('organization_id')
-        .eq('email', vendorEmail)
-        .limit(1)
-        .single();
-      if (userProfile?.organization_id) {
-        orgId = userProfile.organization_id;
-      }
-    }
-
-    // Default fallback to first vendor if in dev mode
-    if (!orgId) {
-      const { data: defaultOrg } = await client
-        .from('organizations')
-        .select('id')
-        .eq('slug', 'abc-photobooth')
-        .limit(1)
-        .single();
-      orgId = defaultOrg?.id;
-    }
-
-    if (!orgId) {
-      return NextResponse.json({ events: [], org: null }, { headers: corsHeaders });
-    }
+    const orgId = auth.orgId;
 
     // Fetch Organization Info
     const { data: org } = await client
@@ -59,7 +32,7 @@ export async function GET(req: NextRequest) {
       .eq('id', orgId)
       .single();
 
-    // STRICT MULTI-TENANT FILTER: Query ONLY events belonging to this organization_id
+    // STRICT MULTI-TENANT FILTER: Query ONLY events belonging to the verified organization
     const { data: events, error } = await client
       .from('events')
       .select('*, photos(count)')
@@ -91,53 +64,105 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'create_event',
+        'Pembuatan event baru dinonaktifkan pada Vercel Preview untuk melindungi integritas database produksi bersama.'
+      );
+    }
+
+    const auth = await verifyServerAuth(req);
+    if (!auth.success) {
+      return NextResponse.json(
+        { error: auth.error, code: auth.code },
+        { status: auth.status, headers: corsHeaders }
+      );
+    }
+
+    if (auth.payload?.isDemo) {
+      return NextResponse.json(
+        { error: 'Mode Demo tidak dapat membuat event di cloud. Silakan aktifkan langganan berbayar.', code: 'DEMO_MODE_BLOCKED' },
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
     const client = getServiceSupabase();
+
+    // Verify active subscription in database
+    if (!auth.isSuperAdmin) {
+      const { data: orgData, error: orgErr } = await client
+        .from('organizations')
+        .select('id, name, subscription_status, subscription_expires_at')
+        .eq('id', auth.orgId)
+        .single();
+
+      if (orgErr || !orgData) {
+        return NextResponse.json(
+          { error: 'Organisasi vendor tidak ditemukan.', code: 'ORG_ACCESS_DENIED' },
+          { status: 404, headers: corsHeaders }
+        );
+      }
+
+      const now = new Date();
+      const expiresAt = orgData.subscription_expires_at ? new Date(orgData.subscription_expires_at) : new Date(0);
+      const hasActiveSub = orgData.subscription_status === 'active' && expiresAt >= now;
+
+      if (!hasActiveSub) {
+        return NextResponse.json(
+          {
+            error: orgData.subscription_status === 'expired'
+              ? 'Masa aktif langganan Anda telah berakhir. Perpanjang langganan untuk membuat event baru.'
+              : 'Akun Anda belum memiliki langganan aktif. Silakan pilih paket langganan untuk membuat event.',
+            code: 'SUBSCRIPTION_REQUIRED',
+          },
+          { status: 403, headers: corsHeaders }
+        );
+      }
+    }
+
     const body = await req.json();
-    const { name, date, outputType = 'photo', orgId: requestOrgId, email: vendorEmail } = body;
+    const { name, date, outputType = 'photo' } = body;
 
     if (!name || !date) {
       return NextResponse.json({ error: 'Name and date are required' }, { status: 400, headers: corsHeaders });
     }
 
-    let targetOrgId = requestOrgId;
+    const targetOrgId = auth.orgId;
 
-    if (!targetOrgId && vendorEmail) {
-      const { data: profile } = await client
-        .from('user_profiles')
-        .select('organization_id')
-        .eq('email', vendorEmail)
-        .limit(1)
-        .single();
-      targetOrgId = profile?.organization_id;
-    }
+    // Create unique slug for this event within this organization
+    const baseSlug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+    const eventSlug = `${baseSlug}-${Date.now().toString().slice(-4)}`;
 
-    if (!targetOrgId) {
-      const { data: org } = await client.from('organizations').select('id').eq('slug', 'abc-photobooth').limit(1).single();
-      targetOrgId = org?.id;
-    }
+    const defaultBranding = {
+      eventName: name,
+      hostNames: name,
+      dateFormatted: new Date(date).toLocaleDateString('id-ID', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }),
+      primaryColor: '#000000',
+    };
 
-    if (!targetOrgId) {
-      return NextResponse.json({ error: 'Organization not found' }, { status: 400, headers: corsHeaders });
-    }
-
-    const slug = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)+/g, '') + '-' + Math.floor(Math.random() * 1000);
+    const defaultConfig = {
+      countdownSeconds: 3,
+      shotsPerSession: 2,
+      outputType: outputType,
+      selectedFormatId: 'format_4r_portrait',
+      aspectRatio: '4:5',
+    };
 
     const { data: newEvent, error } = await client
       .from('events')
       .insert({
         organization_id: targetOrgId,
-        name,
-        slug,
-        date,
-        status: 'active',
+        name: name.trim(),
+        slug: eventSlug,
+        date: date,
+        status: 'ready',
         output_type: outputType,
-        branding_json: {
-          eventName: name,
-          dateFormatted: new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
-        },
+        branding_json: defaultBranding,
+        config_json: defaultConfig,
       })
       .select()
       .single();
@@ -146,7 +171,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
     }
 
-    return NextResponse.json({ success: true, event: newEvent }, { headers: corsHeaders });
+    return NextResponse.json({
+      success: true,
+      event: {
+        id: newEvent.id,
+        name: newEvent.name,
+        slug: newEvent.slug,
+        date: newEvent.date,
+        status: 'Ready',
+        branding: newEvent.branding_json,
+      },
+    }, { headers: corsHeaders });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message }, { status: 500, headers: corsHeaders });
   }
@@ -154,32 +189,55 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'update_event',
+        'Pembaruan event dinonaktifkan pada Vercel Preview untuk melindungi integritas database produksi bersama.'
+      );
+    }
+
+    const auth = await verifyServerAuth(req);
+    if (!auth.success) {
+      return NextResponse.json(
+        { error: auth.error, code: auth.code },
+        { status: auth.status, headers: corsHeaders }
+      );
+    }
+
     const client = getServiceSupabase();
     const body = await req.json();
-    const { id, name, date, hostNames, outputType, status, hashtag } = body;
+    const { id, name, date, outputType, status, branding } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Event ID is required' }, { status: 400, headers: corsHeaders });
     }
 
-    // Fetch existing event to preserve branding_json fields if partial update
-    const { data: existingEvent } = await client
+    // 1. Verify event ownership
+    const { data: existingEvent, error: fetchErr } = await client
       .from('events')
       .select('*')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
-    const existingBranding = existingEvent?.branding_json || {};
-    const updatedBranding = {
-      ...existingBranding,
-      eventName: name !== undefined ? name : existingBranding.eventName,
-      hostNames: hostNames !== undefined ? hostNames : existingBranding.hostNames,
-      hashtag: hashtag !== undefined ? hashtag : existingBranding.hashtag,
-      dateFormatted: date !== undefined && date ? new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : existingBranding.dateFormatted,
-    };
+    if (fetchErr || !existingEvent || (!auth.isSuperAdmin && existingEvent.organization_id !== auth.orgId)) {
+      return NextResponse.json(
+        { error: 'Akses ditolak: Acara tidak ditemukan atau bukan milik organisasi Anda.', code: 'ORG_ACCESS_DENIED' },
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
+    // 2. Merge branding if provided
+    let updatedBranding = existingEvent.branding_json || {};
+    if (branding && typeof branding === 'object') {
+      updatedBranding = {
+        ...updatedBranding,
+        ...branding,
+      };
+    }
 
     const updatePayload: Record<string, any> = {
       branding_json: updatedBranding,
+      updated_at: new Date().toISOString(),
     };
     if (name !== undefined) updatePayload.name = name;
     if (date !== undefined) updatePayload.date = date;
@@ -205,6 +263,21 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'delete_event',
+        'Penghapusan event dinonaktifkan pada Vercel Preview untuk melindungi file storage produksi.'
+      );
+    }
+
+    const auth = await verifyServerAuth(req);
+    if (!auth.success) {
+      return NextResponse.json(
+        { error: auth.error, code: auth.code },
+        { status: auth.status, headers: corsHeaders }
+      );
+    }
+
     const client = getServiceSupabase();
     const eventId = req.nextUrl.searchParams.get('id');
 
@@ -212,14 +285,27 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Event ID is required' }, { status: 400, headers: corsHeaders });
     }
 
-    // 1. Delete related database records
+    // 1. Verify event ownership
+    const { data: existingEvent, error: fetchErr } = await client
+      .from('events')
+      .select('id, organization_id')
+      .eq('id', eventId)
+      .maybeSingle();
+
+    if (fetchErr || !existingEvent || (!auth.isSuperAdmin && existingEvent.organization_id !== auth.orgId)) {
+      return NextResponse.json(
+        { error: 'Akses ditolak: Acara tidak ditemukan atau bukan milik organisasi Anda.', code: 'ORG_ACCESS_DENIED' },
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
+    // 2. Delete related database records
     await client.from('photos').delete().eq('event_id', eventId);
     await client.from('gifs').delete().eq('event_id', eventId);
     await client.from('cloud_sync_logs').delete().eq('event_id', eventId);
 
-    // 2. Clean up physical files from Supabase Storage
+    // 3. Clean up physical files from Supabase Storage
     try {
-      // Delete raw subfolder files
       const { data: rawFiles } = await client.storage
         .from('minglebooth-storage')
         .list(`events/${eventId}/raw`);
@@ -229,7 +315,6 @@ export async function DELETE(req: NextRequest) {
         await client.storage.from('minglebooth-storage').remove(rawPaths);
       }
 
-      // Delete main event folder files
       const { data: mainFiles } = await client.storage
         .from('minglebooth-storage')
         .list(`events/${eventId}`);
@@ -246,7 +331,7 @@ export async function DELETE(req: NextRequest) {
       console.warn('Storage cleanup notice on event delete:', storageErr);
     }
 
-    // 3. Delete event record
+    // 4. Delete event record
     const { error } = await client
       .from('events')
       .delete()

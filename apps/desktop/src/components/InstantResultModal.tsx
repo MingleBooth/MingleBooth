@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { usePhotoboothStore } from '../store/photobooth-store';
-import { RotateCcw, Printer, Wifi, WifiOff, Film, ArrowRight, Check, Sparkles } from 'lucide-react';
+import { RotateCcw, Printer, Wifi, WifiOff, Film, ArrowRight, Check, Image as ImageIcon, Lock } from 'lucide-react';
 
 export const InstantResultModal: React.FC = () => {
   const {
@@ -13,6 +13,20 @@ export const InstantResultModal: React.FC = () => {
   } = usePhotoboothStore();
 
   const [previewTab, setPreviewTab] = useState<'photo' | 'gif'>('photo');
+  const [printBlockedNotice, setPrintBlockedNotice] = useState<string | null>(null);
+
+  // Authoritative demo determination from storage and signed token payload
+  const token = typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null;
+  let isDemoFromToken = false;
+  if (token) {
+    try {
+      const parsed = JSON.parse(atob(token));
+      if (parsed?.payload?.isDemo) isDemoFromToken = true;
+    } catch {
+      isDemoFromToken = false;
+    }
+  }
+  const isDemoMode = (typeof window !== 'undefined' && localStorage.getItem('mb_is_demo') === 'true') || isDemoFromToken;
 
   if (sessionStep !== 'review' || !lastCompositePhoto) return null;
 
@@ -41,7 +55,7 @@ export const InstantResultModal: React.FC = () => {
                   : 'text-neutral-400 hover:text-white'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <ImageIcon className="w-3.5 h-3.5" />
               <span>Foto Cetak</span>
             </button>
 
@@ -96,17 +110,33 @@ export const InstantResultModal: React.FC = () => {
           </p>
         </div>
 
+        {/* Demo Mode Cloud Lock Notice */}
+        {isDemoMode && (
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col gap-1 shadow-sm">
+            <span className="font-bold flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-amber-400" />
+              <span>Fitur Berbayar: Galeri Cloud Tamu</span>
+            </span>
+            <p className="text-[11px] text-amber-200/80 leading-relaxed">
+              QR di atas adalah simulasi lokal. Unduhan foto tamu ke smartphone via galeri cloud memerlukan paket langganan aktif.
+            </p>
+          </div>
+        )}
+
         {/* Meta Stats Row */}
         <div className="grid grid-cols-2 gap-2.5">
           <MetaCell label="Ukuran" value={`${fileSizeKb} KB`} />
           <MetaCell
             label="Status Cloud"
-            value={isOnline ? 'Terupload (Online)' : 'Antrean (Offline)'}
-            icon={isOnline
-              ? <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-              : <WifiOff className="w-3.5 h-3.5 text-amber-400" />
+            value={isDemoMode ? 'Terkunci (Demo)' : (isOnline ? 'Terupload (Online)' : 'Antrean (Offline)')}
+            icon={isDemoMode
+              ? <Lock className="w-3.5 h-3.5 text-amber-400" />
+              : (isOnline
+                ? <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                : <WifiOff className="w-3.5 h-3.5 text-amber-400" />
+              )
             }
-            accent={isOnline ? '#34d399' : '#fbbf24'}
+            accent={isDemoMode ? '#fbbf24' : (isOnline ? '#34d399' : '#fbbf24')}
           />
         </div>
 
@@ -114,6 +144,14 @@ export const InstantResultModal: React.FC = () => {
 
         {/* Action Buttons */}
         <div className="flex flex-col gap-2.5">
+          {/* Print Blocked Alert Notice */}
+          {printBlockedNotice && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2 animate-fadeIn">
+              <Lock className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              <span className="leading-snug">{printBlockedNotice}</span>
+            </div>
+          )}
+
           {/* Primary Done Button */}
           <button
             id="btn-done-next-guest"
@@ -138,12 +176,22 @@ export const InstantResultModal: React.FC = () => {
 
             <button
               id="btn-print"
-              onClick={() => {
+              onClick={async () => {
+                if (isDemoMode) {
+                  setPrintBlockedNotice('Fitur Cetak Foto tersedia setelah langganan aktif.');
+                  return;
+                }
+                setPrintBlockedNotice(null);
                 if (typeof window !== 'undefined' && (window as any).electronAPI?.printPhoto) {
-                  (window as any).electronAPI.printPhoto({
-                    filePath: lastCompositePhoto.localFilePath,
+                  const res = await (window as any).electronAPI.printPhoto({
+                    filePath: lastCompositePhoto.localFilePath || lastCompositePhoto.dataUrl,
                     copies: 1,
+                    silent: false,
+                    licenseToken: typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null,
                   });
+                  if (res && res.success === false) {
+                    setPrintBlockedNotice(res.error || 'Fitur Cetak Foto tersedia setelah langganan aktif.');
+                  }
                 } else {
                   // Browser print fallback
                   const printWin = window.open('', '_blank');
@@ -167,10 +215,19 @@ export const InstantResultModal: React.FC = () => {
                   }
                 }
               }}
-              className="flex-1 py-2.5 sm:py-3 px-3 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-neutral-300 hover:text-white font-medium text-xs border border-white/[0.08] flex items-center justify-center gap-1.5 transition-colors"
+              className={`flex-1 py-2.5 sm:py-3 px-3 rounded-lg font-medium text-xs border flex items-center justify-center gap-1.5 transition-colors ${
+                isDemoMode
+                  ? 'bg-amber-500/10 hover:bg-amber-500/15 border-amber-500/30 text-amber-300 cursor-not-allowed'
+                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-neutral-300 hover:text-white border-white/[0.08] cursor-pointer'
+              }`}
+              title={isDemoMode ? 'Fitur Cetak Foto tersedia setelah langganan aktif.' : 'Cetak Foto'}
             >
-              <Printer className="w-3.5 h-3.5 text-neutral-400" />
-              <span>Cetak Foto</span>
+              {isDemoMode ? (
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+              ) : (
+                <Printer className="w-3.5 h-3.5 text-neutral-400" />
+              )}
+              <span>{isDemoMode ? 'Cetak Terkunci (Demo)' : 'Cetak Foto'}</span>
             </button>
           </div>
         </div>

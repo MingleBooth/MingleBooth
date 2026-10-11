@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { exec } = require('child_process');
 const { getTetherServer } = require('./tether-server.cjs');
 const { getNativeCameraService } = require('./native-camera.cjs');
+const { getQAOrchestrator } = require('./qa-orchestrator.cjs');
 
 // ── Enforce Single Instance so earlier background processes never hold the camera ──
 const gotSingleLock = app.requestSingleInstanceLock();
@@ -118,6 +119,13 @@ function createWindow() {
     forwardPhotoToRenderer(payload, 'tetherServer');
   });
 
+  tetherServer.removeAllListeners('raw-detected');
+  tetherServer.on('raw-detected', (payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('tether:raw-detected', payload);
+    }
+  });
+
   nativeCamera.removeAllListeners('installLog');
   nativeCamera.removeAllListeners('stateChange');
   nativeCamera.removeAllListeners('liveFrame');
@@ -138,6 +146,12 @@ function createWindow() {
   nativeCamera.on('liveFrame', (payload) => {
     tetherServer.latestLiveFrame = payload.frameDataUrl;
     if (mainWindow && !mainWindow.isDestroyed()) {
+      if (process.platform === 'win32' && (!app.isPackaged || process.argv.includes('--qa') || process.argv.includes('--debug'))) {
+        if (!mainWindow._lastWinLvLog || Date.now() - mainWindow._lastWinLvLog > 3000) {
+          console.log('[WIN-LV] frame forwarded to renderer');
+          mainWindow._lastWinLvLog = Date.now();
+        }
+      }
       mainWindow.webContents.send('camera:live-frame', payload);
     }
   });
@@ -164,22 +178,42 @@ function createWindow() {
       req.setTimeout(800, () => { req.destroy(); resolve(false); });
     });
 
+    const isQaMode = process.argv.includes('--qa') || process.argv.includes('--camera-qa') || process.env.MINGLEBOOTH_QA_MODE === 'true';
+
     checkViteServer().then((isViteRunning) => {
+      const urlToLoad = isQaMode ? `${devUrl}#qa` : devUrl;
+      if (isQaMode) {
+        mainWindow.setTitle('MingleBooth Camera QA — Pengujian Perangkat Keras Tablet');
+      }
+
       if (isViteRunning) {
-        console.log('[Electron] Loading local Vite Dev Server:', devUrl);
-        mainWindow.loadURL(devUrl);
+        console.log('[Electron] Loading local Vite Dev Server:', urlToLoad);
+        mainWindow.loadURL(urlToLoad);
       } else if (fs.existsSync(prodIndex)) {
         console.log('[Electron] Vite dev offline, loading built dist:', prodIndex);
-        mainWindow.loadFile(prodIndex);
+        if (isQaMode) {
+          mainWindow.loadFile(prodIndex, { hash: 'qa' });
+        } else {
+          mainWindow.loadFile(prodIndex);
+        }
       } else {
-        console.log('[Electron] Loading dev URL:', devUrl);
-        mainWindow.loadURL(devUrl).catch(() => {
-          if (fs.existsSync(prodIndex)) mainWindow.loadFile(prodIndex);
+        console.log('[Electron] Loading dev URL:', urlToLoad);
+        mainWindow.loadURL(urlToLoad).catch(() => {
+          if (fs.existsSync(prodIndex)) {
+            if (isQaMode) mainWindow.loadFile(prodIndex, { hash: 'qa' });
+            else mainWindow.loadFile(prodIndex);
+          }
         });
       }
     });
   } else {
-    mainWindow.loadFile(prodIndex);
+    const isQaMode = process.argv.includes('--qa') || process.argv.includes('--camera-qa') || process.env.MINGLEBOOTH_QA_MODE === 'true';
+    if (isQaMode) {
+      mainWindow.setTitle('MingleBooth Camera QA — Pengujian Perangkat Keras Tablet');
+      mainWindow.loadFile(prodIndex, { hash: 'qa' });
+    } else {
+      mainWindow.loadFile(prodIndex);
+    }
   }
 
   // Handle external links in default browser
@@ -189,13 +223,24 @@ function createWindow() {
   });
 
   // Inject fix CSS after page loads
-  mainWindow.webContents.on('did-finish-load', () => {
+  mainWindow.webContents.on('did-finish-load', async () => {
     mainWindow.webContents.insertCSS(`
       html { min-width: 1024px !important; overflow-x: auto !important; }
       body { min-width: 1024px !important; }
     `);
     mainWindow.webContents.setZoomFactor(1.0);
     mainWindow.webContents.setVisualZoomLevelLimits(1, 1);
+
+    // Auto-detect and connect camera on startup so UI displays READY state
+    try {
+      const det = await nativeCamera.detectConnectedCameras();
+      if (det.success && det.cameras && det.cameras.length > 0) {
+        console.log('[Electron] Startup: Connected camera detected:', det.cameras[0].model);
+        await nativeCamera.connectCamera(det.cameras[0]);
+      }
+    } catch (e) {
+      console.warn('[Electron] Startup camera check:', e.message);
+    }
   });
 
   // Keyboard shortcuts: Escape to exit kiosk, F11 for Kiosk fullscreen, F12 for DevTools
@@ -330,6 +375,24 @@ ipcMain.handle('camera:rollback-driver', async () => {
   return await nativeCamera.rollbackDriver();
 });
 
+// ── MingleBooth Dedicated Graphical Camera QA Suite IPC Handlers ─────────
+const qaOrchestrator = getQAOrchestrator();
+
+ipcMain.handle('qa:check-environment', async () => await qaOrchestrator.checkEnvironment());
+ipcMain.handle('qa:detect-camera', async () => await qaOrchestrator.detectCamera());
+ipcMain.handle('qa:setup-driver', async () => await qaOrchestrator.setupDriver());
+ipcMain.handle('qa:test-connection', async (_e, profile) => await qaOrchestrator.testConnection(profile));
+ipcMain.handle('qa:trigger-capture', async (_e, profile) => await qaOrchestrator.triggerCapture(profile));
+ipcMain.handle('qa:rollback-driver', async () => await qaOrchestrator.rollbackDriver());
+ipcMain.handle('qa:enable-test-mode', async () => await qaOrchestrator.enableTestMode());
+ipcMain.handle('qa:restore-normal-mode', async () => await qaOrchestrator.restoreNormalMode());
+ipcMain.handle('qa:test-elevation', async () => await qaOrchestrator.testElevation());
+ipcMain.handle('qa:reboot-system', async () => await qaOrchestrator.rebootSystem());
+ipcMain.handle('qa:export-report', async () => await qaOrchestrator.exportDiagnosticReport());
+ipcMain.handle('qa:is-qa-mode', async () => {
+  return process.argv.includes('--qa') || process.argv.includes('--camera-qa') || process.env.MINGLEBOOTH_QA_MODE === 'true';
+});
+
 ipcMain.handle('camera:release-usb-lock', async () => {
   const tetherServer = getTetherServer(4848);
   const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
@@ -337,13 +400,24 @@ ipcMain.handle('camera:release-usb-lock', async () => {
 });
 
 ipcMain.handle('camera:detect-cameras', async () => {
-  console.log('\n[CameraFix-2026-09-09-v2] detect-cameras handler loaded');
+  const isDebug = !app.isPackaged || process.argv.includes('--qa') || process.argv.includes('--debug');
+  if (process.platform === 'win32' && isDebug) {
+    console.log('[WIN-TRACE] detectNativeCameras called');
+  }
+  if (isDebug) {
+    console.log('\n[CameraFix-2026-09-09-v2] detect-cameras handler loaded');
+  }
   console.log('[CameraIPC] camera:detect-cameras invoked');
   try {
     const tetherServer = getTetherServer(4848);
     const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
     const result = await nativeCamera.detectConnectedCameras();
-    console.log('[CameraFix-2026-09-09-v2] detect-cameras completed successfully. Result:', JSON.stringify(result));
+    if (process.platform === 'win32' && isDebug) {
+      console.log('[WIN-TRACE] detection result:', JSON.stringify(result.cameras?.map(c => c.model) || []));
+    }
+    if (isDebug) {
+      console.log('[CameraFix-2026-09-09-v2] detect-cameras completed successfully. Result:', JSON.stringify(result));
+    }
     return result;
   } catch (error) {
     console.error('[CameraIPC] detect-cameras FAILED');
@@ -367,6 +441,10 @@ ipcMain.handle('camera:stop-native-tether', async () => {
 });
 
 ipcMain.handle('camera:connect', async (event, targetCamera) => {
+  const isDebug = !app.isPackaged || process.argv.includes('--qa') || process.argv.includes('--debug');
+  if (process.platform === 'win32' && isDebug) {
+    console.log('[WIN-TRACE] connectNativeCamera called:', targetCamera?.model || 'auto');
+  }
   const tetherServer = getTetherServer(4848);
   const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
   return await nativeCamera.connectCamera(targetCamera);
@@ -379,6 +457,10 @@ ipcMain.handle('camera:disconnect', async () => {
 });
 
 ipcMain.handle('camera:start-liveview', async () => {
+  const isDebug = !app.isPackaged || process.argv.includes('--qa') || process.argv.includes('--debug');
+  if (process.platform === 'win32' && isDebug) {
+    console.log('[WIN-LV] IPC startLiveView received');
+  }
   const tetherServer = getTetherServer(4848);
   const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
   nativeCamera.startLiveView();
@@ -392,6 +474,15 @@ ipcMain.handle('camera:stop-liveview', async () => {
   return { success: true };
 });
 
+ipcMain.handle('camera:get-live-view-state', () => {
+  const tetherServer = getTetherServer(4848);
+  const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
+  if (nativeCamera.sonyBackend && typeof nativeCamera.sonyBackend.getLiveViewState === 'function') {
+    return { state: nativeCamera.sonyBackend.getLiveViewState() };
+  }
+  return { state: nativeCamera.isLiveViewActive ? 'running' : 'stopped' };
+});
+
 ipcMain.handle('camera:get-state', () => {
   const tetherServer = getTetherServer(4848);
   const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
@@ -399,6 +490,9 @@ ipcMain.handle('camera:get-state', () => {
 });
 
 ipcMain.handle('camera:direct-capture', async () => {
+  if (process.platform === 'win32') {
+    console.log('[WIN-CAPTURE] IPC direct capture received');
+  }
   const tetherServer = getTetherServer(4848);
   const nativeCamera = getNativeCameraService(tetherServer.tetherDir);
   return await nativeCamera.triggerDirectCapture();
@@ -453,6 +547,53 @@ ipcMain.handle('storage:open-folder', async (event, folderPath) => {
   }
 });
 
+function getDemoStorageDir() {
+  const baseDir = path.join(app.getPath('userData'), 'demo_storage');
+  const subdirs = ['processed', 'gifs', 'raw'];
+  for (const sub of subdirs) {
+    const p = path.join(baseDir, sub);
+    if (!fs.existsSync(p)) {
+      fs.mkdirSync(p, { recursive: true });
+    }
+  }
+  return baseDir;
+}
+
+function cleanDemoStorage() {
+  try {
+    const demoDir = path.join(app.getPath('userData'), 'demo_storage');
+    if (fs.existsSync(demoDir)) {
+      const entries = fs.readdirSync(demoDir);
+      for (const entry of entries) {
+        const fullPath = path.join(demoDir, entry);
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      }
+      console.log('[Storage] Cleaned demo storage directory safely:', demoDir);
+    }
+    getDemoStorageDir();
+    return { success: true };
+  } catch (err) {
+    console.warn('[Storage] Warning cleaning demo storage:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+ipcMain.handle('storage:clean-demo-files', async () => {
+  return cleanDemoStorage();
+});
+
+ipcMain.handle('storage:get-demo-dir', async () => {
+  return getDemoStorageDir();
+});
+
+ipcMain.handle('app:open-external', async (event, url) => {
+  if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+    shell.openExternal(url);
+    return { success: true };
+  }
+  return { success: false, error: 'Invalid URL' };
+});
+
 function getEventStorageDir(eventName, customBasePath) {
   let baseDir;
   if (customBasePath && typeof customBasePath === 'string' && customBasePath.trim() !== '') {
@@ -482,9 +623,13 @@ function getEventStorageDir(eventName, customBasePath) {
 
 ipcMain.handle('storage:open-event-folder', async (event, payload) => {
   try {
-    const eventName = typeof payload === 'string' ? payload : payload?.eventName;
-    const customBasePath = typeof payload === 'object' ? payload?.customBasePath : undefined;
-    const dir = getEventStorageDir(eventName, customBasePath);
+    const isDemo = typeof payload === 'object' && payload?.isDemo;
+    const dir = isDemo
+      ? getDemoStorageDir()
+      : getEventStorageDir(
+          typeof payload === 'string' ? payload : payload?.eventName,
+          typeof payload === 'object' ? payload?.customBasePath : undefined
+        );
     const openResult = await shell.openPath(dir);
     if (openResult) {
       return { success: false, error: openResult, path: dir };
@@ -495,9 +640,9 @@ ipcMain.handle('storage:open-event-folder', async (event, payload) => {
   }
 });
 
-ipcMain.handle('storage:save-capture-files', async (event, { eventName, customBasePath, photoId, photoBase64, gifBase64, rawShots }) => {
+ipcMain.handle('storage:save-capture-files', async (event, { eventName, customBasePath, photoId, photoBase64, gifBase64, rawShots, isDemo }) => {
   try {
-    const eventDir = getEventStorageDir(eventName, customBasePath);
+    const eventDir = isDemo ? getDemoStorageDir() : getEventStorageDir(eventName, customBasePath);
     
     // 1. Save processed composite photo (JPG)
     if (photoBase64) {
@@ -526,19 +671,21 @@ ipcMain.handle('storage:save-capture-files', async (event, { eventName, customBa
       });
     }
     
-    return { success: true, eventDir };
+    return { success: true, eventDir, isDemo: Boolean(isDemo) };
   } catch (err) {
     console.error('[Storage] Failed to save capture files to SSD:', err);
     return { success: false, error: err.message };
   }
 });
 
-ipcMain.handle('storage:list-files', async (event, { basePath, eventId }) => {
+ipcMain.handle('storage:list-files', async (event, options = {}) => {
   try {
-    const eventDir =
-      basePath && path.isAbsolute(basePath)
-        ? basePath
-        : path.join(path.resolve(__dirname, '../../data'), 'events', eventId || '');
+    const { basePath, eventId, isDemo } = options;
+    const eventDir = isDemo
+      ? getDemoStorageDir()
+      : basePath && path.isAbsolute(basePath)
+      ? basePath
+      : path.join(path.resolve(__dirname, '../../data'), 'events', eventId || '');
     const processedDir = path.join(eventDir, 'processed');
     const rawDir = path.join(eventDir, 'raw');
 
@@ -569,6 +716,7 @@ ipcMain.handle('storage:list-files', async (event, { basePath, eventId }) => {
       processedCount: processedFiles.filter((f) => !f.startsWith('.')).length,
       rawCount: rawFiles.filter((f) => !f.startsWith('.')).length,
       totalBytes,
+      isDemo: Boolean(isDemo),
     };
   } catch (err) {
     return { success: false, error: err.message, processedCount: 0, rawCount: 0, totalBytes: 0 };
@@ -582,9 +730,136 @@ ipcMain.handle('printer:get-printers', async () => {
   return [];
 });
 
-ipcMain.handle('printer:print-photo', async (event, { filePath, copies = 1, silent = true }) => {
+/**
+ * Authoritative License & Print Entitlement Guard (Electron Main Process)
+ * Enforces subscription gating for physical printing. Rejects demo sessions,
+ * expired licenses, device mismatches, and unauthenticated print requests.
+ * Never trusts unverified client flags.
+ */
+async function verifyPrintEntitlement(options = {}) {
+  let licenseToken = options.licenseToken;
+
+  // 1. If not provided directly in options, read from authentic window session storage
+  if (!licenseToken && mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      licenseToken = await mainWindow.webContents.executeJavaScript('localStorage.getItem("mb_license_token")');
+    } catch {
+      licenseToken = null;
+    }
+  }
+
+  // 2. Check window demo flag as secondary defense
+  let windowIsDemo = false;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      const demoStr = await mainWindow.webContents.executeJavaScript('localStorage.getItem("mb_is_demo")');
+      windowIsDemo = demoStr === 'true';
+    } catch {
+      windowIsDemo = false;
+    }
+  }
+
+  if (windowIsDemo) {
+    return {
+      allowed: false,
+      code: 'DEMO_MODE_BLOCKED',
+      error: 'Fitur Cetak Foto tersedia setelah langganan aktif.',
+    };
+  }
+
+  if (!licenseToken || typeof licenseToken !== 'string') {
+    return {
+      allowed: false,
+      code: 'AUTH_REQUIRED',
+      error: 'Fitur Cetak Foto memerlukan autentikasi lisensi vendor aktif.',
+    };
+  }
+
+  // 3. Decode & inspect token structure
+  let parsed;
   try {
+    const jsonStr = Buffer.from(licenseToken, 'base64').toString('utf8');
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    return {
+      allowed: false,
+      code: 'LICENSE_INVALID',
+      error: 'Format lisensi tidak valid (LICENSE_INVALID).',
+    };
+  }
+
+  const payload = parsed?.payload;
+  if (!payload || typeof payload !== 'object') {
+    return {
+      allowed: false,
+      code: 'LICENSE_INVALID',
+      error: 'Struktur data lisensi rusak.',
+    };
+  }
+
+  // 4. Token-level Demo check (authoritative from signed token payload)
+  if (payload.isDemo === true) {
+    return {
+      allowed: false,
+      code: 'DEMO_MODE_BLOCKED',
+      error: 'Fitur Cetak Foto tersedia setelah langganan aktif.',
+    };
+  }
+
+  // 5. Expiration & offline grace period check
+  const expiresAtStr = payload.expiresAt || payload.validUntil;
+  if (expiresAtStr) {
+    const expiryMs = new Date(expiresAtStr).getTime();
+    if (!isNaN(expiryMs)) {
+      const gracePeriodDays = payload.offlineGracePeriodDays || 7;
+      const gracePeriodMs = gracePeriodDays * 24 * 60 * 60 * 1000;
+      if (Date.now() > expiryMs + gracePeriodMs) {
+        return {
+          allowed: false,
+          code: 'SUBSCRIPTION_EXPIRED',
+          error: 'Masa aktif langganan telah berakhir. Cetak diblokir.',
+        };
+      }
+    }
+  }
+
+  // 6. Hardware binding check (if token specifies hwid)
+  const currentHwid = generateHardwareFingerprint();
+  const tokenHwid = payload.hwid || payload.hardwareFingerprint;
+  if (tokenHwid && tokenHwid !== currentHwid) {
+    return {
+      allowed: false,
+      code: 'DEVICE_MISMATCH',
+      error: 'Lisensi ini terdaftar untuk perangkat lain (DEVICE_MISMATCH).',
+    };
+  }
+
+  return { allowed: true, payload };
+}
+
+ipcMain.handle('printer:print-photo', async (event, rawOptions) => {
+  try {
+    const options = typeof rawOptions === 'string'
+      ? { filePath: rawOptions }
+      : (rawOptions || {});
+    const { filePath, copies = 1, silent = true } = options;
+
     if (!mainWindow) return { success: false, error: 'No active window' };
+
+    // ── STRICT SUBSCRIPTION / DEMO GATE IN ELECTRON MAIN PROCESS ──
+    const entitlement = await verifyPrintEntitlement(options);
+    if (!entitlement.allowed) {
+      console.warn(`[Printer Guard] Blocked print request (${entitlement.code}): ${entitlement.error}`);
+      return {
+        success: false,
+        error: entitlement.error,
+        code: entitlement.code,
+      };
+    }
+
+    if (!filePath) {
+      return { success: false, error: 'No filePath provided for printing' };
+    }
 
     // Create invisible print worker window
     const printWindow = new BrowserWindow({
@@ -665,6 +940,13 @@ ipcMain.handle('camera:open-privacy-settings', () => {
 });
 
 app.whenReady().then(async () => {
+  // Safely clean up any abandoned demo temporary files on startup
+  try {
+    cleanDemoStorage();
+  } catch (e) {
+    console.warn('[Storage] Startup demo cleanup notice:', e.message);
+  }
+
   // Start Tether Server for Remote PC / Tablet Hub
   try {
     const tetherServer = getTetherServer(4848);

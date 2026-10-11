@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { verifyServerAuth } from '@/lib/auth-server';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const auth = await verifyServerAuth(req);
+    if (!auth.isValid) {
+      return NextResponse.json({ error: auth.error, code: 'AUTH_REQUIRED' }, { status: auth.status || 401 });
+    }
+    if (!auth.isSuperAdmin) {
+      return NextResponse.json({ error: 'Superadmin role required', code: 'ORG_ACCESS_DENIED' }, { status: 403 });
+    }
+
     const client = getServiceSupabase();
 
     const { data: orgs, error: orgErr } = await client
@@ -39,6 +49,21 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'modify_vendor',
+        'Modifikasi data vendor dan reset perangkat dinonaktifkan pada Vercel Preview.'
+      );
+    }
+
+    const auth = await verifyServerAuth(req);
+    if (!auth.isValid) {
+      return NextResponse.json({ error: auth.error, code: 'AUTH_REQUIRED' }, { status: auth.status || 401 });
+    }
+    if (!auth.isSuperAdmin) {
+      return NextResponse.json({ error: 'Superadmin role required', code: 'ORG_ACCESS_DENIED' }, { status: 403 });
+    }
+
     const body = await req.json();
     const { orgId, action, planTier } = body;
 
@@ -49,7 +74,21 @@ export async function POST(req: NextRequest) {
     const client = getServiceSupabase();
 
     if (action === 'extend_1_year') {
-      const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: targetOrg } = await client
+        .from('organizations')
+        .select('subscription_expires_at, subscription_status')
+        .eq('id', orgId)
+        .single();
+
+      const currentExpiryMs = targetOrg?.subscription_expires_at
+        ? new Date(targetOrg.subscription_expires_at).getTime()
+        : 0;
+      const baseTimeMs =
+        currentExpiryMs > Date.now() && targetOrg?.subscription_status !== 'expired'
+          ? currentExpiryMs
+          : Date.now();
+      const expiresAt = new Date(baseTimeMs + 365 * 24 * 60 * 60 * 1000).toISOString();
+
       await client
         .from('organizations')
         .update({

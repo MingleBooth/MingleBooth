@@ -175,54 +175,43 @@ export async function GET(
         console.warn('Supabase metadata check warning:', err);
       }
 
-      if (rawCount === 0 && !matchedEventDir) {
-        rawCount = 2; // Graceful default for offline/fallback
-      }
-
-      const slides: Array<{
-        id: string;
-        type: 'photo' | 'gif' | 'raw';
-        title: string;
-        subtitle: string;
-        badge: string;
-        url: string;
-        downloadName: string;
-      }> = [
+      const slides: any[] = [
         {
           id: 'slide_photo',
           type: 'photo',
           title: 'Foto Berbingkai',
-          subtitle: 'Hasil Cetak Siap Cetak HD',
-          badge: 'HASIL CETAK',
+          subtitle: 'Hasil Cetak Siap HD',
+          badge: 'FOTO BERBINGKAI',
           url: `/api/gallery/${photoId}?type=photo`,
           downloadName: `MingleBooth_Foto_${photoId}.jpg`,
         },
       ];
 
-      // Slide 2: GIF Boomerang (Only when session has multi-shot GIF)
       if (hasGif) {
         slides.push({
           id: 'slide_gif',
           type: 'gif',
-          title: 'Animasi GIF',
-          subtitle: 'Boomerang Bergerak',
+          title: 'Animasi Bergerak',
+          subtitle: 'Looping Mini Moment',
           badge: 'ANIMASI GIF',
           url: `/api/gallery/${photoId}?type=gif`,
           downloadName: `MingleBooth_Animasi_${photoId}.gif`,
         });
       }
 
-      // Slide 3..N: Raw Shots
-      for (let i = 1; i <= Math.max(1, rawCount); i++) {
-        slides.push({
-          id: `slide_raw_${i}`,
-          type: 'raw',
-          title: `Foto Original #${i}`,
-          subtitle: `Jepretan Mentah Pose ${i}`,
-          badge: `POSE #${i}`,
-          url: `/api/gallery/${photoId}?type=raw&index=${i}`,
-          downloadName: `MingleBooth_Original_Pose${i}_${photoId}.jpg`,
-        });
+      // Only include raw slides if actual raw files were detected
+      if (rawCount > 0) {
+        for (let i = 1; i <= rawCount; i++) {
+          slides.push({
+            id: `slide_raw_${i}`,
+            type: 'raw',
+            title: `Foto Original #${i}`,
+            subtitle: `Jepretan Mentah Pose ${i}`,
+            badge: `POSE #${i}`,
+            url: `/api/gallery/${photoId}?type=raw&index=${i}`,
+            downloadName: `MingleBooth_Original_Pose${i}_${photoId}.jpg`,
+          });
+        }
       }
 
       return NextResponse.json(
@@ -316,14 +305,31 @@ export async function GET(
             .limit(1)
             .maybeSingle();
 
-          const evtId = pRec?.event_id;
+          let evtId = pRec?.event_id;
+          if (!evtId) {
+            const { data: gRec } = await client
+              .from('gifs')
+              .select('event_id')
+              .ilike('cloud_storage_path', `%${photoId}%`)
+              .limit(1)
+              .maybeSingle();
+            evtId = gRec?.event_id;
+          }
+
           if (evtId) {
             const rawStoragePath = `events/${evtId}/raw/${photoId}_raw_${rawIndex}.jpg`;
-            const { data: pubData } = client.storage
+            // Check if file actually exists in storage before redirecting
+            const { data: rawList } = await client.storage
               .from('minglebooth-storage')
-              .getPublicUrl(rawStoragePath);
-            if (pubData?.publicUrl) {
-              return NextResponse.redirect(pubData.publicUrl);
+              .list(`events/${evtId}/raw`);
+            const exists = rawList && rawList.some((f) => f.name === `${photoId}_raw_${rawIndex}.jpg`);
+            if (exists) {
+              const { data: pubData } = client.storage
+                .from('minglebooth-storage')
+                .getPublicUrl(rawStoragePath);
+              if (pubData?.publicUrl) {
+                return NextResponse.redirect(pubData.publicUrl);
+              }
             }
           }
         } else {
@@ -364,15 +370,32 @@ export async function GET(
     console.warn('Gallery serving warning:', err);
   }
 
-  // Fallback placeholder SVG if file is not found on disk
+  // Graceful controlled fallback SVG if file is not found (avoids broken image browser icons)
   const isGifReq = type === 'gif';
-  const label = isGifReq ? 'GIF BOOMERANG READY' : type === 'raw' ? `RAW SHOT #${rawIndex}` : 'PHOTO COMPOSITE';
-  const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="900" viewBox="0 0 720 900"><rect width="720" height="900" fill="#121418"/><text x="360" y="450" fill="#9CA3AF" font-size="24" font-family="sans-serif" text-anchor="middle">${label}</text></svg>`;
+  const label = isGifReq
+    ? 'ANIMASI GIF BELUM TERSEDIA'
+    : type === 'raw'
+    ? 'FOTO ORIGINAL TIDAK TERSEDIA'
+    : 'FOTO BERBINGKAI BELUM TERSEDIA';
+  const subLabel = type === 'raw'
+    ? `Pose ${rawIndex} belum selesai diunggah atau tidak tersedia`
+    : 'File sedang diproses oleh sistem';
+
+  const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="960" viewBox="0 0 720 960">
+    <rect width="720" height="960" fill="#0A0B0E"/>
+    <rect x="32" y="32" width="656" height="896" rx="20" fill="#12141A" stroke="#232732" stroke-width="2"/>
+    <circle cx="360" cy="420" r="44" fill="#1B1E26"/>
+    <path d="M338 412h44M360 390v44" stroke="#6B7280" stroke-width="3" stroke-linecap="round"/>
+    <text x="360" y="510" fill="#F3F4F6" font-size="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="700" text-anchor="middle" letter-spacing="1">${label}</text>
+    <text x="360" y="546" fill="#9CA3AF" font-size="14" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" text-anchor="middle">${subLabel}</text>
+  </svg>`;
 
   return new NextResponse(fallbackSvg, {
+    status: 200,
     headers: {
       ...corsHeaders,
       'Content-Type': 'image/svg+xml',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
     },
   });
 }

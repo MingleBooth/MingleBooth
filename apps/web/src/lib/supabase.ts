@@ -1,14 +1,31 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://qnayeagrksnkeelthehq.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFuYXllYWdya3Nua2VlbHRoZWhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxOTExMjEsImV4cCI6MjEwMzc2NzEyMX0.Rg9oi2jy63FZjxZkIt9aeXt-0AsfR96gYzxzQBT66SM';
-const defaultServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFuYXllYWdya3Nua2VlbHRoZWhxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODE5MTEyMSwiZXhwIjoyMTAzNzY3MTIxfQ.2l14tmcg9o8IdxKE-d6R6OXCarMuFdV7wHzcR6u2sWE';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Public client initialized from public environment variables
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-anon-key'
+);
 
+/**
+ * Server-only service-role client.
+ * Fail-closed: Requires explicit NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
+ * Never falls back silently to hardcoded production credentials.
+ */
 export function getServiceSupabase() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || defaultServiceKey;
-  return createClient(supabaseUrl, serviceKey, {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceKey) {
+    throw new Error(
+      '[Supabase Server Config Error] Missing required Supabase configuration: ' +
+      'NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be explicitly set.'
+    );
+  }
+
+  return createClient(url, serviceKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,

@@ -6,6 +6,7 @@ node_modules
 # Production / Build
 dist
 build
+!apps/desktop/build/
 !apps/desktop/build/**
 out
 .next
@@ -34,3 +35,8 @@ release
 .vercel
 .env*.local
 *.tsbuildinfo
+
+# Temporary & Local Experiments
+.temp/
+**/.temp/
+camera-sdk-poc/

@@ -32,11 +32,20 @@ Write-Host "================================================================" -F
 Write-Host "Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')"
 Write-Host ""
 
-# 1. Ensure running elevated
+# 1. Ensure running elevated & safe self-elevation
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "[ERROR] Administrator privileges are required to manage device drivers." -ForegroundColor Red
-    exit 2
+    try {
+        $argStr = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+        if ($InstanceId) {
+            $argStr += " -InstanceId `"$InstanceId`""
+        }
+        $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argStr -Verb RunAs -Wait -PassThru
+        exit $proc.ExitCode
+    } catch {
+        Write-Host "[ERROR] Administrator privileges are required to manage device drivers: $($_.Exception.Message)" -ForegroundColor Red
+        exit 2
+    }
 }
 
 # 2. Locate Device

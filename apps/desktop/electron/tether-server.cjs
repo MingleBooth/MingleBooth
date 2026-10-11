@@ -86,6 +86,12 @@ class TetherServer extends EventEmitter {
       this.fsWatcher = fs.watch(this.tetherDir, (eventType, filename) => {
         if (!filename) return;
         const lower = filename.toLowerCase();
+        if (lower.endsWith('.arw') || lower.endsWith('.cr2') || lower.endsWith('.cr3') || lower.endsWith('.nef') || lower.endsWith('.dng') || lower.endsWith('.raw')) {
+          console.warn(`[TetherServer] ⚠️ File RAW terdeteksi (${filename}). Format kamera wajib diset ke JPEG!`);
+          this.emit('raw-detected', { filename });
+          return;
+        }
+
         if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg') && !lower.endsWith('.png')) {
           return;
         }

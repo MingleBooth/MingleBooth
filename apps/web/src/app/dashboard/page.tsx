@@ -30,6 +30,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  ArrowRight,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import Link from 'next/link';
@@ -68,6 +69,20 @@ export default function DashboardPage() {
   // Download Modal
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
 
+  // Device Manager States
+  const [deviceQuota, setDeviceQuota] = useState<{
+    activeCount: number;
+    maxQuota: number;
+    planTier: string;
+    isFull: boolean;
+  } | null>(null);
+  const [deviceLoading, setDeviceLoading] = useState(false);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+  const [deactivatingDevice, setDeactivatingDevice] = useState<any | null>(null);
+  const [deactivatingSubmitting, setDeactivatingSubmitting] = useState(false);
+  const [deviceFeedback, setDeviceFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showWelcome, setShowWelcome] = useState(false);
+
   useEffect(() => {
     // Auth Session Guard
     const sessionUser = localStorage.getItem('mb_web_user');
@@ -77,6 +92,13 @@ export default function DashboardPage() {
     }
     setCurrentUser(JSON.parse(sessionUser));
     fetchDashboardData();
+
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('welcome') === '1') {
+        setShowWelcome(true);
+      }
+    }
   }, [router]);
 
   const handleLogout = () => {
@@ -84,19 +106,47 @@ export default function DashboardPage() {
     router.push('/login');
   };
 
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('mb_web_token') || '' : '';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
+  const fetchDevices = async () => {
+    setDeviceLoading(true);
+    setDeviceError(null);
+    try {
+      const res = await fetch('/api/vendor/devices', { headers: getAuthHeaders() });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Gagal memuat daftar perangkat.');
+      }
+      const data = await res.json();
+      if (data.devices) setDevices(data.devices);
+      if (data.quota) setDeviceQuota(data.quota);
+    } catch (err: any) {
+      setDeviceError(err.message || 'Terjadi kesalahan saat memuat perangkat.');
+    } finally {
+      setDeviceLoading(false);
+    }
+  };
+
   const fetchDashboardData = async () => {
     setLoading(true);
+    const headers = getAuthHeaders();
     try {
       const [eventsRes, tplRes, devRes] = await Promise.all([
-        fetch('/api/vendor/events').then((r) => r.json()),
-        fetch('/api/vendor/templates').then((r) => r.json()),
-        fetch('/api/vendor/devices').then((r) => r.json()),
+        fetch('/api/vendor/events', { headers }).then((r) => r.json()),
+        fetch('/api/vendor/templates', { headers }).then((r) => r.json()),
+        fetch('/api/vendor/devices', { headers }).then((r) => r.json()),
       ]);
 
       if (eventsRes.events) setEvents(eventsRes.events);
       if (eventsRes.org) setOrg(eventsRes.org);
       if (tplRes.templates) setTemplates(tplRes.templates);
       if (devRes.devices) setDevices(devRes.devices);
+      if (devRes.quota) setDeviceQuota(devRes.quota);
     } catch (err) {
       console.error('Fetch dashboard error:', err);
     } finally {
@@ -109,7 +159,7 @@ export default function DashboardPage() {
     try {
       const res = await fetch('/api/vendor/events', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: newEventName,
           date: newEventDate,
@@ -131,7 +181,10 @@ export default function DashboardPage() {
       return;
     }
     try {
-      const res = await fetch(`/api/vendor/events?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/vendor/events?id=${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         fetchDashboardData();
       } else {
@@ -164,7 +217,7 @@ export default function DashboardPage() {
     try {
       const res = await fetch('/api/vendor/templates', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: newTemplateName.trim(),
           aspectRatio: newTemplateRatio,
@@ -215,28 +268,52 @@ export default function DashboardPage() {
   const handleDeleteTemplate = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus template ini?')) return;
     try {
-      await fetch(`/api/vendor/templates?id=${id}`, { method: 'DELETE' });
+      await fetch(`/api/vendor/templates?id=${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
       fetchDashboardData();
     } catch (err) {
       console.error('Delete template error:', err);
     }
   };
 
-  const handleDeactivateDevice = async (deviceId: string, deviceName: string) => {
-    if (!confirm(`Nonaktifkan ${deviceName}? Slot kuota perangkat akan dibebaskan sehingga Anda bisa login di laptop baru.`)) {
-      return;
-    }
+  const handleOpenDeactivateModal = (device: any) => {
+    setDeactivatingDevice(device);
+    setDeviceFeedback(null);
+  };
+
+  const handleConfirmDeactivate = async () => {
+    if (!deactivatingDevice) return;
+    setDeactivatingSubmitting(true);
+    setDeviceFeedback(null);
     try {
       const res = await fetch('/api/auth/deactivate-device', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ deviceId: deactivatingDevice.id }),
       });
-      if (res.ok) {
-        fetchDashboardData();
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDeviceFeedback({
+          type: 'success',
+          message: data.message || `Perangkat "${deactivatingDevice.deviceName || deactivatingDevice.device_name}" berhasil dinonaktifkan.`,
+        });
+        setDeactivatingDevice(null);
+        await fetchDevices();
+      } else {
+        setDeviceFeedback({
+          type: 'error',
+          message: data.error || 'Gagal menonaktifkan perangkat.',
+        });
       }
-    } catch (err) {
-      console.error('Deactivate device error:', err);
+    } catch (err: any) {
+      setDeviceFeedback({
+        type: 'error',
+        message: 'Gagal terhubung ke server: ' + err.message,
+      });
+    } finally {
+      setDeactivatingSubmitting(false);
     }
   };
 
@@ -247,6 +324,15 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  const isSubscriptionActive = Boolean(
+    org?.subscription_status === 'active' &&
+    org?.subscription_expires_at &&
+    new Date(org.subscription_expires_at).getTime() > Date.now()
+  );
+  const isExpired = Boolean(
+    !isSubscriptionActive && org?.subscription_status === 'expired'
+  );
 
   return (
     <div className="min-h-screen bg-[#090A0C] text-[#EDEDED] flex flex-col font-sans select-none antialiased">
@@ -290,40 +376,184 @@ export default function DashboardPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10 flex flex-col gap-8 sm:gap-10">
-        {/* Banner: Studio Photobooth (Tablet & Desktop) */}
-        <section className="p-6 rounded-2xl bg-[#121318] border border-white/[0.08] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-xl">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 flex items-center justify-center flex-shrink-0 mt-0.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo-studio-transparent.png"
-                alt="MingleBooth Studio"
-                className="w-full h-full object-contain"
-              />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base font-bold text-white">
-                  MingleBooth Studio (Desktop Kiosk)
-                </h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/[0.08] text-neutral-300 border border-white/10 uppercase tracking-wider">
-                  Mac &amp; Windows App
-                </span>
+        {/* 1. Welcome Alert for Newly Registered Vendors */}
+        {showWelcome && (
+          <div className="p-4 sm:p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-start sm:items-center justify-between gap-4 shadow-xl animate-fadeIn">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mt-0.5 flex-shrink-0">
+                <Check className="w-5 h-5" />
               </div>
-              <p className="text-xs text-neutral-400 mt-1 leading-relaxed max-w-xl">
-                Jalankan sesi Kiosk Photobooth melalui aplikasi <strong>MingleBooth Studio Desktop</strong> di laptop Mac atau Windows untuk koneksi kamera DSLR/Mirrorless, tethering offline, dan cetak foto instan.
-              </p>
+              <div>
+                <span className="font-bold text-white text-sm block">Selamat Datang di MingleBooth Studio!</span>
+                <p className="text-neutral-300 mt-0.5 text-xs leading-relaxed">
+                  Akun vendor gratis Anda telah aktif. Silakan unduh aplikasi <strong>MingleBooth Studio</strong> di bawah untuk mulai menguji coba kamera fisik dan sesi photobooth di laptop Anda.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowWelcome(false)}
+              className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-white/[0.08] transition-colors flex-shrink-0"
+              title="Tutup pemberitahuan"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* 2. Authoritative Subscription Status Card */}
+        {!isSubscriptionActive ? (
+          <section className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-[#171922] to-[#121318] border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 shadow-xl relative overflow-hidden">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center text-amber-400 flex-shrink-0 mt-0.5">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase tracking-wide">
+                    {isExpired ? 'Langganan Kedaluwarsa' : 'Mode Demo • Belum Berlangganan'}
+                  </span>
+                  <h2 className="text-sm sm:text-base font-bold text-white">
+                    {org?.name || 'Studio Vendor'}
+                  </h2>
+                </div>
+                <p className="text-xs text-neutral-300 mt-1.5 max-w-xl leading-relaxed">
+                  {isExpired
+                    ? 'Masa aktif langganan Anda telah berakhir. Perpanjang lisensi Anda untuk mengaktifkan kembali Galeri Cloud Tamu, Live QR smartphone, dan armada booth komersial.'
+                    : 'Akun Anda berada dalam Mode Demo. Anda dapat mengunduh Studio dan menguji coba koneksi kamera fisik Sony & webcam secara lokal gratis. Aktifkan paket langganan saat siap membuka Galeri Cloud Tamu, Live QR smartphone, dan armada booth.'
+                  }
+                </p>
+              </div>
+            </div>
+
+            <Link
+              href="/billing"
+              className="h-9 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95 whitespace-nowrap flex-shrink-0 self-start sm:self-auto"
+            >
+              <span>{isExpired ? 'Perpanjang Langganan' : 'Lihat Paket & Aktifkan Langganan'}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </section>
+        ) : (
+          <section className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-[#11161B] to-[#121318] border border-emerald-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 shadow-xl">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 flex-shrink-0 mt-0.5">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wide">
+                    Langganan Aktif • {org?.plan_tier?.toUpperCase()}
+                  </span>
+                  <h2 className="text-sm sm:text-base font-bold text-white">
+                    {org?.name || 'Studio Vendor'}
+                  </h2>
+                </div>
+                <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                  Lisensi aktif hingga {org?.subscription_expires_at ? new Date(org.subscription_expires_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Aktif'}.
+                  {' '}Kuota: {deviceQuota?.activeCount ?? 0} dari {deviceQuota?.maxQuota ?? (org?.max_devices_quota || 1)} perangkat booth terpakai.
+                </p>
+              </div>
+            </div>
+
+            <Link
+              href="/billing"
+              className="h-8 px-3.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-neutral-200 hover:text-white border border-white/[0.08] text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap flex-shrink-0 self-start sm:self-auto"
+            >
+              <CreditCard className="w-3.5 h-3.5 text-neutral-400" />
+              <span>Kelola Langganan</span>
+            </Link>
+          </section>
+        )}
+
+        {/* 3. Kartu Utama: Unduh MingleBooth Studio */}
+        <section className="p-6 rounded-2xl bg-[#121318] border border-white/[0.08] flex flex-col gap-6 shadow-xl">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 flex items-center justify-center flex-shrink-0 mt-0.5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/logo-studio-transparent.png"
+                  alt="MingleBooth Studio"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-bold text-white">
+                    Unduh MingleBooth Studio Desktop
+                  </h2>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/[0.08] text-neutral-300 border border-white/10 uppercase tracking-wider">
+                    Windows &amp; macOS
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-400 mt-1 leading-relaxed max-w-xl">
+                  Aplikasi native photobooth kiosk untuk laptop operator Anda. Menghubungkan kamera Sony mirrorless via USB SDK, live view 30fps tanpa lag, cetak instan, dan antrean foto offline.
+                </p>
+              </div>
+            </div>
+
+            {/* Direct Download Buttons */}
+            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto flex-shrink-0">
+              <a
+                href={
+                  process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
+                  !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
+                    ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
+                    : 'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio.Setup.1.0.0.exe'
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="h-9 px-4 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-2 transition-all shadow-md active:scale-98 whitespace-nowrap"
+              >
+                <Download className="w-3.5 h-3.5 text-black" />
+                <span>Unduh Windows (.exe)</span>
+              </a>
+              <a
+                href={
+                  process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
+                  !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
+                    ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
+                    : 'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio-1.0.0.dmg'
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="h-9 px-4 rounded-xl bg-[#1A1C22] hover:bg-[#22252C] text-white border border-white/10 font-semibold text-xs flex items-center gap-2 transition-all shadow-md active:scale-98 whitespace-nowrap"
+              >
+                <Download className="w-3.5 h-3.5 text-neutral-300" />
+                <span>Unduh Mac (.dmg)</span>
+              </a>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 w-full sm:w-auto flex-shrink-0">
-            <button
-              onClick={() => setIsDownloadModalOpen(true)}
-              className="h-10 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 whitespace-nowrap flex-shrink-0 cursor-pointer"
-            >
-              <Download className="w-4 h-4 text-black" />
-              <span>Unduh Aplikasi Desktop &amp; Panduan</span>
-            </button>
+          {/* 3 Step Setup Guide */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-white/[0.06]">
+            <div className="p-3.5 rounded-xl bg-black/40 border border-white/[0.04] flex flex-col gap-1">
+              <div className="flex items-center gap-2 text-white font-semibold text-xs">
+                <span className="w-4 h-4 rounded-full bg-white/10 text-[10px] flex items-center justify-center font-bold">1</span>
+                <span>Instal Aplikasi</span>
+              </div>
+              <p className="text-[11px] text-neutral-400 leading-relaxed">
+                Unduh installer sesuai OS laptop Anda (.exe untuk Windows, .dmg untuk macOS) dan pasang di laptop.
+              </p>
+            </div>
+            <div className="p-3.5 rounded-xl bg-black/40 border border-white/[0.04] flex flex-col gap-1">
+              <div className="flex items-center gap-2 text-white font-semibold text-xs">
+                <span className="w-4 h-4 rounded-full bg-white/10 text-[10px] flex items-center justify-center font-bold">2</span>
+                <span>Login dengan Akun Vendor</span>
+              </div>
+              <p className="text-[11px] text-neutral-400 leading-relaxed">
+                Buka MingleBooth Studio dan masuk menggunakan email ({currentUser?.email}) dan password Anda.
+              </p>
+            </div>
+            <div className="p-3.5 rounded-xl bg-black/40 border border-white/[0.04] flex flex-col gap-1">
+              <div className="flex items-center gap-2 text-white font-semibold text-xs">
+                <span className="w-4 h-4 rounded-full bg-white/10 text-[10px] flex items-center justify-center font-bold">3</span>
+                <span>Mulai Pengujian Kamera</span>
+              </div>
+              <p className="text-[11px] text-neutral-400 leading-relaxed">
+                Sambungkan kabel USB kamera Sony atau webcam. Live view dan countdown shutter langsung aktif.
+              </p>
+            </div>
           </div>
         </section>
 
@@ -674,61 +904,198 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* Section 3: Registered Devices & Anti-Piracy Licensing */}
+        {/* Section 3: Registered Devices & Device Quota Management */}
         <section className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold tracking-tight text-white">
-                Perangkat Laptop Terdaftar
-              </h2>
-              <p className="text-xs text-neutral-400 mt-0.5">
-                Laptop dan tablet operator yang terhubung dengan akun Anda ({devices.length} dari {org?.max_devices_quota || 3} slot terpakai).
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-base font-semibold tracking-tight text-white">
+                  Manajemen Perangkat Operator
+                </h2>
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/[0.08] text-neutral-300 border border-white/[0.08] uppercase tracking-wider">
+                  {deviceQuota?.planTier ? `${deviceQuota.planTier} Plan` : org?.plan_tier ? `${org.plan_tier} Plan` : 'Starter'}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-400 mt-1">
+                {deviceQuota
+                  ? `${deviceQuota.activeCount} dari ${deviceQuota.maxQuota} perangkat aktif terdaftar.`
+                  : `${devices.filter((d: any) => d.isActive ?? d.is_active).length} perangkat aktif terdaftar.`}
               </p>
             </div>
-            <Link
-              href="/billing"
-              className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
-            >
-              + Tambah Kuota Laptop
-            </Link>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={fetchDevices}
+                disabled={deviceLoading}
+                className="px-3 py-1.5 rounded-lg bg-[#181A1F] hover:bg-white/[0.08] text-neutral-300 text-xs font-medium border border-white/[0.06] flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                title="Segarkan daftar perangkat"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${deviceLoading ? 'animate-spin' : ''}`} />
+                <span>Segarkan</span>
+              </button>
+            </div>
           </div>
 
+          {/* Device Feedback Notification */}
+          {deviceFeedback && (
+            <div
+              className={`p-3.5 rounded-xl border text-xs flex items-start justify-between gap-3 animate-fadeIn ${
+                deviceFeedback.type === 'success'
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+                  : 'bg-rose-500/10 border-rose-500/20 text-rose-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {deviceFeedback.type === 'success' ? (
+                  <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                )}
+                <span>{deviceFeedback.message}</span>
+              </div>
+              <button
+                onClick={() => setDeviceFeedback(null)}
+                className="text-neutral-400 hover:text-white transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Quota Full Notice Banner */}
+          {deviceQuota?.isFull && (
+            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-start gap-3">
+              <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 leading-relaxed">
+                <span className="font-semibold block text-amber-300">Kuota Perangkat Penuh ({deviceQuota.activeCount} / {deviceQuota.maxQuota})</span>
+                Semua slot perangkat untuk paket Anda sedang digunakan. Untuk menghubungkan laptop booth baru, silakan nonaktifkan salah satu laptop yang tidak sedang digunakan di bawah ini.
+              </div>
+            </div>
+          )}
+
+          {/* Device Error State */}
+          {deviceError && (
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                <span>{deviceError}</span>
+              </div>
+              <button
+                onClick={fetchDevices}
+                className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-[11px] font-medium transition-colors"
+              >
+                Coba Lagi
+              </button>
+            </div>
+          )}
+
+          {/* Device List Table / Container */}
           <div className="bg-[#121316] border border-white/[0.06] rounded-xl divide-y divide-white/[0.04] overflow-hidden">
-            {devices.length === 0 ? (
-              <div className="p-6 text-xs text-neutral-500 text-center">
-                Belum ada laptop operator yang terhubung. Buka MingleBooth Studio di laptop booth Anda untuk menghubungkannya.
+            {deviceLoading && devices.length === 0 ? (
+              // Loading State Skeleton
+              <div className="p-8 flex flex-col items-center justify-center gap-3 text-neutral-500">
+                <RefreshCw className="w-5 h-5 animate-spin text-neutral-400" />
+                <span className="text-xs">Memuat daftar perangkat...</span>
+              </div>
+            ) : devices.length === 0 ? (
+              // Empty State
+              <div className="p-8 text-center flex flex-col items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-neutral-400">
+                  <Laptop className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold text-neutral-200">Belum Ada Perangkat Terhubung</h3>
+                  <p className="text-[11px] text-neutral-500 max-w-sm mt-1 leading-relaxed">
+                    Buka MingleBooth Studio di laptop booth Anda dan login menggunakan akun ini untuk menghubungkannya secara otomatis.
+                  </p>
+                </div>
               </div>
             ) : (
-              devices.map((d) => (
-                <div
-                  key={d.id}
-                  className="p-4 sm:px-5 flex items-center justify-between text-xs hover:bg-white/[0.01] transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <Laptop className="w-4 h-4 text-neutral-400" />
-                    <div>
-                      <span className="font-medium text-white block">{d.device_name}</span>
-                      <span className="text-[11px] text-neutral-500 font-mono">
-                        {d.os_type?.toUpperCase()} • ID Laptop: {d.hardware_fingerprint?.substring(0, 16)}... • Terakhir aktif: {new Date(d.last_seen_at).toLocaleDateString('id-ID')}
-                      </span>
+              // Populated Device List
+              devices.map((d: any) => {
+                const isActive = d.isActive ?? d.is_active;
+                const devName = d.deviceName || d.device_name || 'Laptop Booth';
+                const osDisplay =
+                  (d.osType || d.os_type)?.toLowerCase() === 'mac'
+                    ? 'macOS'
+                    : (d.osType || d.os_type)?.toLowerCase() === 'windows'
+                    ? 'Windows'
+                    : (d.osType || d.os_type)?.toUpperCase() || 'OS';
+                const version = d.appVersion || d.app_version || '1.0.0';
+                const actDate = d.activatedAt || d.activated_at;
+                const seenDate = d.lastSeenAt || d.last_seen_at;
+                const isStaff = currentUser?.role === 'VENDOR_STAFF';
+
+                return (
+                  <div
+                    key={d.id}
+                    className="p-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs hover:bg-white/[0.01] transition-colors"
+                  >
+                    <div className="flex items-start sm:items-center gap-3.5">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        isActive ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-white/[0.04] text-neutral-500 border border-white/[0.06]'
+                      }`}>
+                        <Laptop className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-white">{devName}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#1C1E24] text-neutral-300 border border-white/[0.06]">
+                            {osDisplay}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-neutral-400 bg-white/[0.02] border border-white/[0.04]">
+                            v{version}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-neutral-400 flex items-center gap-2 mt-1 flex-wrap">
+                          {actDate && (
+                            <span>Diaktivasi: {new Date(actDate).toLocaleDateString('id-ID')}</span>
+                          )}
+                          {seenDate && (
+                            <>
+                              <span>•</span>
+                              <span>Terakhir aktif: {new Date(seenDate).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between sm:justify-end gap-3 self-end sm:self-center">
+                      {isActive ? (
+                        <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          Aktif
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-neutral-800 text-neutral-400 border border-neutral-700 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-neutral-500" />
+                          Nonaktif
+                        </span>
+                      )}
+
+                      {isActive ? (
+                        <button
+                          onClick={() => handleOpenDeactivateModal(d)}
+                          disabled={isStaff}
+                          title={isStaff ? 'Hanya Vendor Owner yang dapat menonaktifkan perangkat' : 'Lepas perangkat ini dari kuota'}
+                          className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                            isStaff
+                              ? 'bg-neutral-800/50 text-neutral-600 border-white/[0.02] cursor-not-allowed'
+                              : 'bg-[#181A1F] hover:bg-rose-500/15 text-neutral-300 hover:text-rose-400 border-white/[0.06] hover:border-rose-500/30'
+                          }`}
+                        >
+                          Nonaktifkan
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-neutral-600 font-medium px-2 py-1">
+                          Riwayat
+                        </span>
+                      )}
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-4">
-                    <span className="text-[11px] font-medium text-emerald-400 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      Aktif
-                    </span>
-
-                    <button
-                      onClick={() => handleDeactivateDevice(d.id, d.device_name)}
-                      className="px-2.5 py-1 rounded bg-[#1C1E24] hover:bg-rose-500/20 text-neutral-400 hover:text-rose-400 border border-white/[0.06] text-[11px] font-medium transition-colors"
-                    >
-                      Lepas Perangkat
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>
@@ -1140,6 +1507,92 @@ export default function DashboardPage() {
                   <li>Sambungkan kabel USB kamera &amp; printer. Mode Kiosk Photobooth langsung siap beroperasi 100% offline!</li>
                 </ol>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Konfirmasi Nonaktifkan Perangkat ── */}
+      {deactivatingDevice && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 animate-fadeIn select-none">
+          <div className="max-w-md w-full bg-[#121316] border border-white/[0.08] rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-white/[0.08] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center flex-shrink-0">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Konfirmasi Nonaktifkan Perangkat</h3>
+                  <p className="text-xs text-neutral-400">Lepaskan lisensi aktif dari perangkat booth</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeactivatingDevice(null)}
+                disabled={deactivatingSubmitting}
+                className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-neutral-300 flex items-center justify-center transition-colors disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content Details */}
+            <div className="flex flex-col gap-3">
+              <p className="text-xs text-neutral-300 leading-relaxed">
+                Apakah Anda yakin ingin menonaktifkan perangkat berikut dari organisasi Anda?
+              </p>
+
+              <div className="p-3.5 rounded-xl bg-[#181A1E] border border-white/[0.06] flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-neutral-400">Nama Perangkat:</span>
+                  <span className="text-xs font-semibold text-white">
+                    {deactivatingDevice.deviceName || deactivatingDevice.device_name || 'Laptop Booth'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-neutral-400">Sistem Operasi:</span>
+                  <span className="text-xs font-mono text-neutral-300">
+                    {deactivatingDevice.osType || deactivatingDevice.os_type || 'Unknown OS'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-neutral-400">Versi Aplikasi:</span>
+                  <span className="text-xs font-mono text-neutral-300">
+                    v{deactivatingDevice.appVersion || deactivatingDevice.app_version || '1.0.0'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] leading-relaxed">
+                Perangkat ini tidak akan dapat membuka sesi photobooth baru sampai diaktifkan kembali. Slot kuota akan langsung dibebaskan untuk perangkat lain. Riwayat perangkat tetap tersimpan aman.
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-3 border-t border-white/[0.06]">
+              <button
+                type="button"
+                onClick={() => setDeactivatingDevice(null)}
+                disabled={deactivatingSubmitting}
+                className="flex-1 py-2.5 rounded-xl bg-[#181A1E] hover:bg-[#202328] text-xs font-medium text-neutral-300 transition-colors disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeactivate}
+                disabled={deactivatingSubmitting}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-semibold text-xs transition-colors shadow-md flex items-center justify-center gap-2"
+              >
+                {deactivatingSubmitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Memproses...</span>
+                  </>
+                ) : (
+                  <span>Ya, Nonaktifkan</span>
+                )}
+              </button>
             </div>
           </div>
         </div>

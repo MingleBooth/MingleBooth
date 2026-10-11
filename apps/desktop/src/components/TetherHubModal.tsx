@@ -5,9 +5,8 @@ import {
   Copy,
   Check,
   FolderOpen,
-  Camera,
   RefreshCw,
-  Sparkles,
+  Info,
   HelpCircle,
   ExternalLink,
 } from 'lucide-react';
@@ -29,8 +28,6 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
     ips: ['127.0.0.1'],
   });
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
-  const [isTriggering, setIsTriggering] = useState(false);
-  const [testResult, setTestResult] = useState<string | null>(null);
 
   const fetchStatus = async () => {
     try {
@@ -78,37 +75,6 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
       }
     } catch (err) {
       console.warn('Could not open folder:', err);
-    }
-  };
-
-  const handleTestShutter = async () => {
-    setIsTriggering(true);
-    setTestResult(null);
-    try {
-      if ((window as any).electronAPI?.triggerNativeCapture) {
-        const d = await (window as any).electronAPI.triggerNativeCapture();
-        if (d.success) {
-          setTestResult(`Berhasil! Foto studio diterima: ${d.filename} (${(d.byteSize / (1024 * 1024)).toFixed(2)} MB)`);
-        } else {
-          setTestResult(`Gagal: ${d.error || 'Tidak ada respon dari kamera'}`);
-        }
-        return;
-      }
-      const res = await fetch('http://localhost:4848/api/tether/trigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timeoutMs: 8000 }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setTestResult('Berhasil! Sinyal shutter terhubung & menerima foto kualitas studio.');
-      } else {
-        setTestResult(`Gagal: ${data.error || 'Tidak ada respon'}`);
-      }
-    } catch (e: any) {
-      setTestResult(`Error koneksi: ${e.message}`);
-    } finally {
-      setIsTriggering(false);
     }
   };
 
@@ -212,7 +178,7 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
         <div className="text-[11px] text-neutral-400 space-y-2.5 bg-black/40 p-4 rounded-xl border border-white/[0.06] leading-relaxed">
           <div className="flex items-center justify-between">
             <span className="font-semibold text-white flex items-center gap-1.5 text-xs">
-              <Sparkles className="w-3.5 h-3.5 text-neutral-400" />
+              <Info className="w-3.5 h-3.5 text-neutral-400" />
               <span>Cara Sambungkan Shutter Kamera Fisik (PC Remote):</span>
             </span>
             <span className="text-[10px] px-2 py-0.5 rounded bg-white/[0.06] text-neutral-300 border border-white/10 font-mono">
@@ -256,24 +222,11 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
           </div>
         </div>
 
-        {/* Test Shutter Trigger Button */}
-        <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
-          <button
-            disabled={isTriggering}
-            onClick={handleTestShutter}
-            className="px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-neutral-200 text-xs font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
-          >
-            <Camera className="w-3.5 h-3.5 text-neutral-300" />
-            <span>{isTriggering ? 'Menguji Shutter...' : 'Tes Sinyal Shutter'}</span>
-          </button>
-
-          {testResult && (
-            <span className="text-[11px] text-white font-medium truncate max-w-xs">{testResult}</span>
-          )}
-
+        {/* Modal Action */}
+        <div className="flex items-center justify-end pt-2 border-t border-white/[0.06]">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors ml-auto"
+            className="px-4 py-2 rounded-xl bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors"
           >
             Selesai
           </button>

@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'seed_database',
+        'Seeding database dinonaktifkan pada Vercel Preview.'
+      );
+    }
+
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'Seed endpoint disabled in production' }, { status: 403 });
+    }
+
     const client = getServiceSupabase();
 
     // 1. Create or upsert organization

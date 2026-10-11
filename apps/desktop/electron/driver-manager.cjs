@@ -16,17 +16,28 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 const { identifyCamera, findSupportedCamera } = require('./camera-profiles/index.cjs');
+const { runPowerShellScript } = require('./qa-orchestrator.cjs');
 
 class DriverManager {
   constructor(options = {}) {
     this.rootPath = options.rootPath || path.resolve(__dirname, '..');
     this.binDir = options.binDir || path.resolve(__dirname, 'bin', 'win');
-    this.driverDevDir = options.driverDevDir || path.resolve(__dirname, '..', 'driver-dev');
-    if (!fs.existsSync(this.driverDevDir)) {
-      this.driverDevDir = path.resolve(__dirname, 'driver-dev');
-    }
+    
+    const resourcesPath = process.resourcesPath || path.join(process.cwd(), 'resources');
+    const candidates = [
+      path.join(resourcesPath, 'app.asar.unpacked', 'driver-dev'),
+      path.join(resourcesPath, 'driver-dev'),
+      options.driverDevDir,
+      path.resolve(__dirname, '..', 'driver-dev'),
+      path.resolve(__dirname, 'driver-dev'),
+      path.join(process.cwd(), 'driver-dev'),
+      path.join(process.cwd(), 'resources', 'app.asar.unpacked', 'driver-dev'),
+      path.join(__dirname, '..', '..', 'driver-dev'),
+    ].filter(Boolean);
+
+    this.driverDevDir = candidates.find(c => fs.existsSync(c)) || path.resolve(__dirname, '..', 'driver-dev');
     this.state = 'IDLE';
     this.lastPreflight = null;
     this.lastError = null;
@@ -176,11 +187,11 @@ class DriverManager {
     }
 
     try {
-      const raw = execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${preflightScript}" -AsJson`, {
-        encoding: 'utf8',
-        timeout: 10000,
-      });
-      const res = JSON.parse(raw.trim());
+      const preRes = runPowerShellScript(preflightScript, ['-AsJson'], 15000);
+      if (!preRes.success) {
+        throw new Error(preRes.friendlyError || `Preflight execution failed: ${preRes.stderr}`);
+      }
+      const res = JSON.parse(preRes.stdout.trim());
       this.lastPreflight = res;
 
       if (!res.PreflightPassed) {
@@ -233,20 +244,10 @@ class DriverManager {
 
     this.setState('INSTALLING');
 
-    // Execute PowerShell Start-Process with -Verb RunAs and -Wait
-    const uacCommand = `
-      $p = Start-Process powershell.exe -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${installScript}" -InfPath "${infPath}"' -Verb RunAs -Wait -PassThru
-      exit $p.ExitCode
-    `.replace(/\n/g, ' ');
-
-    try {
-      execSync(`powershell -NoProfile -Command "${uacCommand}"`, {
-        encoding: 'utf8',
-        timeout: 45000, // 45s hard watchdog
-      });
-    } catch (uacErr) {
-      const exitCode = uacErr.status;
-      let errMsg = `Installer process failed with exit code: ${exitCode}`;
+    const installRes = runPowerShellScript(installScript, ['-InfPath', infPath], 60000);
+    if (!installRes.success) {
+      const exitCode = installRes.exitCode;
+      let errMsg = installRes.friendlyError || `Installer process failed with exit code: ${exitCode}`;
       if (exitCode === 2) errMsg = 'Izin Administrator (UAC) ditolak atau dibatalkan oleh pengguna.';
       if (exitCode === 1) errMsg = 'Pemeriksaan profil kamera (Preflight) gagal.';
       if (exitCode === 6) errMsg = 'Windows memilih driver lain atau verifikasi driver rank gagal.';
@@ -350,28 +351,20 @@ class DriverManager {
       return { success: false, error: err };
     }
 
-    const uacCommand = `
-      $p = Start-Process powershell.exe -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File "${rollbackScript}"' -Verb RunAs -Wait -PassThru
-      exit $p.ExitCode
-    `.replace(/\n/g, ' ');
-
-    try {
-      execSync(`powershell -NoProfile -Command "${uacCommand}"`, {
-        encoding: 'utf8',
-        timeout: 30000,
-      });
-      const pnpStatus = await this.inspectDriverState();
-      this.setState('DRIVER_SETUP_REQUIRED', { device: pnpStatus.device });
-      return {
-        success: true,
-        state: 'DRIVER_SETUP_REQUIRED',
-        message: 'Driver sistem berhasil dipulihkan.',
-      };
-    } catch (e) {
-      const err = `Rollback process failed: ${e.message}`;
+    const rollbackRes = runPowerShellScript(rollbackScript, [], 45000);
+    if (!rollbackRes.success) {
+      const err = rollbackRes.friendlyError || `Rollback process failed: exit code ${rollbackRes.exitCode}`;
       this.setState('FAILED', { stage: 'ROLLBACK', error: err });
       return { success: false, error: err };
     }
+
+    const pnpStatus = await this.inspectDriverState();
+    this.setState('DRIVER_SETUP_REQUIRED', { device: pnpStatus.device });
+    return {
+      success: true,
+      state: 'DRIVER_SETUP_REQUIRED',
+      message: 'Driver sistem berhasil dipulihkan.',
+    };
   }
 
   /**

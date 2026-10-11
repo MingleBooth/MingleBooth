@@ -21,6 +21,8 @@ import {
   Download,
   LayoutDashboard,
   LogOut,
+  Play,
+  Laptop,
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -51,6 +53,8 @@ export default function LandingPage() {
   // Ambil inisial dari email untuk avatar
   const userInitial = user?.email?.charAt(0).toUpperCase() ?? '?';
   const userEmail = user?.email ?? '';
+  const demoTarget = user ? '/dashboard' : '/register';
+  const downloadTarget = user ? '/dashboard' : '/register';
 
   return (
     <div className="min-h-screen bg-[#090A0C] text-[#EDEDED] flex flex-col font-sans select-none antialiased">
@@ -70,13 +74,20 @@ export default function LandingPage() {
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-3 lg:gap-4 text-xs">
           <Link
+            href={demoTarget}
+            className="px-3 py-1.5 rounded-lg text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 transition-colors flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <Play className="w-3.5 h-3.5 text-amber-400" />
+            <span>Coba Demo</span>
+          </Link>
+          <Link
             href="/billing"
             className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors whitespace-nowrap"
           >
-            Paket & Lisensi
+            Paket &amp; Lisensi
           </Link>
           <Link
-            href="/tablet"
+            href={downloadTarget}
             className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors flex items-center gap-1.5 whitespace-nowrap"
           >
             <Download className="w-3.5 h-3.5 text-neutral-400" />
@@ -187,21 +198,35 @@ export default function LandingPage() {
       {mobileMenuOpen && (
         <div className="md:hidden fixed inset-x-0 top-16 bg-[#0E1014]/95 backdrop-blur-xl border-b border-white/[0.08] z-40 p-4 flex flex-col gap-3 shadow-2xl animate-fadeIn">
           <Link
+            href={demoTarget}
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center justify-between px-3.5 py-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-300 text-sm font-medium transition-colors"
+          >
+            <span className="flex items-center gap-2.5">
+              <Play className="w-4 h-4 text-amber-400" />
+              <span>Coba Demo Kamera</span>
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 uppercase">
+              Gratis
+            </span>
+          </Link>
+
+          <Link
             href="/billing"
             onClick={() => setMobileMenuOpen(false)}
             className="flex items-center justify-between px-3.5 py-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] text-neutral-200 text-sm font-medium transition-colors"
           >
             <span className="flex items-center gap-2.5">
               <CreditCard className="w-4 h-4 text-amber-400" />
-              <span>Paket & Lisensi</span>
+              <span>Paket &amp; Lisensi</span>
             </span>
             <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-white/[0.08] text-neutral-300">
-              Mulai 549rb
+              Lihat Harga
             </span>
           </Link>
 
           <Link
-            href="/tablet"
+            href={downloadTarget}
             onClick={() => setMobileMenuOpen(false)}
             className="flex items-center justify-between px-3.5 py-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] text-neutral-200 text-sm font-medium transition-colors"
           >
@@ -283,39 +308,36 @@ export default function LandingPage() {
         {/* CTA Buttons */}
         <div className="mt-8 sm:mt-10 flex flex-col sm:flex-row items-center justify-center gap-3 w-full max-w-md sm:max-w-none">
           <Link
-            href="/billing"
-            className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 shadow-md w-full sm:w-auto"
+            href={user ? "/dashboard" : "/register"}
+            className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 shadow-md w-full sm:w-auto"
           >
-            <span>Daftar &amp; Mulai Langganan</span>
+            <span>{user ? "Buka Dashboard Vendor" : "Buat Akun Gratis"}</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
 
           <Link
-            href="/tablet"
+            href={demoTarget}
+            className="h-11 px-5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto shadow-sm"
+          >
+            <Play className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span>Coba Demo Gratis</span>
+          </Link>
+
+          <Link
+            href={downloadTarget}
             className="h-11 px-5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
           >
             <Download className="w-4 h-4 text-neutral-300 flex-shrink-0" />
             <span>Unduh Desktop</span>
           </Link>
 
-          {/* Hero CTA: conditional login/dashboard */}
-          {user ? (
-            <Link
-              href="/dashboard"
-              className="h-11 px-6 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto shadow-lg shadow-violet-900/30"
-            >
-              <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
-              <span>Buka Dashboard</span>
-            </Link>
-          ) : (
-            <Link
-              href="/login"
-              className="h-11 px-6 rounded-xl bg-[#14161A] hover:bg-[#1C1F24] border border-white/[0.08] text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
-            >
-              <LogIn className="w-4 h-4 text-neutral-400 flex-shrink-0" />
-              <span>Masuk Portal</span>
-            </Link>
-          )}
+          <Link
+            href="/billing"
+            className="h-11 px-5 rounded-xl bg-[#14161A] hover:bg-[#1C1F24] border border-white/[0.08] text-neutral-300 hover:text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
+          >
+            <CreditCard className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+            <span>Paket &amp; Lisensi</span>
+          </Link>
         </div>
 
         {/* Key Feature Stats Cards */}
@@ -341,8 +363,94 @@ export default function LandingPage() {
           <div className="p-3.5 sm:p-4 rounded-xl bg-white/[0.02] sm:bg-transparent border border-white/[0.05] sm:border-0">
             <span className="text-lg sm:text-xl font-bold text-white block">Lynk.id Ready</span>
             <span className="text-[11px] sm:text-xs text-neutral-400 leading-tight block mt-0.5">
-              Pembayaran & Lisensi Auto
+              Pembayaran &amp; Lisensi Auto
             </span>
+          </div>
+        </div>
+      </section>
+
+      {/* Demo Mode Showcase Section */}
+      <section id="demo-mode" className="px-4 sm:px-6 py-14 sm:py-20 bg-gradient-to-b from-[#090A0C] via-[#101217] to-[#0E1013] border-t border-amber-500/20 relative overflow-hidden">
+        <div className="absolute top-0 right-1/4 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="max-w-5xl mx-auto flex flex-col gap-10 relative z-10">
+          <div className="flex flex-col gap-3 text-center sm:text-left max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-semibold w-fit mx-auto sm:mx-0">
+              <Play className="w-3.5 h-3.5 text-amber-400" />
+              <span>COBA DEMO GRATIS • 100% OFFLINE</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-white leading-tight">
+              Uji Coba MingleBooth Studio di Laptop Anda Sebelum Berlangganan
+            </h2>
+            <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed">
+              Daftar akun gratis di MingleBooth, unduh MingleBooth Studio, dan masuk dengan akun Anda. Akun tanpa langganan aktif otomatis disajikan dalam Mode Demo untuk menguji coba koneksi kamera fisik Sony atau webcam secara lokal sebelum berlangganan.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {/* Card 1: Real Camera Support */}
+            <div className="p-6 rounded-2xl bg-[#14161B] border border-white/[0.08] hover:border-amber-500/30 transition-colors flex flex-col gap-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                <Camera className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-white">1. Uji Kamera Sony &amp; Webcam</h3>
+                <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                  Dukungan penuh untuk kamera mirrorless Sony (Sony Remote SDK via USB), tethering Sony Alpha, atau webcam bawaan laptop. Uji live view 30fps dan shutter tanpa lag secara langsung di venue Anda.
+                </p>
+              </div>
+            </div>
+
+            {/* Card 2: Isolated Local Storage */}
+            <div className="p-6 rounded-2xl bg-[#14161B] border border-white/[0.08] hover:border-amber-500/30 transition-colors flex flex-col gap-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <HardDrive className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-white">2. Data Lokal Terisolasi &amp; Bersih</h3>
+                <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                  Semua jepretan demo disimpan sementara di folder lokal khusus (<code className="text-neutral-300 font-mono text-[11px]">data/demo</code>) dan <strong>TIDAK PERNAH diunggah ke Supabase atau galeri cloud</strong>. Data demo dibersihkan saat sesi berakhir.
+                </p>
+              </div>
+            </div>
+
+            {/* Card 3: Paid Subscription Unlock */}
+            <div className="p-6 rounded-2xl bg-[#14161B] border border-white/[0.08] hover:border-amber-500/30 transition-colors flex flex-col gap-4">
+              <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-white">3. Buka Fitur Penuh saat Siap</h3>
+                <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                  Setelah Anda puas dengan hasil pengujian, aktifkan paket langganan untuk membuka Galeri Cloud Tamu, Live QR Code instan via smartphone, sinkronisasi cloud multi-perangkat, dan cetak komersial.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Action Bar */}
+          <div className="p-6 sm:p-7 rounded-2xl bg-[#12141A] border border-amber-500/20 flex flex-col sm:flex-row items-center justify-between gap-5">
+            <div className="flex flex-col gap-1 text-center sm:text-left">
+              <h4 className="text-sm font-semibold text-white">Siap Menguji Coba di Laptop Anda?</h4>
+              <p className="text-xs text-neutral-400">
+                Buat akun gratis sekarang untuk mengunduh MingleBooth Studio dan menguji coba photobooth secara lokal.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-center">
+              <Link
+                href={user ? "/dashboard" : "/register"}
+                className="h-10 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md"
+              >
+                <span>{user ? "Ke Dashboard & Unduh" : "Buat Akun Gratis"}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link
+                href="/billing"
+                className="h-10 px-5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white font-medium text-xs flex items-center justify-center gap-2 transition-all active:scale-95"
+              >
+                <span>Lihat Paket Lisensi</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
           </div>
         </div>
       </section>
@@ -376,10 +484,10 @@ export default function LandingPage() {
               </div>
 
               <Link
-                href="/dashboard"
+                href={downloadTarget}
                 className="text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 pt-4 border-t border-white/[0.04] whitespace-nowrap"
               >
-                <span>Unduh di Dashboard Vendor</span>
+                <span>{user ? "Unduh di Dashboard Vendor" : "Daftar & Unduh Aplikasi"}</span>
                 <ChevronRight className="w-3.5 h-3.5 text-neutral-500" />
               </Link>
             </div>
@@ -397,10 +505,10 @@ export default function LandingPage() {
               </div>
 
               <Link
-                href="/login"
+                href={user ? "/dashboard" : "/login"}
                 className="text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 pt-4 border-t border-white/[0.04]"
               >
-                <span>Masuk ke Console</span>
+                <span>{user ? "Buka Dashboard Vendor" : "Masuk ke Console"}</span>
                 <ChevronRight className="w-3.5 h-3.5 text-neutral-500" />
               </Link>
             </div>

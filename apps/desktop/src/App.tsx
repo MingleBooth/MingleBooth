@@ -4,6 +4,7 @@ import {
   Camera,
   Video,
   Play,
+  QrCode,
   Settings,
   X,
   Check,
@@ -12,6 +13,7 @@ import {
   Maximize2,
   Minimize2,
   Clock,
+  Lock,
   Printer,
   Images,
   FolderCheck,
@@ -28,7 +30,6 @@ import {
   LogOut,
   RefreshCw,
   Film,
-  Sparkles,
   ExternalLink,
   ChevronRight,
   ShieldCheck,
@@ -41,18 +42,24 @@ import {
   Palette,
   Plus,
   CloudUpload,
+  AlertCircle,
+  Info,
+  Calendar,
 } from 'lucide-react';
 import { FrameHoleDetector, DetectedCutout } from '@minglebooth/template-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
 import {
   saveOfflineCapture,
   getOfflineCaptures,
+  getPendingOfflineCaptures,
+  updateOfflineCaptureSyncStatus,
   deleteOfflineCapture,
+  clearDemoCaptures,
   OfflineCaptureItem,
 } from './lib/offlineStorage';
 import { VendorAuthGate } from './components/VendorAuthGate';
 import { EventManagerModal } from './components/EventManagerModal';
-import { CameraDriverSetupModal } from './components/CameraDriverSetupModal';
+import { CameraQAPanel } from './components/CameraQAPanel';
 import { API_BASE_URL } from './config';
 import logoHeader from './assets/logo-minglebooth-header.png';
 import appIcon from './assets/icon.png';
@@ -150,7 +157,159 @@ function playShutterSound() {
   } catch {}
 }
 
-const TabletStudioContent: React.FC = () => {
+interface ToastNotice {
+  id: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  title?: string;
+  message: string;
+}
+
+interface TabletStudioContentProps {
+  onOpenQA?: () => void;
+  isDemoMode?: boolean;
+  onEndDemo?: () => void;
+}
+
+const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
+  onOpenQA,
+  isDemoMode = false,
+  onEndDemo,
+}) => {
+  // In-app non-blocking toast notification state
+  const [toastNotice, setToastNotice] = useState<ToastNotice | null>(null);
+  const toastTimerRef = useRef<any>(null);
+
+  // Demo Mode: Open Subscription Portal
+  const handleOpenSubscription = useCallback(() => {
+    const billingUrl = `${API_BASE_URL}/billing`;
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.openExternal) {
+      (window as any).electronAPI.openExternal(billingUrl);
+    } else {
+      window.open(billingUrl, '_blank');
+    }
+  }, []);
+
+  // Demo Mode: End Demo Session & Safely Clean Temporary Storage
+  const handleEndDemo = useCallback(async () => {
+    if (confirm('Akhiri sesi Demo Mode? Semua foto dan data pengujian lokal sementara akan dibersihkan.')) {
+      try {
+        if (typeof window !== 'undefined' && (window as any).electronAPI?.cleanDemoStorage) {
+          await (window as any).electronAPI.cleanDemoStorage();
+        }
+        await clearDemoCaptures();
+      } catch (e) {
+        console.warn('Demo cleanup notice:', e);
+      }
+      if (onEndDemo) onEndDemo();
+    }
+  }, [onEndDemo]);
+
+  // Demo Mode: 30-minute inactivity timeout for safety & cleanup
+  useEffect(() => {
+    if (!isDemoMode) return;
+    const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+    let timeoutId: any = null;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(async () => {
+        console.log('[Demo] Inactivity timeout reached (30m). Ending demo session...');
+        try {
+          if (typeof window !== 'undefined' && (window as any).electronAPI?.cleanDemoStorage) {
+            await (window as any).electronAPI.cleanDemoStorage();
+          }
+          await clearDemoCaptures();
+        } catch (e) {}
+        if (onEndDemo) onEndDemo();
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'touchstart', 'scroll'];
+    events.forEach((evt) => window.addEventListener(evt, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach((evt) => window.removeEventListener(evt, resetTimer));
+    };
+  }, [isDemoMode, onEndDemo]);
+
+  // Startup Cleanup: Safely purge any abandoned demo captures
+  useEffect(() => {
+    clearDemoCaptures().catch(() => {});
+  }, []);
+
+  // Persistent Demo Mode Indicator Banner
+  const renderDemoBanner = () => {
+    if (!isDemoMode) return null;
+    let orgName = '';
+    let subStatus = '';
+    try {
+      const orgData = JSON.parse(localStorage.getItem('mb_vendor_org') || '{}');
+      orgName = orgData.name || '';
+      subStatus = orgData.subscriptionStatus || orgData.subscription_status || '';
+    } catch {}
+
+    const statusLabel = subStatus === 'expired' ? 'Langganan Kedaluwarsa' : 'Langganan Belum Aktif';
+
+    return (
+      <div className="z-[9999] bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 text-black font-semibold text-xs px-4 py-2 flex items-center justify-between shadow-lg border-b border-amber-400/40 select-none flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <span className="px-2 py-0.5 rounded bg-black/25 text-black font-mono font-bold text-[10px] uppercase tracking-wider">
+            DEMO MODE
+          </span>
+          <span className="font-medium text-black hidden md:inline">
+            {orgName ? `Akun: ${orgName} • ` : ''}{statusLabel} • Fitur Berbayar Terkunci (Pengujian Kamera Lokal)
+          </span>
+          <span className="font-medium text-black md:hidden">
+            Demo Mode ({statusLabel})
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleOpenSubscription}
+            className="px-3 py-1 rounded-lg bg-black hover:bg-neutral-800 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
+            title="Buka portal langganan website untuk membuka seluruh fitur berbayar"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+            <span>Aktifkan Langganan</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleEndDemo}
+            className="px-2.5 py-1 rounded-lg bg-black/20 hover:bg-black/30 text-black font-semibold text-xs flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
+            title="Keluar dari akun dan bersihkan sesi pengujian"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Keluar</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const showNotification = useCallback((
+    message: string,
+    type: 'info' | 'success' | 'warning' | 'error' = 'info',
+    title?: string,
+    duration = 4500
+  ) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastNotice({ id: String(Date.now()), type, title, message });
+    if (duration > 0) {
+      toastTimerRef.current = setTimeout(() => {
+        setToastNotice(null);
+      }, duration);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   // Phase: 'setup' | 'kiosk' | 'review' | 'gallery'
   const [phase, setPhase] = useState<'setup' | 'kiosk' | 'review' | 'gallery'>('setup');
   const [previousPhase, setPreviousPhase] = useState<'setup' | 'kiosk' | 'review'>('setup');
@@ -180,6 +339,7 @@ const TabletStudioContent: React.FC = () => {
   const [showEventManagerModal, setShowEventManagerModal] = useState<boolean>(false);
   const [eventManagerInitialTab, setEventManagerInitialTab] = useState<'list' | 'create'>('create');
   const currentEvent = events.find((e) => e.id === selectedEventId) || events[0] || null;
+  const [setupTab, setSetupTab] = useState<'event' | 'frame' | 'camera' | 'photo' | 'standby'>('event');
 
   const [templates, setTemplates] = useState<TemplateItem[]>(DEFAULT_TEMPLATES);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(DEFAULT_TEMPLATES[0].id);
@@ -214,6 +374,8 @@ const TabletStudioContent: React.FC = () => {
   const [finalGifDataUrl, setFinalGifDataUrl] = useState<string | null>(null);
   const [resultTab, setResultTab] = useState<'photo' | 'gif' | 'original'>('photo');
   const [reviewRawIndex, setReviewRawIndex] = useState<number>(0);
+  const [retakeSlotIndex, setRetakeSlotIndex] = useState<number | null>(null);
+  const [currentPhotoId, setCurrentPhotoId] = useState<string | null>(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
   const [guestGalleryUrl, setGuestGalleryUrl] = useState<string>('');
   const [reviewCountdown, setReviewCountdown] = useState<number>(30);
@@ -229,6 +391,13 @@ const TabletStudioContent: React.FC = () => {
   const [lightboxRawIndex, setLightboxRawIndex] = useState<number>(0);
   const [isSyncingAllToCloud, setIsSyncingAllToCloud] = useState<boolean>(false);
   const [cloudSyncFeedback, setCloudSyncFeedback] = useState<string | null>(null);
+
+  // Concurrency & Background Sync Management
+  const activeUploadsRef = useRef<Set<string>>(new Set());
+  const isProcessingQueueRef = useRef<boolean>(false);
+  const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
 
   // Preview Framing Overlay Toggle (Clean full camera by default)
   const [showFrameOverlayInPreview, setShowFrameOverlayInPreview] = useState<boolean>(false);
@@ -287,8 +456,6 @@ const TabletStudioContent: React.FC = () => {
   });
   const [isScreensaverActive, setIsScreensaverActive] = useState<boolean>(false);
   const [showWallpaperSettingModal, setShowWallpaperSettingModal] = useState<boolean>(false);
-  const [showDriverSetupModal, setShowDriverSetupModal] = useState<boolean>(false);
-  const [driverSetupCameraInfo, setDriverSetupCameraInfo] = useState<any>(null);
 
 
   // ── 1. HARDWARE DISCOVERY & WEBCAM INITIALIZATION (UNIVERSAL & ERROR-FREE) ──
@@ -375,21 +542,21 @@ const TabletStudioContent: React.FC = () => {
     setCameraSessionError(null);
     try {
       if (typeof window !== 'undefined' && (window as any).electronAPI?.detectNativeCameras) {
-        console.log('[CameraFix-2026-09-09-v2] Renderer invoking camera:detect-cameras');
+        if (import.meta.env.DEV) {
+          console.log('[CameraFix-2026-09-09-v2] Renderer invoking camera:detect-cameras');
+        }
         const detectRes = await (window as any).electronAPI.detectNativeCameras();
-        console.log('[CameraFix-2026-09-09-v2] Renderer received camera detection response:', detectRes);
+        if (import.meta.env.DEV) {
+          console.log('[CameraFix-2026-09-09-v2] Renderer received camera detection response:', detectRes);
+        }
         if (!detectRes.success || !detectRes.cameras || detectRes.cameras.length === 0) {
-          if (detectRes.state === 'DRIVER_SETUP_REQUIRED' || detectRes.requiresDriverSetup) {
-            setShowDriverSetupModal(true);
-            setDriverSetupCameraInfo(detectRes.pnpCamera || { model: detectRes.cameraModel || 'Sony ILCE-7CM2 (α7C II)' });
-            setCameraSessionState('DRIVER_SETUP_REQUIRED');
-            setCameraSessionError(detectRes.message || 'Pengaturan koneksi Windows diperlukan untuk kamera ini.');
-          } else {
-            setNativeCameraModel(null);
-            setTetherStatus('disconnected');
-            setCameraSessionState('DISCONNECTED');
-            setCameraSessionError(detectRes.message || null);
-          }
+          setNativeCameraModel(null);
+          setTetherStatus('disconnected');
+          setCameraSessionState('DISCONNECTED');
+          setCameraSessionError(
+            detectRes.message ||
+            'Pastikan kamera menyala, kabel USB terhubung, dan mode USB kamera diset ke "PC Remote".'
+          );
           return;
         }
 
@@ -405,7 +572,16 @@ const TabletStudioContent: React.FC = () => {
             setNativeCameraModel(connectRes.camera?.model || targetCam.model);
             setTetherStatus('connected');
             setCameraSessionState('READY');
+            setCameraMode('dslr');
             setCameraSessionError(null);
+            const api = (window as any).electronAPI;
+            const startFn = api?.startLiveView || api?.startCameraLiveView;
+            if (startFn) {
+              if (import.meta.env.DEV) {
+                console.log('[WIN-LV] renderer requested startLiveView (auto-start on connect)');
+              }
+              startFn().catch((e: any) => console.warn('startLiveView error:', e));
+            }
             return;
           } else {
             setTetherStatus('disconnected');
@@ -438,7 +614,46 @@ const TabletStudioContent: React.FC = () => {
     }
   }, [tetherUrl]);
 
+  const stopWebcamStream = useCallback(() => {
+    console.log('[Camera] 🛑 Stopping all webcam tracks and releasing MediaStream...');
+    if (streamRef.current) {
+      try {
+        streamRef.current.getTracks().forEach((track) => {
+          track.stop();
+          track.enabled = false;
+        });
+      } catch (e) {
+        console.warn('Error stopping streamRef tracks:', e);
+      }
+      streamRef.current = null;
+    }
+    if (cameraStream) {
+      try {
+        cameraStream.getTracks().forEach((track) => {
+          track.stop();
+          track.enabled = false;
+        });
+      } catch (e) {
+        console.warn('Error stopping cameraStream tracks:', e);
+      }
+      setCameraStream(null);
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    if (previewVideoRef.current) {
+      previewVideoRef.current.srcObject = null;
+    }
+    setIsCameraLoading(false);
+  }, [cameraStream]);
+
   const startWebcamStream = useCallback(async (deviceId?: string) => {
+    // Strict Mutual Exclusion: Never start webcam if mode is not webcam
+    if (cameraMode !== 'webcam') {
+      console.log('[Camera] ✋ Skipping startWebcamStream: cameraMode is', cameraMode);
+      return;
+    }
+
     setIsCameraLoading(true);
     setCameraError(null);
 
@@ -506,6 +721,15 @@ const TabletStudioContent: React.FC = () => {
         });
       }
 
+      // Race-condition check: if user switched mode during getUserMedia, abort and stop stream immediately
+      if (cameraMode !== 'webcam') {
+        console.log('[Camera] Mode changed during getUserMedia, aborting stream...');
+        if (stream) {
+          stream.getTracks().forEach((t) => t.stop());
+        }
+        return;
+      }
+
       streamRef.current = stream;
       setCameraStream(stream);
       setCameraError(null);
@@ -538,7 +762,7 @@ const TabletStudioContent: React.FC = () => {
     } finally {
       setIsCameraLoading(false);
     }
-  }, [selectedWebcamId, enumerateCameras]);
+  }, [cameraMode, selectedWebcamId, enumerateCameras]);
 
   // Video Ref attachment callbacks that guarantee immediate playback when DOM mounts
   const attachVideoRef = useCallback(
@@ -548,13 +772,17 @@ const TabletStudioContent: React.FC = () => {
         el.muted = true;
         el.defaultMuted = true;
         el.playsInline = true;
-        if (cameraStream) {
-          if (el.srcObject !== cameraStream) {
-            el.srcObject = cameraStream;
+        if (cameraMode === 'webcam') {
+          if (cameraStream) {
+            if (el.srcObject !== cameraStream) {
+              el.srcObject = cameraStream;
+            }
+            el.play().catch(() => {});
+          } else if (!isCameraLoading) {
+            startWebcamStream();
           }
-          el.play().catch(() => {});
-        } else if (cameraMode === 'webcam' && !isCameraLoading) {
-          startWebcamStream();
+        } else {
+          el.srcObject = null;
         }
       }
     },
@@ -568,13 +796,17 @@ const TabletStudioContent: React.FC = () => {
         el.muted = true;
         el.defaultMuted = true;
         el.playsInline = true;
-        if (cameraStream) {
-          if (el.srcObject !== cameraStream) {
-            el.srcObject = cameraStream;
+        if (cameraMode === 'webcam') {
+          if (cameraStream) {
+            if (el.srcObject !== cameraStream) {
+              el.srcObject = cameraStream;
+            }
+            el.play().catch(() => {});
+          } else if (!isCameraLoading) {
+            startWebcamStream();
           }
-          el.play().catch(() => {});
-        } else if (cameraMode === 'webcam' && !isCameraLoading) {
-          startWebcamStream();
+        } else {
+          el.srcObject = null;
         }
       }
     },
@@ -583,7 +815,7 @@ const TabletStudioContent: React.FC = () => {
 
   // Sync active stream across phase transitions
   useEffect(() => {
-    if (cameraStream) {
+    if (cameraMode === 'webcam' && cameraStream) {
       if (videoRef.current && videoRef.current.srcObject !== cameraStream) {
         videoRef.current.srcObject = cameraStream;
         videoRef.current.play().catch(() => {});
@@ -592,8 +824,18 @@ const TabletStudioContent: React.FC = () => {
         previewVideoRef.current.srcObject = cameraStream;
         previewVideoRef.current.play().catch(() => {});
       }
+    } else if (cameraMode !== 'webcam') {
+      if (videoRef.current) videoRef.current.srcObject = null;
+      if (previewVideoRef.current) previewVideoRef.current.srcObject = null;
     }
-  }, [phase, cameraStream]);
+  }, [phase, cameraStream, cameraMode]);
+
+  // Ensure mutual exclusion whenever cameraMode changes
+  useEffect(() => {
+    if (cameraMode !== 'webcam') {
+      stopWebcamStream();
+    }
+  }, [cameraMode, stopWebcamStream]);
 
   // Initial mount: start camera
   useEffect(() => {
@@ -611,6 +853,16 @@ const TabletStudioContent: React.FC = () => {
         }
       }).catch((e: any) => console.warn('[Tether] Could not get tether info:', e));
     }
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.getNativeCameraStatus) {
+      (window as any).electronAPI.getNativeCameraStatus().then((res: any) => {
+        if (res?.connected && res?.camera) {
+          setNativeCameraModel(res.camera.model);
+          setTetherStatus('connected');
+          setCameraSessionState('READY');
+          setCameraMode('dslr');
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   // ── Listen to Native Camera IPC Events ──
@@ -619,9 +871,13 @@ const TabletStudioContent: React.FC = () => {
 
     let unsubState: any;
     let unsubLive: any;
+    let unsubRaw: any;
 
     if ((window as any).electronAPI?.onCameraStateChange) {
       unsubState = (window as any).electronAPI.onCameraStateChange((payload: any) => {
+        if (import.meta.env.DEV) {
+          console.log('[WIN-TRACE] renderer state changed:', payload?.state);
+        }
         if (payload?.state) {
           setCameraSessionState(payload.state);
           if (payload.state === 'DISCONNECTED') {
@@ -634,6 +890,7 @@ const TabletStudioContent: React.FC = () => {
           } else if (payload.state === 'READY' || payload.state === 'CONNECTED') {
             setCameraSessionError(null);
             setTetherStatus('connected');
+            setCameraMode('dslr');
             if (payload.camera?.model) {
               setNativeCameraModel(payload.camera.model);
             }
@@ -646,18 +903,58 @@ const TabletStudioContent: React.FC = () => {
     }
 
     if ((window as any).electronAPI?.onCameraLiveFrame) {
+      let lastLvLog = 0;
       unsubLive = (window as any).electronAPI.onCameraLiveFrame((payload: any) => {
         if (payload?.frameDataUrl) {
+          if (import.meta.env.DEV && Date.now() - lastLvLog > 3000) {
+            console.log('[WIN-LV] renderer received frame');
+            lastLvLog = Date.now();
+          }
           setTetherLiveFrame(payload.frameDataUrl);
         }
+      });
+    }
+
+    if ((window as any).electronAPI?.onTetherRawDetected) {
+      unsubRaw = (window as any).electronAPI.onTetherRawDetected((payload: any) => {
+        console.warn('[RAW-WARNING] Kamera menghasilkan foto RAW bukannya JPEG:', payload);
+        showNotification(
+          `File foto (${payload?.filename || 'RAW'}) terdeteksi berformat RAW/ARW!\nUbah pengaturan kamera Sony ke Format: JPEG (Fine/Extra Fine) agar foto otomatis masuk ke template bingkai.`,
+          'warning',
+          'Peringatan Format Kamera',
+          8000
+        );
       });
     }
 
     return () => {
       if (typeof unsubState === 'function') unsubState();
       if (typeof unsubLive === 'function') unsubLive();
+      if (typeof unsubRaw === 'function') unsubRaw();
     };
   }, []);
+
+  // ── Auto-start Live View for PC Remote Studio Camera ──
+  useEffect(() => {
+    const isNativeReady = cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED';
+    if (isNativeReady) {
+      if (typeof window !== 'undefined') {
+        const api = (window as any).electronAPI;
+        const startFn = api?.startCameraLiveView || api?.startLiveView;
+        if (startFn) {
+          startFn();
+        }
+      }
+    } else if (cameraMode === 'webcam' || cameraSessionState === 'DISCONNECTED') {
+      if (typeof window !== 'undefined') {
+        const api = (window as any).electronAPI;
+        const stopFn = api?.stopCameraLiveView || api?.stopLiveView;
+        if (stopFn) {
+          stopFn();
+        }
+      }
+    }
+  }, [cameraMode, cameraSessionState]);
 
   // Monitor DSLR/Studio Tether server if selected
   useEffect(() => {
@@ -745,6 +1042,20 @@ const TabletStudioContent: React.FC = () => {
   // ── 3. FETCH VENDOR EVENTS & TEMPLATES (LIVE SUPABASE DATABASE SYNC) ──
   const fetchVendorData = useCallback(async () => {
     setIsLoadingVendorData(true);
+    if (isDemoMode) {
+      const demoEvt: EventItem = {
+        id: 'demo_event_local',
+        name: 'Sesi Demo MingleBooth',
+        hostNames: 'Pengujian Demo',
+        date: new Date().toISOString().split('T')[0],
+      };
+      setEvents([demoEvt]);
+      setSelectedEventId('demo_event_local');
+      setTemplates(DEFAULT_TEMPLATES);
+      setSelectedTemplateId(DEFAULT_TEMPLATES[0].id);
+      setIsLoadingVendorData(false);
+      return;
+    }
     try {
       const token = localStorage.getItem('mb_license_token') || '';
       let orgId = '';
@@ -826,6 +1137,17 @@ const TabletStudioContent: React.FC = () => {
   const loadGalleryData = useCallback(async () => {
     if (!selectedEventId) return;
     setIsEventGalleryLoading(true);
+    if (isDemoMode) {
+      try {
+        const localItems = await getOfflineCaptures(selectedEventId).catch(() => []);
+        setEventGalleryPhotos(localItems);
+      } catch (err) {
+        console.warn('Failed to load demo captures:', err);
+      } finally {
+        setIsEventGalleryLoading(false);
+      }
+      return;
+    }
     try {
       const [localItems, cloudData] = await Promise.all([
         getOfflineCaptures(selectedEventId).catch(() => []),
@@ -888,7 +1210,43 @@ const TabletStudioContent: React.FC = () => {
     }
   }, [selectedEventId, currentEvent?.name]);
 
-  // ── CLOUD SYNC: Staged upload to avoid Vercel 4.5MB serverless payload limit ──
+  // Helper to ensure raw camera captures stay safely below Vercel 4.5MB payload limit
+  const compressDataUrl = async (dataUrl: string, maxDimension = 2048, quality = 0.88): Promise<string> => {
+    if (!dataUrl || !dataUrl.startsWith('data:image')) return dataUrl;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (!width || !height) {
+          resolve(dataUrl);
+          return;
+        }
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  };
+
+  // ── CLOUD SYNC: Staged upload with Concurrency Guard & Offline State Tracking ──
   const uploadCaptureToCloud = async (payload: {
     photoId: string;
     eventId: string;
@@ -896,8 +1254,24 @@ const TabletStudioContent: React.FC = () => {
     gifDataUrl?: string | null;
     rawPhotos?: string[];
   }): Promise<boolean> => {
+    if (isDemoMode) {
+      console.log('[Cloud Sync] Demo Mode active — uploadCaptureToCloud strictly blocked.');
+      return false;
+    }
     const { photoId, eventId, compositeDataUrl, gifDataUrl, rawPhotos } = payload;
     if (!eventId || !photoId || !compositeDataUrl) return false;
+    if (eventId.startsWith('demo') || photoId.startsWith('DEMO_') || photoId.startsWith('demo_')) {
+      console.log('[Cloud Sync] Demo payload detected — uploadCaptureToCloud strictly blocked.');
+      return false;
+    }
+
+    // Prevent concurrent racing uploads for the same photoId
+    if (activeUploadsRef.current.has(photoId)) {
+      console.log(`[Cloud Sync] Skipped concurrent upload for active photoId: ${photoId}`);
+      return false;
+    }
+
+    activeUploadsRef.current.add(photoId);
 
     const token = localStorage.getItem('mb_license_token') || '';
     const headers: Record<string, string> = {
@@ -905,9 +1279,10 @@ const TabletStudioContent: React.FC = () => {
     };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    let success = false;
-
     try {
+      console.log(`[Cloud Sync] SYNC_START: Uploading session ${photoId}...`);
+      await updateOfflineCaptureSyncStatus(photoId, 'uploading');
+
       // Step 1: Upload main composite photo (< 1.2MB, creates Supabase photos record & storage file)
       const photoRes = await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
         method: 'POST',
@@ -922,11 +1297,13 @@ const TabletStudioContent: React.FC = () => {
 
       if (!photoRes.ok) {
         const errJson = await photoRes.json().catch(() => ({}));
-        console.warn('[Cloud Sync Warning]: Failed to upload photo strip:', errJson?.error || photoRes.statusText);
-      } else {
-        console.log('[Cloud Sync Success]: Photo strip synced for', photoId);
-        success = true;
+        const errMessage = errJson?.error || photoRes.statusText || 'Photo upload failed';
+        console.warn(`[Cloud Sync Warning]: Composite upload failed for ${photoId}:`, errMessage);
+        await updateOfflineCaptureSyncStatus(photoId, 'failed', errMessage);
+        return false;
       }
+
+      console.log('[Cloud Sync] Composite photo synced for', photoId);
 
       // Step 2: Upload GIF Boomerang if available (< 1.5MB)
       if (gifDataUrl) {
@@ -952,7 +1329,7 @@ const TabletStudioContent: React.FC = () => {
           }
 
           if (gifRes.ok) {
-            console.log('[Cloud Sync Success]: GIF boomerang synced for', photoId);
+            console.log('[Cloud Sync] GIF boomerang synced for', photoId);
           } else {
             console.warn('[Cloud Sync Warning]: GIF sync failed with status:', gifRes.status);
           }
@@ -967,34 +1344,151 @@ const TabletStudioContent: React.FC = () => {
           const rawShot = rawPhotos[i];
           if (!rawShot) continue;
           try {
-            await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
+            const compressedRaw = await compressDataUrl(rawShot, 2048, 0.88);
+            const rawRes = await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
               method: 'POST',
               headers,
               body: JSON.stringify({
                 photoId,
                 eventId,
-                fileDataUrl: rawShot,
+                fileDataUrl: compressedRaw,
                 type: 'raw',
                 rawIndex: i + 1,
               }),
             });
+            if (rawRes.ok) {
+              console.log(`[Cloud Sync] Raw shot ${i + 1} synced for ${photoId}`);
+            } else {
+              console.warn(`[Cloud Sync Warning]: Raw shot ${i + 1} sync status: ${rawRes.status}`);
+            }
           } catch (rErr) {
             console.warn(`[Cloud Sync Notice]: Raw shot ${i + 1} upload notice:`, rErr);
           }
         }
       }
 
-      return success;
-    } catch (err) {
-      console.warn('[Cloud Sync Error]:', err);
+      // Mark session as successfully synced in local IndexedDB
+      await updateOfflineCaptureSyncStatus(photoId, 'synced');
+      console.log(`[Cloud Sync] SYNC_SUCCESS: Session ${photoId} fully synced to cloud.`);
+      return true;
+    } catch (err: any) {
+      const errMsg = err?.message || 'Network error';
+      console.warn(`[Cloud Sync Error]: SYNC_FAILED for ${photoId}:`, errMsg);
+      await updateOfflineCaptureSyncStatus(photoId, 'failed', errMsg);
       return false;
+    } finally {
+      activeUploadsRef.current.delete(photoId);
     }
   };
 
+  // ── BACKGROUND SYNC WORKER: Processes pending captures non-aggressively ──
+  const processPendingSyncQueue = useCallback(async (isManual = false) => {
+    if (isDemoMode) {
+      console.log('[Cloud Sync] Demo mode active — background queue paused.');
+      return;
+    }
+    if (isProcessingQueueRef.current) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      console.log('[Cloud Sync] Offline mode — background queue paused.');
+      return;
+    }
+
+    isProcessingQueueRef.current = true;
+    try {
+      const pendingItems = await getPendingOfflineCaptures(selectedEventId);
+      if (!pendingItems || pendingItems.length === 0) return;
+
+      console.log(`[Cloud Sync] Found ${pendingItems.length} pending capture(s) to synchronize.`);
+
+      for (const item of pendingItems) {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          console.log('[Cloud Sync] Network disconnected — pausing sync worker.');
+          break;
+        }
+
+        if (activeUploadsRef.current.has(item.photoId)) continue;
+
+        // Skip any demo items
+        if (item.isDemo || item.photoId.startsWith('DEMO_') || (item.eventId && item.eventId.startsWith('demo'))) {
+          continue;
+        }
+
+        // Skip excessive automated retries unless manually triggered
+        if (!isManual && item.retryCount && item.retryCount >= 8) {
+          continue;
+        }
+
+        const rawPhotos = (item.rawShots || []).map((r: any) => r.dataUrl || r.url).filter(Boolean);
+        await uploadCaptureToCloud({
+          photoId: item.photoId,
+          eventId: item.eventId || selectedEventId,
+          compositeDataUrl: item.photoDataUrl,
+          gifDataUrl: item.gifDataUrl,
+          rawPhotos,
+        });
+
+        // Modest pacing delay between captures
+        await new Promise((r) => setTimeout(r, 600));
+      }
+    } catch (queueErr) {
+      console.warn('[Cloud Sync Queue Warning]:', queueErr);
+    } finally {
+      isProcessingQueueRef.current = false;
+    }
+  }, [selectedEventId, isDemoMode]);
+
+  // Online / Offline Network Listeners
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsNetworkOnline(true);
+      console.log('[Network] Online detected — resuming pending cloud sync queue...');
+      processPendingSyncQueue();
+    };
+
+    const handleOffline = () => {
+      setIsNetworkOnline(false);
+      console.log('[Network] Offline detected — cloud sync paused.');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Initial check on mount
+    if (navigator.onLine && selectedEventId) {
+      const timer = setTimeout(() => {
+        processPendingSyncQueue();
+      }, 2500);
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [selectedEventId, processPendingSyncQueue]);
+
+  // Periodic Background Sync poll (every 45s) for resilient auto-recovery
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine && selectedEventId) {
+        processPendingSyncQueue();
+      }
+    }, 45000);
+    return () => clearInterval(interval);
+  }, [selectedEventId, processPendingSyncQueue]);
+
   // Sync all local captures for the active event to Supabase Cloud
   const handleSyncAllOfflineCapturesToCloud = async () => {
+    if (isDemoMode) {
+      showNotification('Sinkronisasi Cloud dinonaktifkan dalam Mode Demo. Foto pengujian hanya tersimpan di folder demo lokal.', 'warning');
+      return;
+    }
     if (!selectedEventId) {
-      alert('Pilih acara terlebih dahulu.');
+      showNotification('Silakan pilih acara terlebih dahulu.', 'warning');
       return;
     }
     setIsSyncingAllToCloud(true);
@@ -1049,13 +1543,14 @@ const TabletStudioContent: React.FC = () => {
         if (!res.canceled && res.selectedPath) {
           setCustomStorageDir(res.selectedPath);
           localStorage.setItem('mb_custom_storage_dir', res.selectedPath);
-          alert(`Folder penyimpanan foto berhasil diatur ke:\n${res.selectedPath}`);
+          showNotification(`Folder penyimpanan foto diatur ke:\n${res.selectedPath}`, 'success');
         }
       } else {
-        alert('Fitur pemilihan folder aktif di aplikasi desktop MingleBooth.');
+        showNotification('Fitur pemilihan folder aktif di aplikasi desktop MingleBooth.', 'info');
       }
     } catch (e: any) {
-      alert(`Gagal memilih folder: ${e?.message || e}`);
+      console.error('[STORAGE-SELECT-ERROR]', e);
+      showNotification('Gagal memilih folder penyimpanan.', 'error');
     }
   };
 
@@ -1066,15 +1561,18 @@ const TabletStudioContent: React.FC = () => {
         const res = await (window as any).electronAPI.openEventFolder({
           eventName: currentEvent?.name || 'Photobooth',
           customBasePath: customStorageDir || undefined,
+          isDemo: isDemoMode,
         });
         if (res && !res.success && res.error) {
-          alert(`Gagal membuka folder: ${res.error}`);
+          console.error('[STORAGE-OPEN-ERROR]', res.error);
+          showNotification('Gagal membuka folder di sistem operasi.', 'error');
         }
       } else {
-        alert('Fitur buka folder penyimpanan lokal aktif di aplikasi desktop MingleBooth.');
+        showNotification('Fitur buka folder penyimpanan lokal aktif di aplikasi desktop MingleBooth.', 'info');
       }
     } catch (e: any) {
-      alert(`Gagal membuka folder: ${e?.message || e}`);
+      console.error('[STORAGE-OPEN-ERROR]', e);
+      showNotification('Gagal membuka folder penyimpanan.', 'error');
     }
   };
 
@@ -1254,23 +1752,53 @@ const TabletStudioContent: React.FC = () => {
     isScreensaverActive,
   ]);
 
-  // Camera Mode Switcher
-  const handleSwitchCameraMode = (mode: 'webcam' | 'dslr' | 'sony') => {
-    setCameraMode(mode);
+  // Camera Mode Switcher (Strict Mutual Exclusion)
+  const handleSwitchCameraMode = useCallback(async (mode: 'webcam' | 'dslr' | 'sony') => {
+    console.log('[Camera] Switching camera mode to:', mode);
     setCameraError(null);
+
     if (mode === 'webcam') {
-      startWebcamStream();
-    } else {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
+      // 1. Stop Sony Live View if running
+      if (typeof window !== 'undefined' && (window as any).electronAPI?.stopCameraLiveView) {
+        try {
+          await (window as any).electronAPI.stopCameraLiveView();
+        } catch (e) {
+          console.warn('[Camera] Error stopping Sony Live View:', e);
+        }
       }
-      if (cameraStream) {
-        cameraStream.getTracks().forEach((t) => t.stop());
-        setCameraStream(null);
+      setTetherLiveFrame(null);
+      // 2. Set camera mode to webcam
+      setCameraMode('webcam');
+      // 3. Request webcam stream
+      setTimeout(() => startWebcamStream(), 50);
+    } else {
+      // 1. Stop all webcam tracks and release video elements immediately
+      stopWebcamStream();
+      // 2. Clear video element srcObjects
+      if (videoRef.current) videoRef.current.srcObject = null;
+      if (previewVideoRef.current) previewVideoRef.current.srcObject = null;
+      // 3. Switch mode to dslr (PC Remote)
+      setCameraMode('dslr');
+      // 4. Start Sony Live View if camera is ready
+      if (typeof window !== 'undefined' && (window as any).electronAPI) {
+        const api = (window as any).electronAPI;
+        if (cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED') {
+          if (api.startCameraLiveView) {
+            api.startCameraLiveView();
+          }
+        } else if (api.detectNativeCameras) {
+          api.detectNativeCameras().then(async (det: any) => {
+            if (det.success && det.cameras && det.cameras.length > 0) {
+              await api.connectNativeCamera(det.cameras[0]);
+              if (api.startCameraLiveView) {
+                api.startCameraLiveView();
+              }
+            }
+          }).catch((err: any) => console.warn('[Camera] Auto-connect error:', err));
+        }
       }
     }
-  };
+  }, [cameraSessionState, startWebcamStream, stopWebcamStream]);
 
   // ── 4. GRAB FRAME & CAPTURE SEQUENCE ──
   const grabVideoFrame = (): string | null => {
@@ -1325,12 +1853,17 @@ const TabletStudioContent: React.FC = () => {
 
     let frameData: string | null = null;
 
-    if (cameraMode !== 'webcam') {
+    const isNativeSonyReady = (cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED') && tetherStatus === 'connected';
+
+    if (isNativeSonyReady || cameraMode !== 'webcam') {
       isCapturingRef.current = true;
       try {
+        console.log('[WIN-CAPTURE] renderer shutter clicked (native capture)');
         setCameraSessionState('CAPTURING');
-        if (typeof window !== 'undefined' && (window as any).electronAPI?.triggerNativeCapture) {
-          const res = await (window as any).electronAPI.triggerNativeCapture();
+        const api = (window as any).electronAPI;
+        const captureFn = api?.triggerNativeCapture || api?.directCapture;
+        if (typeof window !== 'undefined' && captureFn) {
+          const res = await captureFn();
           if (res && res.success && res.photoDataUrl) {
             frameData = res.photoDataUrl;
             const photoKey = `${res.filename || 'shot'}_${res.byteSize || ''}`;
@@ -1338,12 +1871,19 @@ const TabletStudioContent: React.FC = () => {
             setCameraSessionState('PROCESSING');
           } else {
             const errMsg = res?.error || 'Capture failed';
+            console.error('[WIN-CAPTURE-ERROR]', errMsg);
             setCameraSessionState('ERROR');
             setCameraSessionError(errMsg);
             setIsFlashing(false);
             isCapturingRef.current = false;
-            alert(`Gagal mengambil foto dari kamera studio: ${errMsg}`);
-            setSessionStep('idle');
+            showNotification('Kamera gagal mengambil foto. Silakan coba lagi.', 'error');
+            if (retakeSlotIndex !== null) {
+              setRetakeSlotIndex(null);
+              setSessionStep('idle');
+              setPhase('review');
+            } else {
+              setSessionStep('idle');
+            }
             return;
           }
         } else {
@@ -1359,26 +1899,42 @@ const TabletStudioContent: React.FC = () => {
             setCameraSessionState('PROCESSING');
           } else {
             const errMsg = data?.error || 'Photo transfer failed';
+            console.error('[TETHER-CAPTURE-ERROR]', errMsg);
             setCameraSessionState('ERROR');
             setCameraSessionError(errMsg);
             setIsFlashing(false);
             isCapturingRef.current = false;
-            alert(`Gagal mengambil foto dari kamera studio: ${errMsg}`);
-            setSessionStep('idle');
+            showNotification('Kamera gagal mengambil foto. Silakan coba lagi.', 'error');
+            if (retakeSlotIndex !== null) {
+              setRetakeSlotIndex(null);
+              setSessionStep('idle');
+              setPhase('review');
+            } else {
+              setSessionStep('idle');
+            }
             return;
           }
         }
       } catch (err: any) {
+        console.error('[SHUTTER-ERROR]', err);
         setCameraSessionState('ERROR');
         setCameraSessionError(err.message || 'Capture failed');
         setIsFlashing(false);
         isCapturingRef.current = false;
-        alert(`Error koneksi shutter kamera: ${err.message}`);
-        setSessionStep('idle');
+        showNotification('Kamera gagal mengambil foto. Silakan coba lagi.', 'error');
+        if (retakeSlotIndex !== null) {
+          setRetakeSlotIndex(null);
+          setSessionStep('idle');
+          setPhase('review');
+        } else {
+          setSessionStep('idle');
+        }
         return;
       } finally {
         isCapturingRef.current = false;
       }
+    } else if (cameraMode === 'webcam') {
+      frameData = grabVideoFrame();
     } else {
       frameData = grabVideoFrame();
     }
@@ -1386,14 +1942,32 @@ const TabletStudioContent: React.FC = () => {
     setIsFlashing(false);
 
     if (!frameData) {
-      alert('Gagal mengambil foto dari kamera. Pastikan kamera menyala dan terhubung dengan baik.');
-      setSessionStep('idle');
+      showNotification('Gagal mengambil foto dari kamera. Pastikan kamera menyala dan terhubung dengan baik.', 'error');
+      if (retakeSlotIndex !== null) {
+        setRetakeSlotIndex(null);
+        setSessionStep('idle');
+        setPhase('review');
+      } else {
+        setSessionStep('idle');
+      }
       return;
     }
 
     const nextPhotos = [...capturedPhotos];
     nextPhotos[shotIdx] = frameData;
     setCapturedPhotos(nextPhotos);
+
+    // If targeted retake was active for this slot, recompose immediately and return to Result Screen
+    if (retakeSlotIndex !== null) {
+      const targetSlot = retakeSlotIndex;
+      setRetakeSlotIndex(null);
+      setSessionStep('processing');
+      if (cameraMode !== 'webcam') {
+        setCameraSessionState('COMPLETED');
+      }
+      composeFinalPhoto(nextPhotos, currentPhotoId || undefined, targetSlot);
+      return;
+    }
 
     const nextIdx = shotIdx + 1;
     if (nextIdx < shotsCount) {
@@ -1412,7 +1986,7 @@ const TabletStudioContent: React.FC = () => {
   };
 
   // ── 5. COMPOSE FINAL PHOTO & GIF BOOMERANG ──
-  const composeFinalPhoto = async (photos: string[]) => {
+  const composeFinalPhoto = async (photos: string[], overridePhotoId?: string, targetReviewIndex?: number) => {
     try {
       const frameImg = new Image();
       frameImg.crossOrigin = 'anonymous';
@@ -1482,12 +2056,18 @@ const TabletStudioContent: React.FC = () => {
         const photoData = photos[i];
         if (!photoData) continue;
         const cutout = cutouts[i % cutouts.length];
-
         const img = new Image();
         img.src = photoData;
-        await new Promise((res) => { img.onload = res; });
+        const loaded = await new Promise((res) => {
+          img.onload = () => res(true);
+          img.onerror = () => {
+            console.error('[MingleBooth] Failed to decode image for cutout:', i);
+            res(false);
+          };
+          setTimeout(() => res(false), 4000);
+        });
 
-        // Center-crop into cutout
+        if (!loaded || !img.width || !img.height) continue;
         const imgAspect = img.width / img.height;
         const cutAspect = cutout.width / cutout.height;
         let sWidth = img.width;
@@ -1513,7 +2093,8 @@ const TabletStudioContent: React.FC = () => {
       setFinalPhotoDataUrl(compositeDataUrl);
 
       // Unique Photo ID & Direct Guest Download URL with Instant Event Gallery Reveal
-      const photoId = `MB_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const photoId = overridePhotoId || currentPhotoId || `MB_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      setCurrentPhotoId(photoId);
       const targetEventId = selectedEventId || (currentEvent?.id ?? '');
       const galleryUrl = targetEventId
         ? `https://www.minglebooth.id/gallery/${targetEventId}?p=${photoId}`
@@ -1545,42 +2126,60 @@ const TabletStudioContent: React.FC = () => {
 
       const rawShotsPayload = photos.map((p, idx) => ({ index: idx + 1, dataUrl: p }));
 
-      // Save to Offline Storage (IndexedDB)
+      // Save to Offline Storage (IndexedDB) — Guaranteed Local Persistence First
       saveOfflineCapture({
         photoId,
-        eventId: selectedEventId,
-        eventName: currentEvent?.name || 'Photobooth Event',
+        eventId: isDemoMode ? 'demo_event_local' : selectedEventId,
+        eventName: isDemoMode ? 'Demo Photobooth Session' : (currentEvent?.name || 'Photobooth Event'),
         photoDataUrl: compositeDataUrl,
         gifDataUrl,
         hasGif: Boolean(gifDataUrl),
         rawShots: rawShotsPayload,
         createdAt: new Date().toISOString(),
-      }).catch(() => {});
+        syncStatus: isDemoMode ? 'demo' : 'pending',
+        retryCount: 0,
+        isDemo: isDemoMode,
+      }).catch((e) => console.warn('Offline storage save notice:', e));
 
-      // Save directly to local SSD folder ~/Pictures/MingleBooth/[Nama Acara] or custom folder
+      // Save directly to local SSD folder ~/Pictures/MingleBooth/[Nama Acara] or dedicated demo folder
       if (typeof window !== 'undefined' && (window as any).electronAPI?.saveCaptureFiles) {
         (window as any).electronAPI.saveCaptureFiles({
-          eventName: currentEvent?.name || 'Photobooth Event',
-          customBasePath: customStorageDir || undefined,
+          eventName: isDemoMode ? 'Demo Photobooth' : (currentEvent?.name || 'Photobooth Event'),
+          customBasePath: isDemoMode ? 'data/demo' : (customStorageDir || undefined),
           photoId,
           photoBase64: compositeDataUrl,
           gifBase64: gifDataUrl,
           rawShots: rawShotsPayload,
+          isDemo: isDemoMode,
         }).catch((e: any) => console.warn('Could not save to local SSD:', e));
       }
 
-      // Background Cloud Sync to Supabase (Staged upload to prevent Vercel 4.5MB payload limit)
-      if (navigator.onLine) {
+      // Non-blocking Background Cloud Sync: strictly bypassed in Demo Mode
+      if (!isDemoMode && typeof navigator !== 'undefined' && navigator.onLine) {
         uploadCaptureToCloud({
           photoId,
           eventId: selectedEventId,
           compositeDataUrl,
           gifDataUrl,
           rawPhotos: photos,
-        });
+        }).then((ok) => {
+          if (!ok) {
+            console.log(`[Cloud Sync] Session ${photoId} upload incomplete, pending worker retry.`);
+          }
+        }).catch(() => {});
+      } else if (isDemoMode) {
+        console.log(`[Demo Mode] Photo ${photoId} saved strictly locally in demo storage. Cloud upload skipped.`);
+      } else {
+        console.log(`[Cloud Sync] Offline mode — session ${photoId} saved locally with status PENDING.`);
       }
 
-      setReviewRawIndex(0);
+      if (typeof targetReviewIndex === 'number') {
+        setReviewRawIndex(targetReviewIndex);
+        setResultTab('original');
+      } else {
+        setReviewRawIndex(0);
+        setResultTab('photo');
+      }
 
       setPhase('review');
       setSessionStep('idle');
@@ -1588,7 +2187,7 @@ const TabletStudioContent: React.FC = () => {
     } catch (err) {
       console.error('Compositing failed:', err);
       setSessionStep('idle');
-      alert('Gagal menyusun foto. Silakan coba lagi.');
+      showNotification('Gagal menyusun foto ke dalam bingkai. Silakan coba lagi.', 'error');
     }
   };
 
@@ -1619,6 +2218,21 @@ const TabletStudioContent: React.FC = () => {
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
+      }
+
+      // Targeted retake handling for physical shutter
+      if (retakeSlotIndex !== null) {
+        const targetSlot = retakeSlotIndex;
+        setRetakeSlotIndex(null);
+        setCapturedPhotos((prev) => {
+          const nextPhotos = [...prev];
+          nextPhotos[targetSlot] = payload.photoDataUrl;
+          setSessionStep('processing');
+          setCameraSessionState('COMPLETED');
+          composeFinalPhoto(nextPhotos, currentPhotoId || undefined, targetSlot);
+          return nextPhotos;
+        });
+        return;
       }
 
       // If in setup or review, transition smoothly to kiosk
@@ -1659,15 +2273,30 @@ const TabletStudioContent: React.FC = () => {
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [currentShotIndex, shotsCount, composeFinalPhoto, phase, sessionStep]);
+  }, [currentShotIndex, shotsCount, composeFinalPhoto, phase, sessionStep, retakeSlotIndex, currentPhotoId]);
 
   // Direct Print
   const handlePrintPhoto = () => {
+    if (isDemoMode) {
+      showNotification('Fitur Cetak Foto tersedia setelah langganan aktif.', 'warning');
+      return;
+    }
     if (!finalPhotoDataUrl) return;
 
     if (typeof window !== 'undefined' && (window as any).electronAPI?.printPhoto) {
-      (window as any).electronAPI.printPhoto({ filePath: finalPhotoDataUrl, silent: false, copies: 1 })
-        .then(() => console.log('Native print triggered'))
+      (window as any).electronAPI.printPhoto({
+        filePath: finalPhotoDataUrl,
+        silent: false,
+        copies: 1,
+        licenseToken: typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null,
+      })
+        .then((res: any) => {
+          if (res && res.success === false) {
+            showNotification(res.error || 'Fitur Cetak Foto tersedia setelah langganan aktif.', 'warning');
+          } else {
+            showNotification('Perintah cetak berhasil dikirim ke printer!', 'success');
+          }
+        })
         .catch(() => {});
       return;
     }
@@ -1679,27 +2308,47 @@ const TabletStudioContent: React.FC = () => {
     }, 200);
   };
 
+  // Targeted Photo Retake (Phase 10: Retake individual pose slot from review screen)
+  const handleStartRetake = (slotIdx: number) => {
+    if (slotIdx < 0 || slotIdx >= capturedPhotos.length) return;
+    setRetakeSlotIndex(slotIdx);
+    setCurrentShotIndex(slotIdx);
+    setSessionStep('idle');
+    setPhase('kiosk');
+  };
+
+  const handleCancelRetake = () => {
+    setRetakeSlotIndex(null);
+    setSessionStep('idle');
+    setPhase('review');
+  };
+
   // Keyboard navigation (Escape = return to setup/kiosk, Space = shoot)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (phase === 'gallery') {
           setPhase(previousPhase || 'setup');
+        } else if (phase === 'kiosk' && retakeSlotIndex !== null) {
+          handleCancelRetake();
         } else if (phase === 'kiosk' || phase === 'review') {
+          handleResetKiosk();
           setPhase('setup');
-          setSessionStep('idle');
-          setCapturedPhotos([]);
         }
       } else if (e.code === 'Space') {
         if (phase === 'kiosk' && (sessionStep === 'idle' || sessionStep === 'paused_between_poses')) {
-          triggerPoseShot(currentShotIndex);
+          if (retakeSlotIndex !== null) {
+            triggerPoseShot(retakeSlotIndex);
+          } else {
+            triggerPoseShot(currentShotIndex);
+          }
         }
       }
     };
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [phase, previousPhase, sessionStep, currentShotIndex]);
+  }, [phase, previousPhase, sessionStep, currentShotIndex, retakeSlotIndex]);
 
   // Review Timer Countdown
   useEffect(() => {
@@ -1709,9 +2358,8 @@ const TabletStudioContent: React.FC = () => {
       setReviewCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
+          handleResetKiosk();
           setPhase('kiosk');
-          setCapturedPhotos([]);
-          setCurrentShotIndex(0);
           return 30;
         }
         return prev - 1;
@@ -1732,13 +2380,31 @@ const TabletStudioContent: React.FC = () => {
 
   // Reset Kiosk
   const handleResetKiosk = () => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
     setCapturedPhotos([]);
     setCurrentShotIndex(0);
+    setRetakeSlotIndex(null);
+    setCurrentPhotoId(null);
     setFinalPhotoDataUrl(null);
     setFinalGifDataUrl(null);
+    setQrCodeDataUrl(null);
+    setGuestGalleryUrl('');
+    setPrintImageUrl(null);
+    setReviewCountdown(30);
     setResultTab('photo');
+    setReviewRawIndex(0);
     setSessionStep('idle');
   };
+
+  // Reset session whenever active event changes to prevent cross-event state contamination
+  useEffect(() => {
+    if (selectedEventId) {
+      handleResetKiosk();
+    }
+  }, [selectedEventId]);
 
   // Download all assets for a session (Framed photo + GIF + All raw poses)
   const handleDownloadAllAssets = async () => {
@@ -1811,7 +2477,7 @@ const TabletStudioContent: React.FC = () => {
           <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-white/[0.08] border border-white/15 flex items-center justify-center text-white">
-                <Sparkles className="w-5 h-5 text-amber-300" />
+                <Monitor className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h3 className="text-base font-bold text-white tracking-wide">
@@ -2100,7 +2766,7 @@ const TabletStudioContent: React.FC = () => {
                 if (phase === 'kiosk') {
                   setIsScreensaverActive(true);
                 } else {
-                  alert('Layar standby akan aktif saat masuk ke Mode Kiosk.');
+                  showNotification('Layar standby akan aktif saat masuk ke Mode Kiosk.', 'info');
                 }
               }}
               className="h-11 px-4 rounded-2xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/15 text-xs font-semibold text-white flex items-center gap-2 transition-all cursor-pointer"
@@ -2144,6 +2810,7 @@ const TabletStudioContent: React.FC = () => {
 
     return (
       <div className="flex flex-col h-screen w-screen bg-[#090A0C] text-[#EDEDED] font-sans select-none overflow-hidden antialiased">
+        {renderDemoBanner()}
         {/* Top Minimal Header (Responsive & Proportional) */}
         <header className="px-6 py-2.5 border-b border-white/[0.08] bg-[#0F1014] flex flex-wrap items-center justify-between gap-3 flex-shrink-0 min-h-[64px]">
           <div className="flex items-center gap-3 min-w-0">
@@ -2531,6 +3198,10 @@ const TabletStudioContent: React.FC = () => {
                   <button
                     type="button"
                     onClick={async () => {
+                      if (isDemoMode) {
+                        showNotification('Fitur Cetak Foto tersedia setelah langganan aktif.', 'warning');
+                        return;
+                      }
                       try {
                         const targetUrl =
                           galleryLightboxTab === 'original' &&
@@ -2540,16 +3211,18 @@ const TabletStudioContent: React.FC = () => {
                               selectedGalleryPreviewItem.photoDataUrl
                             : selectedGalleryPreviewItem.photoDataUrl;
 
+                        if (isDemoMode) return;
                         if (typeof window !== 'undefined' && (window as any).electronAPI?.printPhoto) {
-                          await (window as any).electronAPI.printPhoto(targetUrl, 1, false);
-                          alert('Perintah cetak berhasil dikirim ke printer!');
+                          await (window as any).electronAPI?.printPhoto(targetUrl, 1, false);
+                          showNotification('Perintah cetak berhasil dikirim ke printer!', 'success');
                         } else {
                           const win = window.open('');
                           win?.document.write(`<img src="${targetUrl}" style="width:100%"/>`);
                           win?.print();
                         }
                       } catch (e: any) {
-                        alert(`Gagal mencetak: ${e.message}`);
+                        console.error('[PRINT-ERROR]', e);
+                        showNotification('Gagal mencetak: periksa koneksi printer.', 'error');
                       }
                     }}
                     className="h-10 px-4 rounded-xl bg-white/[0.12] hover:bg-white/[0.2] border border-white/20 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
@@ -2572,157 +3245,121 @@ const TabletStudioContent: React.FC = () => {
   if (phase === 'setup') {
     return (
       <div className="flex flex-col h-screen w-screen bg-[#090A0C] text-[#EDEDED] font-sans select-none overflow-hidden antialiased">
-        {/* Top Minimal Header */}
-        <header className="h-16 px-6 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
+        {renderDemoBanner()}
+        {/* Top Minimal Header (56px) */}
+        <header className="h-14 px-5 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <img
               src={logoHeader}
               alt="MingleBooth"
-              className="h-7 sm:h-8 w-auto object-contain"
+              className="h-6 sm:h-7 w-auto object-contain"
             />
-            <div className="h-4 w-[1px] bg-white/10 hidden sm:block" />
-            <span className="text-xs font-semibold tracking-wide text-neutral-300 hidden sm:inline">
-              Studio Photobooth Kiosk
+            <div className="h-3.5 w-[1px] bg-white/10 hidden sm:block" />
+            <span className="text-[11px] font-semibold tracking-wider text-neutral-400 uppercase hidden sm:inline">
+              Studio Setup
             </span>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <button
               onClick={handleChooseOrNewFolder}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
-              title="Pilih atau buat folder baru di laptop untuk meletakkan foto"
+              className="h-8 px-3 rounded-lg bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Atur atau pilih folder penyimpanan foto"
             >
-              <FolderPlus className="w-3.5 h-3.5 text-neutral-300" />
-              <span>Atur Folder</span>
-            </button>
-
-            <button
-              onClick={handleOpenEventStorageFolder}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
-              title="Buka folder penyimpanan foto acara di laptop"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-neutral-300" />
-              <span>Buka Folder Foto</span>
+              <FolderPlus className="w-3.5 h-3.5 text-neutral-400" />
+              <span>Folder</span>
             </button>
 
             <button
               onClick={openEventGallery}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-neutral-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
+              className="h-8 px-3 rounded-lg bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Buka galeri foto acara"
             >
-              <Images className="w-3.5 h-3.5 text-neutral-300" />
-              <span>Galeri Acara</span>
+              <Images className="w-3.5 h-3.5 text-neutral-400" />
+              <span>Galeri</span>
             </button>
 
             <button
               onClick={() => {
-                if (confirm('Keluar dari sesi operator dan nonaktifkan perangkat laptop ini?')) {
+                if (confirm('Keluar dari sesi operator dan nonaktifkan perangkat ini?')) {
                   localStorage.removeItem('mb_license_token');
                   window.location.reload();
                 }
               }}
-              className="h-9 px-3.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-xs font-medium text-neutral-400 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="h-8 px-3 rounded-lg bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.08] text-xs font-medium text-neutral-400 hover:text-white flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Ganti akun operator"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>Ganti Akun</span>
+              <span>Akun</span>
             </button>
           </div>
         </header>
 
-        {/* Studio Split Layout */}
+        {/* Studio Split Layout: Large Dominant Preview + Compact Right Panel */}
         <main className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
-          {/* SISI KIRI: LIVE CAMERA & TEMPLATE PREVIEW CANVAS */}
-          <section className="flex-1 bg-[#090A0C] flex flex-col items-center justify-center p-6 min-h-0 border-b lg:border-b-0 lg:border-r border-white/[0.06] relative">
-            <div className="w-full max-w-md flex items-center justify-between mb-3 text-xs text-neutral-400">
-              <span className="flex items-center gap-2">
-                {cameraMode === 'webcam' ? (
-                  cameraStream ? (
-                    <>
-                      <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                      <span className="text-white font-medium">Webcam Laptop Aktif</span>
-                    </>
-                  ) : isCameraLoading ? (
-                    <>
-                      <span className="w-2 h-2 rounded-full bg-neutral-400 animate-spin" />
-                      <span className="text-neutral-300 font-medium">Menghubungkan Kamera...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="w-2 h-2 rounded-full bg-neutral-500" />
-                      <span className="text-neutral-400 font-medium">Kamera Belum Terhubung</span>
-                    </>
-                  )
-                ) : (
-                  <>
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                          ? 'bg-emerald-400 animate-pulse'
-                          : cameraSessionState === 'CAPTURING' || cameraSessionState === 'TRANSFERRING'
-                          ? 'bg-blue-400 animate-ping'
-                          : cameraSessionState === 'PROCESSING'
-                          ? 'bg-purple-400 animate-pulse'
-                          : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
-                          ? 'bg-amber-400 animate-spin'
-                          : cameraSessionState === 'ERROR'
-                          ? 'bg-rose-500'
-                          : 'bg-neutral-500'
-                      }`}
-                    />
-                    <span
-                      className={`font-medium ${
-                        cameraSessionState === 'ERROR'
-                          ? 'text-rose-400'
-                          : cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                          ? 'text-white'
-                          : 'text-neutral-400'
-                      }`}
-                    >
-                      {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                        ? (nativeCameraModel ? `${nativeCameraModel} • ✓ Kamera Siap Digunakan` : '✓ Kamera Siap Digunakan')
-                        : cameraSessionState === 'CONNECTING'
-                        ? 'Menyiapkan kamera...'
-                        : cameraSessionState === 'DETECTING'
-                        ? 'Mendeteksi kamera...'
-                        : cameraSessionState === 'CAPTURING'
-                        ? 'Mengambil foto...'
-                        : cameraSessionState === 'TRANSFERRING'
-                        ? 'Memproses foto...'
-                        : cameraSessionState === 'ERROR'
-                        ? cameraSessionError || 'Kamera tidak merespons'
-                        : 'Kamera Belum Terhubung'}
-                    </span>
-                  </>
-                )}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowFrameOverlayInPreview(!showFrameOverlayInPreview)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
-                    showFrameOverlayInPreview
-                      ? 'bg-white text-black font-semibold shadow-sm'
-                      : 'bg-white/[0.06] text-neutral-300 hover:text-white border border-white/10'
-                  }`}
-                  title="Lihat bagaimana foto akan pas di dalam lubang bingkai"
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>{showFrameOverlayInPreview ? 'Sembunyikan Bingkai' : 'Intip Bingkai'}</span>
-                </button>
-                <span className="font-mono text-[11px] bg-white/[0.06] px-2 py-0.5 rounded text-neutral-300">
-                  Rasio: {currentTemplate.ratio} ({frameDimensions.width}x{frameDimensions.height})
-                </span>
-              </div>
-            </div>
-
-            {/* Framing Box (Full Wide Clean Viewport by default, or Frame Aspect when toggled) */}
+          {/* SISI KIRI: LARGE CAMERA & TEMPLATE PREVIEW VIEWPORT */}
+          <section className="flex-1 bg-[#0A0A0B] flex items-center justify-center p-4 sm:p-6 min-h-0 min-w-0 relative overflow-hidden">
+            {/* Large Framing Box (Full Wide Clean Viewport by default, or Frame Aspect when toggled) */}
             <div
               style={{
                 aspectRatio: showFrameOverlayInPreview
                   ? `${frameDimensions.width} / ${frameDimensions.height}`
                   : '4 / 3',
               }}
-              className="h-full max-h-[68vh] rounded-2xl bg-[#090A0C] border border-white/[0.1] overflow-hidden relative shadow-2xl flex items-center justify-center group transition-all duration-300"
+              className="w-full max-w-full h-full max-h-[82vh] rounded-2xl bg-[#0F1014] border border-white/[0.08] overflow-hidden relative shadow-2xl flex items-center justify-center transition-all duration-300"
             >
+              {/* Top Floating Badges INSIDE the camera box with generous breathing room away from borders */}
+              <div className="absolute top-6 left-6 z-20 flex items-center gap-2.5 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 text-xs text-neutral-200 shadow-xl pointer-events-auto">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    cameraMode === 'webcam'
+                      ? cameraStream
+                        ? 'bg-emerald-400 animate-pulse'
+                        : isCameraLoading
+                        ? 'bg-amber-400 animate-spin'
+                        : 'bg-neutral-500'
+                      : cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                      ? 'bg-emerald-400 animate-pulse'
+                      : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
+                      ? 'bg-amber-400 animate-spin'
+                      : cameraSessionState === 'ERROR'
+                      ? 'bg-rose-500'
+                      : 'bg-neutral-500'
+                  }`}
+                />
+                <span className="font-medium">
+                  {cameraMode === 'webcam'
+                    ? cameraStream
+                      ? 'Webcam Aktif'
+                      : isCameraLoading
+                      ? 'Menghubungkan Webcam...'
+                      : 'Webcam Offline'
+                    : cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                    ? nativeCameraModel || 'Sony USB Siap'
+                    : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
+                    ? 'Menyiapkan Sony...'
+                    : 'Sony Belum Terhubung'}
+                </span>
+              </div>
+
+              <div className="absolute top-6 right-6 z-20 flex items-center gap-2.5 pointer-events-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowFrameOverlayInPreview(!showFrameOverlayInPreview)}
+                  className={`h-9 px-3.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 backdrop-blur-md border shadow-xl cursor-pointer ${
+                    showFrameOverlayInPreview
+                      ? 'bg-white text-black border-white font-semibold'
+                      : 'bg-black/60 text-neutral-300 hover:text-white border-white/10'
+                  }`}
+                  title="Lihat bagaimana foto akan pas di dalam bingkai"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>{showFrameOverlayInPreview ? 'Tutup Bingkai' : 'Intip Bingkai'}</span>
+                </button>
+                <span className="h-9 px-3.5 rounded-full text-xs font-mono bg-black/60 backdrop-blur-md border border-white/10 text-neutral-300 flex items-center shadow-xl">
+                  Rasio: {currentTemplate.ratio} ({frameDimensions.width}x{frameDimensions.height})
+                </span>
+              </div>
               {cameraMode === 'webcam' ? (
                 cameraStream ? (
                   <video
@@ -2737,120 +3374,85 @@ const TabletStudioContent: React.FC = () => {
                     className="w-full h-full object-cover transform -scale-x-100"
                   />
                 ) : (
-                  <div className="flex flex-col items-center justify-center p-6 text-center text-xs text-neutral-400 gap-3 z-0">
-                    <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-300">
+                  <div className="flex flex-col items-center justify-center p-8 text-center max-w-md w-full mx-auto select-none z-0">
+                    <div className="w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-neutral-300 mb-4 shadow-xl">
                       {isCameraLoading ? (
-                        <RefreshCw className="w-6 h-6 animate-spin text-white" />
+                        <RefreshCw className="w-7 h-7 animate-spin text-white" />
                       ) : (
-                        <Laptop className="w-6 h-6 text-neutral-300" />
+                        <Laptop className="w-8 h-8 text-neutral-300 stroke-[1.5]" />
                       )}
                     </div>
-                    <div>
-                      <p className="font-semibold text-white">
-                        {isCameraLoading ? 'Menghubungkan Kamera Laptop...' : 'Kamera Laptop Belum Terhubung'}
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-mono uppercase tracking-wider text-neutral-400 bg-white/[0.04] border border-white/[0.08] mb-3">
+                      Mode Video (Webcam / Streaming)
+                    </span>
+                    <h3 className="text-lg font-semibold text-white tracking-tight mb-2">
+                      {isCameraLoading ? 'Menghubungkan Kamera Laptop...' : 'Kamera Laptop Belum Terhubung'}
+                    </h3>
+                    {cameraError ? (
+                      <p className="text-xs text-rose-300 max-w-sm mb-6 leading-relaxed bg-rose-500/10 px-3.5 py-2.5 rounded-xl border border-rose-500/20">
+                        {cameraError}
                       </p>
-                      {cameraError && (
-                        <p className="text-[11px] text-neutral-300 max-w-xs mt-1.5 leading-relaxed bg-white/[0.04] p-2 rounded-lg border border-white/[0.08]">
-                          {cameraError}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
+                    ) : (
+                      <p className="text-xs text-neutral-400 max-w-sm mb-6 leading-relaxed">
+                        Aktifkan kamera laptop atau hubungkan capture card USB.
+                      </p>
+                    )}
+                    <div className="flex items-center justify-center">
                       <button
                         type="button"
                         onClick={() => startWebcamStream()}
-                        className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-1.5 shadow-lg active:scale-95 transition-all cursor-pointer"
+                        className="px-6 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.12] hover:border-white/20 text-white font-medium text-xs flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98]"
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
                         <span>Sambungkan Kamera</span>
                       </button>
-                      {typeof window !== 'undefined' && (window as any).electronAPI?.openCameraPrivacySettings && (
-                        <button
-                          type="button"
-                          onClick={() => (window as any).electronAPI.openCameraPrivacySettings()}
-                          className="px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-neutral-300 hover:text-white font-medium text-xs transition-colors cursor-pointer"
-                          title="Buka Pengaturan Privasi Kamera di macOS"
-                        >
-                          Buka Privasi Mac
-                        </button>
-                      )}
                     </div>
                   </div>
                 )
               ) : tetherLiveFrame ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={tetherLiveFrame} alt="Live View Studio" className="w-full h-full object-cover" />
+                <img src={tetherLiveFrame} alt="Live View Studio" className="w-full h-full object-contain pointer-events-none" />
               ) : (
-                <div className="flex flex-col items-center justify-center p-6 text-center text-xs text-neutral-400 gap-3 z-0">
-                  <div className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-neutral-300 relative shadow-xl">
-                    <Camera className="w-7 h-7 text-white" />
-                    <span
-                      className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-[#090A0C] ${
-                        cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                          ? 'bg-emerald-400 animate-pulse'
-                          : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
-                          ? 'bg-amber-400 animate-pulse'
-                          : cameraSessionState === 'ERROR'
-                          ? 'bg-rose-500'
-                          : 'bg-neutral-500'
-                      }`}
-                    />
+                <div className="flex flex-col items-center justify-center p-8 text-center max-w-md w-full mx-auto select-none z-0">
+                  <div className="w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-neutral-300 mb-4 shadow-xl">
+                    <Camera className="w-8 h-8 text-white stroke-[1.5]" />
                   </div>
-                  <div>
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-300 bg-white/[0.06] px-2.5 py-0.5 rounded-full border border-white/10">
-                      Mode Foto Studio (PC Remote)
-                    </span>
-                    <p className="font-semibold text-white mt-1.5 text-sm">
-                      {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                        ? (nativeCameraModel ? `${nativeCameraModel} • ✓ Kamera Siap Digunakan` : '✓ Kamera Siap Digunakan')
-                        : cameraSessionState === 'CONNECTING'
-                        ? 'Menyiapkan kamera...'
-                        : cameraSessionState === 'DETECTING'
-                        ? 'Mendeteksi port USB...'
-                        : cameraSessionState === 'ERROR'
-                        ? 'Kamera Belum Terhubung'
-                        : 'Kamera Belum Terhubung'}
+
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-mono uppercase tracking-wider text-neutral-400 bg-white/[0.04] border border-white/[0.08] mb-3">
+                    Mode Foto Studio (PC Remote)
+                  </span>
+
+                  <h3 className="text-lg font-semibold text-white tracking-tight mb-2">
+                    {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
+                      ? 'Menghubungkan Live View...'
+                      : cameraSessionState === 'CONNECTING'
+                      ? 'Menyiapkan kamera...'
+                      : cameraSessionState === 'DETECTING'
+                      ? 'Mendeteksi port USB...'
+                      : cameraSessionState === 'ERROR'
+                      ? 'Kamera Belum Terhubung'
+                      : 'Kamera Belum Terhubung'}
+                  </h3>
+
+                  {cameraSessionState === 'ERROR' && cameraSessionError ? (
+                    <p className="text-xs text-rose-300 max-w-sm mb-6 leading-relaxed bg-rose-500/10 px-3.5 py-2.5 rounded-xl border border-rose-500/20">
+                      {cameraSessionError}
                     </p>
-                    {cameraSessionState === 'ERROR' && cameraSessionError ? (
-                      <p className="text-[11px] text-rose-300 max-w-sm mt-2 leading-relaxed bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20">
-                        ⚠️ {cameraSessionError}
-                      </p>
-                    ) : (
-                      <p className="text-[11px] text-neutral-400 max-w-xs mt-1 leading-normal">
-                        Hubungkan kamera via kabel USB. Pastikan kamera menyala dan diset ke mode <strong>FOTO ➔ USB: PC Remote / PTP</strong>.
-                        <span className="block mt-1 font-mono text-[9px] text-emerald-400/80">Build Marker: [CameraFix-2026-09-09-v2]</span>
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {cameraSessionState === 'DRIVER_SETUP_REQUIRED' ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowDriverSetupModal(true)}
-                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
-                      >
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>Siapkan Koneksi Kamera (WinUSB)</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={checkNativeCameraHardware}
-                        disabled={isDetectingNative}
-                        className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isDetectingNative ? 'animate-spin' : ''}`} />
-                        <span>{isDetectingNative ? 'Menyiapkan kamera...' : 'Sambungkan Kamera'}</span>
-                      </button>
-                    )}
+                  ) : (
+                    <p className="text-xs text-neutral-400 max-w-sm mb-6 leading-relaxed">
+                      Hubungkan kamera via kabel USB. Pastikan kamera menyala dan diset ke mode <span className="text-neutral-200 font-medium">FOTO ➔ USB: PC Remote / PTP</span>.
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-center">
                     <button
                       type="button"
-                      onClick={() => handleSwitchCameraMode('webcam')}
-                      className="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-neutral-200 hover:text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                      title="Ganti ke mode Live View bergerak"
+                      onClick={checkNativeCameraHardware}
+                      disabled={isDetectingNative}
+                      className="px-6 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.12] hover:border-white/20 text-white font-medium text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
                     >
-                      <Video className="w-3.5 h-3.5 text-neutral-300" />
-                      <span>Buka Live View Streaming</span>
+                      <RefreshCw className={`w-3.5 h-3.5 ${isDetectingNative ? 'animate-spin' : ''}`} />
+                      <span>{isDetectingNative ? 'Menyiapkan kamera...' : 'Sambungkan Kamera'}</span>
                     </button>
                   </div>
                 </div>
@@ -2871,292 +3473,359 @@ const TabletStudioContent: React.FC = () => {
             </div>
           </section>
 
-          {/* SISI KANAN: STUDIO CONFIGURATION PANEL (CLEAN MONOCHROME) */}
-          <aside className="w-full lg:w-[460px] bg-[#0F1014] p-6 flex flex-col justify-between overflow-y-auto min-h-0">
-            <div className="space-y-5">
-              {/* 1. Event Selection Card (Clean & Zero Jargon) */}
-              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
-                    1. Pilih Acara
-                  </label>
-                  <div className="flex items-center gap-2">
+          {/* SISI KANAN: STUDIO CONTROL RAIL & COMPACT PANEL (~400px) */}
+          <aside className="w-full lg:w-[400px] xl:w-[410px] flex-none bg-[#0F1014] border-t lg:border-t-0 lg:border-l border-white/[0.08] flex flex-col justify-between min-h-0">
+            {/* Top Navigation Rail (5 Categories) */}
+            <div className="p-2.5 border-b border-white/[0.08] flex gap-1.5 flex-none bg-[#0F1014]">
+              {[
+                { id: 'event', label: 'Acara', icon: Calendar },
+                { id: 'frame', label: 'Bingkai', icon: Layers },
+                { id: 'camera', label: 'Kamera', icon: Camera },
+                { id: 'photo', label: 'Foto', icon: Clock },
+                { id: 'standby', label: 'Standby', icon: Monitor },
+              ].map((tab) => {
+                const IconComp = tab.icon;
+                const isActive = setupTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setSetupTab(tab.id as any)}
+                    className={`flex-1 h-11 rounded-xl flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 text-xs font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-white text-black font-semibold shadow-sm'
+                        : 'text-neutral-400 hover:text-white hover:bg-white/[0.06]'
+                    }`}
+                    title={tab.label}
+                  >
+                    <IconComp className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="text-[11px] font-semibold">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Scrollable Active Tab Content Panel */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+              {/* 1. ACARA (EVENT) TAB */}
+              {setupTab === 'event' && (
+                <div className="space-y-4 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                      Pilih Acara
+                    </span>
+                    <span className="text-[11px] text-neutral-500 font-mono">
+                      {events.length} Acara Terdaftar
+                    </span>
+                  </div>
+
+                  {/* Events List */}
+                  <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-0.5">
+                    {events.length === 0 ? (
+                      <div className="p-5 rounded-2xl bg-[#14161C] border border-dashed border-white/10 text-center space-y-2.5">
+                        <p className="text-xs text-neutral-400">Belum ada acara photobooth tersimpan.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEventManagerInitialTab('create');
+                            setShowEventManagerModal(true);
+                          }}
+                          className="px-4 py-2 rounded-xl bg-white text-black text-xs font-semibold cursor-pointer shadow-sm hover:bg-neutral-200 transition-colors"
+                        >
+                          + Buat Acara Baru
+                        </button>
+                      </div>
+                    ) : (
+                      events.map((ev) => {
+                        const isSelected = ev.id === selectedEventId;
+                        return (
+                          <button
+                            key={ev.id}
+                            type="button"
+                            onClick={() => setSelectedEventId(ev.id)}
+                            className={`w-full p-3.5 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#14161C] border-white text-white shadow-sm ring-1 ring-white'
+                                : 'bg-[#14161C] border-white/[0.06] text-neutral-300 hover:border-white/20'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0 pr-2">
+                              <Calendar className={`w-4 h-4 flex-shrink-0 ${isSelected ? 'text-white' : 'text-neutral-500'}`} />
+                              <div className="truncate">
+                                <div className="text-xs font-semibold truncate text-white">{ev.name}</div>
+                                {ev.date && <div className="text-[10px] text-neutral-400 mt-0.5 font-mono">{ev.date}</div>}
+                              </div>
+                            </div>
+                            {isSelected && <Check className="w-4 h-4 text-white flex-shrink-0" />}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Event Management Action Bar */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
                     <button
                       type="button"
                       onClick={() => {
                         setEventManagerInitialTab('create');
                         setShowEventManagerModal(true);
                       }}
-                      className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white text-neutral-200 hover:text-black text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
-                      title="Tambah acara photobooth baru"
+                      className="flex-1 h-10 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                     >
-                      <Plus className="w-3 h-3" />
+                      <Plus className="w-3.5 h-3.5" />
                       <span>+ Buat Acara</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEventManagerInitialTab(events.length === 0 ? 'create' : 'list');
+                        setShowEventManagerModal(true);
+                      }}
+                      className="h-10 px-3.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-xs font-medium text-neutral-300 hover:text-white transition-all cursor-pointer"
+                      title="Kelola data acara (Edit / Hapus / Tambah)"
+                    >
+                      Kelola Acara
                     </button>
                     <button
                       type="button"
                       onClick={fetchVendorData}
                       disabled={isLoadingVendorData}
-                      className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer p-1 rounded-md hover:bg-white/[0.06]"
+                      className="h-10 w-10 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-neutral-400 hover:text-white flex items-center justify-center transition-all cursor-pointer disabled:opacity-50"
                       title="Perbarui daftar acara dari server"
                     >
-                      <RefreshCw className={`w-3 h-3 ${isLoadingVendorData ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoadingVendorData ? 'animate-spin' : ''}`} />
                     </button>
                   </div>
                 </div>
-                <select
-                  value={selectedEventId}
-                  onChange={(e) => setSelectedEventId(e.target.value)}
-                  className="w-full h-11 px-3.5 rounded-xl bg-[#1A1C24] border border-white/[0.08] text-xs font-medium text-white outline-none focus:border-white/30 transition-colors"
-                >
-                  {events.length === 0 ? (
-                    <option value="">(Belum Ada Acara — Klik + Buat Acara)</option>
-                  ) : (
-                    events.map((ev) => (
-                      <option key={ev.id} value={ev.id}>
-                        {ev.name} {ev.date ? `(${ev.date})` : ''}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <div className="flex items-center justify-between text-[10px] text-neutral-400 pt-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${events.length > 0 ? 'bg-emerald-400' : 'bg-neutral-500'}`} />
-                    <span>{events.length} Acara Siap Digunakan</span>
+              )}
+
+              {/* 2. BINGKAI (FRAME) TAB */}
+              {setupTab === 'frame' && (
+                <div className="space-y-4 animate-fadeIn">
+                  {/* Hidden File Inputs */}
+                  <input
+                    ref={customFileInputRef}
+                    type="file"
+                    accept="image/png"
+                    onChange={handleUploadCustomFrame}
+                    className="hidden"
+                  />
+                  <input
+                    ref={customGifFileInputRef}
+                    type="file"
+                    accept="image/png"
+                    onChange={handleUploadCustomGifFrame}
+                    className="hidden"
+                  />
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                      Desain Bingkai Cetak
+                    </span>
+                    <span className="text-[11px] text-neutral-500 font-mono">
+                      {templates.length} Pilihan
+                    </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEventManagerInitialTab(events.length === 0 ? 'create' : 'list');
-                      setShowEventManagerModal(true);
-                    }}
-                    className="text-[11px] text-neutral-400 hover:text-white transition-colors cursor-pointer font-medium hover:underline underline-offset-2"
-                  >
-                    Kelola Acara (CRUD)
-                  </button>
-                </div>
-              </div>
 
-              {/* 2. Template & GIF Card (Clean Monochrome) */}
-              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-3">
-                {/* Hidden File Inputs for Custom Uploads */}
-                <input
-                  ref={customFileInputRef}
-                  type="file"
-                  accept="image/png"
-                  onChange={handleUploadCustomFrame}
-                  className="hidden"
-                />
-                <input
-                  ref={customGifFileInputRef}
-                  type="file"
-                  accept="image/png"
-                  onChange={handleUploadCustomGifFrame}
-                  className="hidden"
-                />
+                  {/* Thumbnail Selector Grid */}
+                  <div className="grid grid-cols-2 gap-2.5 max-h-[46vh] overflow-y-auto pr-0.5">
+                    {templates.map((tmpl) => {
+                      const isSelected = tmpl.id === selectedTemplateId;
+                      return (
+                        <button
+                          key={tmpl.id}
+                          type="button"
+                          onClick={() => setSelectedTemplateId(tmpl.id)}
+                          className={`p-2.5 rounded-xl border text-left flex flex-col items-center gap-2 transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#14161C] border-white shadow-sm ring-1 ring-white'
+                              : 'bg-[#14161C] border-white/[0.06] hover:border-white/20'
+                          }`}
+                        >
+                          <div className="w-full aspect-[2/3] rounded-lg bg-black/50 overflow-hidden flex items-center justify-center p-1">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={tmpl.path}
+                              alt={tmpl.name}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <span className="text-[11px] font-semibold text-white truncate w-full text-center">
+                            {tmpl.name}
+                          </span>
+                        </button>
+                      );
+                    })}
 
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
-                    2. Desain Bingkai &amp; GIF
-                  </label>
-                  <span className="text-[11px] text-neutral-400 font-mono">
-                    {templates.length} Pilihan Bingkai
-                  </span>
-                </div>
+                    {/* Upload Frame Card */}
+                    <button
+                      type="button"
+                      onClick={() => customFileInputRef.current?.click()}
+                      className="p-2.5 rounded-xl border border-dashed border-white/10 hover:border-white/30 bg-[#14161C]/50 hover:bg-[#14161C] text-left flex flex-col items-center justify-center gap-2 transition-all cursor-pointer min-h-[140px]"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center text-neutral-300">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <span className="text-[11px] font-semibold text-neutral-300 text-center">
+                        {customPhotoFileName ? 'Ganti Frame' : '+ Upload PNG'}
+                      </span>
+                    </button>
+                  </div>
 
-                {/* Templates Thumbnail Selector */}
-                <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
-                  {templates.map((tmpl) => {
-                    const isSelected = tmpl.id === selectedTemplateId;
-                    return (
-                      <button
-                        key={tmpl.id}
-                        type="button"
-                        onClick={() => setSelectedTemplateId(tmpl.id)}
-                        className={`p-2.5 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-white text-black border-white shadow-md font-medium'
-                            : 'bg-[#1A1C24] border-white/[0.06] text-neutral-300 hover:border-white/20'
-                        }`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={tmpl.path}
-                          alt={tmpl.name}
-                          className="w-8 h-10 object-contain rounded bg-black/40 flex-shrink-0"
-                        />
-                        <span className="text-[11px] font-semibold truncate leading-tight">
-                          {tmpl.name}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Upload Action Buttons */}
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/[0.06]">
-                  <button
-                    type="button"
-                    onClick={() => customFileInputRef.current?.click()}
-                    className="h-10 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/20 text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    title="Upload template bingkai cetak format PNG transparan"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-neutral-300" />
-                    <span className="truncate">{customPhotoFileName ? 'Ganti Bingkai Foto' : 'Upload Bingkai (.PNG)'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => customGifFileInputRef.current?.click()}
-                    className="h-10 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/20 text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    title="Upload bingkai overlay khusus untuk animasi GIF Boomerang"
-                  >
-                    <Film className="w-3.5 h-3.5 text-neutral-300" />
-                    <span className="truncate">{customGifFileName ? 'Ganti Bingkai GIF' : 'Upload Bingkai GIF'}</span>
-                  </button>
-                </div>
-
-                {/* Uploaded Files & GIF Toggle Indicator */}
-                <div className="space-y-1.5 pt-1 text-[11px]">
                   {customPhotoFileName && (
-                    <div className="flex items-center gap-1.5 text-neutral-300">
+                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-xs text-neutral-300">
                       <CheckCircle2 className="w-3.5 h-3.5 text-white flex-shrink-0" />
-                      <span className="truncate">Bingkai Foto: <strong>{customPhotoFileName}</strong></span>
+                      <span className="truncate">Frame Kustom: <strong>{customPhotoFileName}</strong></span>
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between p-2 rounded-xl bg-[#1A1C24] border border-white/[0.06]">
-                    <div className="flex items-center gap-2 min-w-0 pr-2">
-                      <Film className="w-3.5 h-3.5 text-neutral-300 flex-shrink-0" />
-                      <div className="truncate text-neutral-300">
-                        <span className="truncate">
-                          {customGifFileName ? `GIF: ${customGifFileName}` : 'GIF: Kosongan Murni (Tanpa Bingkai/Watermark)'}
+                  {/* GIF Boomerang Toggle & Options */}
+                  <div className="pt-2 border-t border-white/[0.08] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Film className="w-3.5 h-3.5 text-neutral-400" />
+                        <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                          Animasi GIF Boomerang
                         </span>
-                        {customGifCutouts.length > 1 && (
-                          <span className="ml-1 text-[10px] text-neutral-400">
-                            ({customGifCutouts.length} Lubang Aktif)
-                          </span>
-                        )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {customGifFileName && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setGifOverlayPath(null);
-                            setCustomGifFileName('');
-                            setCustomGifCutouts([]);
-                          }}
-                          className="px-2 py-0.5 rounded text-[10px] text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                          title="Hapus bingkai GIF khusus dan kembalikan ke video kosongan murni"
-                        >
-                          Reset
-                        </button>
-                      )}
                       <button
                         type="button"
                         onClick={() => setEnableGif(!enableGif)}
-                        className={`px-3 py-1 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all cursor-pointer ${
-                          enableGif
-                            ? 'bg-white text-black shadow-sm'
-                            : 'bg-white/10 text-neutral-400 hover:text-white'
+                        className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                          enableGif ? 'bg-white text-black shadow-sm' : 'bg-white/10 text-neutral-400 hover:text-white'
                         }`}
                       >
                         {enableGif ? 'Aktif' : 'Mati'}
                       </button>
                     </div>
+
+                    {enableGif && (
+                      <div className="p-3 rounded-xl bg-[#14161C] border border-white/[0.06] space-y-2.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-300 truncate">
+                            {customGifFileName ? `Frame GIF: ${customGifFileName}` : 'Format: Video Murni (Tanpa Frame)'}
+                          </span>
+                          {customGifFileName && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setGifOverlayPath(null);
+                                setCustomGifFileName('');
+                                setCustomGifCutouts([]);
+                              }}
+                              className="text-[10px] text-neutral-400 hover:text-white underline cursor-pointer ml-2 flex-shrink-0"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => customGifFileInputRef.current?.click()}
+                          className="w-full h-9 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-white flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-neutral-300" />
+                          <span>{customGifFileName ? 'Ganti Frame GIF (.PNG)' : 'Upload Frame GIF Khusus (.PNG)'}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* 3. Camera Source Selector */}
-              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
-                    3. Sumber Kamera
-                  </label>
-                  {cameraMode === 'webcam' && (
+              {/* 3. KAMERA (CAMERA) TAB */}
+              {setupTab === 'camera' && (
+                <div className="space-y-4 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                      Sumber Kamera
+                    </span>
+                  </div>
+
+                  {/* Compact Source Switcher */}
+                  <div className="grid grid-cols-2 p-1 rounded-xl bg-[#1A1C24] border border-white/[0.06]">
                     <button
                       type="button"
-                      onClick={() => startWebcamStream()}
-                      className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                      onClick={() => handleSwitchCameraMode('webcam')}
+                      className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        cameraMode === 'webcam'
+                          ? 'bg-white text-black shadow-sm font-bold'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
                     >
-                      <RefreshCw className="w-3 h-3" />
-                      <span>Sambungkan Ulang</span>
+                      <Laptop className="w-3.5 h-3.5" />
+                      <span>Live View</span>
                     </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 p-1 rounded-xl bg-[#1A1C24] border border-white/[0.06]">
-                  <button
-                    type="button"
-                    onClick={() => handleSwitchCameraMode('webcam')}
-                    className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      cameraMode === 'webcam'
-                        ? 'bg-white text-black shadow-sm'
-                        : 'text-neutral-400 hover:text-white'
-                    }`}
-                  >
-                    <Video className="w-3.5 h-3.5" />
-                    <span>1. Live View Streaming</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSwitchCameraMode('dslr')}
-                    className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      cameraMode !== 'webcam'
-                        ? 'bg-white text-black shadow-sm'
-                        : 'text-neutral-400 hover:text-white'
-                    }`}
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>2. PC Remote / Tether Studio</span>
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchCameraMode('dslr')}
+                      className={`py-2 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        cameraMode !== 'webcam'
+                          ? 'bg-white text-black shadow-sm font-bold'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>PC Remote</span>
+                    </button>
+                  </div>
 
-                {cameraMode === 'webcam' && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-neutral-400">Pilih Input Kamera:</span>
+                  {/* Webcam Controls */}
+                  {cameraMode === 'webcam' && (
+                    <div className="space-y-3 p-3.5 rounded-xl bg-[#14161C] border border-white/[0.06]">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-white font-medium flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${cameraStream ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
+                          <span>{cameraStream ? 'Webcam Aktif' : 'Webcam Belum Terhubung'}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            enumerateCameras().then(() => {
+                              if (selectedWebcamId) startWebcamStream(selectedWebcamId);
+                            });
+                          }}
+                          className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span>Pindai</span>
+                        </button>
+                      </div>
+
+                      <select
+                        value={selectedWebcamId}
+                        onChange={(e) => {
+                          setSelectedWebcamId(e.target.value);
+                          startWebcamStream(e.target.value);
+                        }}
+                        className="w-full h-10 px-3 rounded-xl bg-[#1A1C24] border border-white/[0.08] text-xs text-white outline-none focus:border-white/30"
+                      >
+                        {cameras.map((c, i) => (
+                          <option key={c.deviceId || i} value={c.deviceId}>
+                            {c.label || `Kamera Video ${i + 1}`}
+                          </option>
+                        ))}
+                      </select>
+
                       <button
                         type="button"
-                        onClick={() => {
-                          enumerateCameras().then(() => {
-                            if (selectedWebcamId) startWebcamStream(selectedWebcamId);
-                          });
-                        }}
-                        className="text-[10px] text-neutral-300 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
-                        title="Segarkan daftar perangkat kamera"
+                        onClick={() => startWebcamStream()}
+                        className="w-full h-9 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.1] text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
-                        <RefreshCw className="w-2.5 h-2.5" />
-                        <span>Pindai Kamera</span>
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Sambungkan Kamera</span>
                       </button>
+
+                      <p className="text-[10px] text-neutral-400 leading-relaxed pt-1 border-t border-white/[0.04]">
+                        Mendukung webcam laptop, USB webcam eksternal, dan HDMI capture card (Cam Link).
+                      </p>
                     </div>
+                  )}
 
-                    <select
-                      value={selectedWebcamId}
-                      onChange={(e) => {
-                        setSelectedWebcamId(e.target.value);
-                        startWebcamStream(e.target.value);
-                      }}
-                      className="w-full h-10 px-3 rounded-xl bg-[#1A1C24] border border-white/[0.08] text-xs text-white outline-none focus:border-white/30"
-                    >
-                      {cameras.map((c, i) => (
-                        <option key={c.deviceId || i} value={c.deviceId}>
-                          {c.label || `Kamera Video ${i + 1}`}
-                        </option>
-                      ))}
-                    </select>
-
-                    <p className="text-[10px] text-neutral-400 leading-relaxed bg-white/[0.03] p-2.5 rounded-xl border border-white/[0.05]">
-                      💡 <strong>Live View Streaming:</strong> Untuk webcam laptop, USB webcam eksternal, HDMI Capture Card (Cam Link), atau kamera mirrorless/DSLR dalam mode USB Streaming / Video. Video live preview akan langsung muncul di layar laptop.
-                    </p>
-                  </div>
-                )}
-
-                {cameraMode !== 'webcam' && (
-                  <div className="space-y-2.5">
-                    <div className="p-3 rounded-xl bg-[#1A1C24] border border-white/[0.06] space-y-2">
+                  {/* Sony / PC Remote Controls */}
+                  {cameraMode !== 'webcam' && (
+                    <div className="space-y-3 p-3.5 rounded-xl bg-[#14161C] border border-white/[0.06]">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-white font-medium flex items-center gap-2">
                           <span
@@ -3164,43 +3833,44 @@ const TabletStudioContent: React.FC = () => {
                               cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
                                 ? 'bg-emerald-400 animate-pulse'
                                 : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
-                                ? 'bg-amber-400 animate-pulse'
+                                ? 'bg-amber-400 animate-spin'
                                 : cameraSessionState === 'ERROR'
                                 ? 'bg-rose-500'
                                 : 'bg-neutral-500'
                             }`}
                           />
-                          <span>
+                          <span className="truncate max-w-[200px]">
                             {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                              ? nativeCameraModel || 'Kamera Studio Shutter Siap'
+                              ? nativeCameraModel || 'Sony α7C II Connected'
                               : cameraSessionState === 'CONNECTING'
-                              ? 'Menghubungkan via PC Remote...'
+                              ? 'Menyiapkan Sony...'
                               : cameraSessionState === 'DETECTING'
-                              ? 'Memindai Port USB...'
+                              ? 'Mendeteksi USB...'
                               : cameraSessionState === 'ERROR'
                               ? cameraSessionError || 'Error Kamera'
-                              : 'Kamera Belum Terhubung (PC Remote)'}
+                              : 'Kamera Belum Terhubung'}
                           </span>
                         </span>
-                        <button
-                          type="button"
-                          onClick={checkNativeCameraHardware}
-                          disabled={isDetectingNative}
-                          className="text-[11px] text-neutral-300 hover:text-white underline cursor-pointer disabled:opacity-50"
-                        >
-                          {isDetectingNative ? 'Menghubungkan...' : 'Sambungkan PC Remote'}
-                        </button>
                       </div>
 
-                      <div className="flex items-center justify-between text-[11px] text-neutral-400 pt-1 border-t border-white/[0.04]">
-                        <span>Jalur: Hot Folder Auto-Sync</span>
-                        <span className="font-mono text-neutral-300 text-[10px] bg-white/[0.06] border border-white/10 px-2 py-0.5 rounded">24MP+ RAW/JPG</span>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={checkNativeCameraHardware}
+                        disabled={isDetectingNative}
+                        className="w-full h-10 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.12] text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isDetectingNative ? 'animate-spin' : ''}`} />
+                        <span>{isDetectingNative ? 'Menghubungkan...' : 'Sambungkan Kamera'}</span>
+                      </button>
 
-                      <div className="pt-2 flex items-center justify-between gap-2 border-t border-white/[0.04]">
-                        <span className="text-[10px] text-neutral-300 font-mono truncate max-w-[170px]" title={tetherDisplayPath}>
-                          {tetherDisplayPath}
-                        </span>
+                      {/* Hot Folder Info */}
+                      <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between gap-2">
+                        <div className="truncate min-w-0">
+                          <span className="text-[10px] text-neutral-400 block">Hot Folder Shutter:</span>
+                          <span className="text-[10px] text-neutral-300 font-mono truncate block" title={tetherDisplayPath}>
+                            {tetherDisplayPath}
+                          </span>
+                        </div>
                         <button
                           type="button"
                           onClick={() => {
@@ -3208,87 +3878,53 @@ const TabletStudioContent: React.FC = () => {
                               (window as any).electronAPI.openFolder(tetherDisplayPath);
                             }
                           }}
-                          className="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-200 text-[10px] font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                          className="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-neutral-300 hover:text-white text-[10px] font-medium flex items-center gap-1 transition-colors flex-shrink-0 cursor-pointer"
                         >
-                          <FolderOpen className="w-3 h-3 text-neutral-300" />
+                          <FolderOpen className="w-3 h-3" />
                           <span>Buka Folder</span>
                         </button>
                       </div>
-                    </div>
 
-                    <div className="p-3 rounded-xl bg-white/[0.04] border border-white/10 text-neutral-300 text-[11px] space-y-1.5">
-                      <div className="font-semibold flex items-center gap-1.5 text-xs text-white">
-                        <Sparkles className="w-3.5 h-3.5 text-neutral-400" />
-                        <span>Cara Sinkron Foto Studio 24MP+ (Semua Merk Kamera):</span>
+                      {/* SOP Reminder */}
+                      <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-neutral-300 space-y-1">
+                        <div className="font-semibold text-amber-300 flex items-center gap-1 text-[11px]">
+                          <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                          <span>SOP Kamera Sony (WAJIB)</span>
+                        </div>
+                        <p>1. Format Foto: <strong className="text-white">JPEG Fine</strong> (Bukan RAW/ARW).</p>
+                        <p>2. Shutter: <strong className="text-white">Silent Mode = OFF</strong>.</p>
+                        <p>3. USB Mode: <strong className="text-white">PC Remote</strong>.</p>
                       </div>
-                      <p className="text-[10px] text-neutral-300 leading-relaxed">
-                        1. Hubungkan kamera DSLR / Mirrorless (Canon, Nikon, Sony, Fujifilm, Lumix) via kabel USB ke laptop.<br />
-                        2. Jika menggunakan software tethering bawaan kamera (Canon EOS Utility, Nikon NX Tether, Sony Imaging Edge, Fujifilm X Acquire, Lightroom, dsb), atur <em>Save Destination / Hot Folder</em> ke folder <strong className="text-white font-mono break-all">{tetherDisplayPath}</strong>.<br />
-                        3. Begitu Anda menjepret di bodi kamera atau remote wireless, foto resolusi penuh <strong>otomatis langsung masuk ke bingkai</strong> tanpa perlu sentuh laptop!
-                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 4. FOTO (PHOTO) TAB */}
+              {setupTab === 'photo' && (
+                <div className="space-y-4 animate-fadeIn">
+                  {/* Jumlah Pose */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                        Jumlah Pose
+                      </span>
+                      <span className="text-xs font-bold text-white bg-white/10 px-2.5 py-0.5 rounded-md border border-white/10 font-mono">
+                        {shotsCount} Pose
+                      </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          if (typeof window !== 'undefined' && (window as any).electronAPI?.triggerNativeCapture) {
-                            const d = await (window as any).electronAPI.triggerNativeCapture();
-                            if (d.success) {
-                              alert(`✅ Shutter Berhasil! Foto diterima: ${d.filename} (${(d.byteSize / (1024 * 1024)).toFixed(2)} MB)`);
-                            } else {
-                              alert(`⚠️ Shutter gagal: ${d.error || 'Tidak ada respon dari kamera'}`);
-                            }
-                            return;
-                          }
-                          const res = await fetch(`${tetherUrl}/api/tether/trigger`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ timeoutMs: 8000 }),
-                          });
-                          const d = await res.json();
-                          if (d.success) {
-                            alert('✅ Jalur Hot Folder Aktif! Sinyal kamera studio siap menerima foto.');
-                          } else {
-                            alert(`⚠️ Shutter gagal: ${d.error || 'Tidak ada respon'}`);
-                          }
-                        } catch (e: any) {
-                          alert('Gagal tes jalur: ' + e.message);
-                        }
-                      }}
-                      className="w-full py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-neutral-200 text-xs font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                    >
-                      <Camera className="w-3.5 h-3.5 text-neutral-300" />
-                      <span>Tes Sinyal Shutter Kamera</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* 4. Capture Parameters: Flexible Custom Pose + Countdown */}
-              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-3">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-                      Jumlah Pose:
-                    </span>
-                    <span className="text-xs font-bold text-white bg-white/10 px-2.5 py-0.5 rounded-md border border-white/10">
-                      {shotsCount} Pose
-                    </span>
-                  </div>
-
-                  {/* Quick Preset Buttons + Custom Stepper & Direct Input */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 grid grid-cols-5 gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
+                    {/* Presets Row */}
+                    <div className="flex items-center gap-1.5">
                       {[1, 2, 3, 4, 6].map((num) => (
                         <button
                           key={num}
                           type="button"
                           onClick={() => setShotsCount(num)}
-                          className={`py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          className={`flex-1 h-11 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                             shotsCount === num
                               ? 'bg-white text-black shadow-sm font-bold'
-                              : 'text-neutral-400 hover:text-white'
+                              : 'bg-[#14161C] border border-white/[0.06] text-neutral-300 hover:border-white/20'
                           }`}
                         >
                           {num}
@@ -3296,241 +3932,214 @@ const TabletStudioContent: React.FC = () => {
                       ))}
                     </div>
 
-                    {/* Flexible Stepper & Direct Custom Input */}
-                    <div className="flex items-center bg-[#1A1C24] border border-white/[0.08] rounded-xl p-0.5 h-[38px]">
-                      <button
-                        type="button"
-                        onClick={() => setShotsCount((prev) => Math.max(1, prev - 1))}
-                        className="w-7 h-full flex items-center justify-center text-neutral-300 hover:text-white hover:bg-white/10 rounded-lg text-sm font-bold transition-colors cursor-pointer"
-                        title="Kurangi Pose"
-                      >
-                        -
-                      </button>
-                      <input
-                        type="number"
-                        min={1}
-                        max={24}
-                        value={shotsCount}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value, 10);
-                          if (!isNaN(val) && val >= 1) {
-                            setShotsCount(Math.min(24, val));
-                          }
-                        }}
-                        className="w-10 text-center bg-transparent text-white font-bold text-xs outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        title="Ketik jumlah pose yang diinginkan secara bebas"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShotsCount((prev) => Math.min(24, prev + 1))}
-                        className="w-7 h-full flex items-center justify-center text-neutral-300 hover:text-white hover:bg-white/10 rounded-lg text-sm font-bold transition-colors cursor-pointer"
-                        title="Tambah Pose"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-neutral-400">
-                    Pilih preset atau ketik angka bebas (misal 5, 8, atau 10 pose). Layout otomatis menyesuaikan.
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-                    Countdown:
-                  </span>
-                  <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
-                    {[0, 3, 5, 10].map((sec) => (
-                      <button
-                        key={sec}
-                        type="button"
-                        onClick={() => setCountdownSeconds(sec)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                          countdownSeconds === sec
-                            ? 'bg-white text-black shadow-sm'
-                            : 'text-neutral-400 hover:text-white'
-                        }`}
-                      >
-                        {sec === 0 ? 'Off' : `${sec}s`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* 5. Standby Wallpaper (Screensaver) Card */}
-              <div className="p-4 rounded-2xl bg-[#14161C] border border-white/[0.06] space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                    <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider block">
-                      5. Wallpaper Standby (Screensaver)
-                    </label>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleStandbyWallpaper(!enableStandbyWallpaper)}
-                    className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                      enableStandbyWallpaper
-                        ? 'bg-white text-black shadow-sm'
-                        : 'bg-white/10 text-neutral-400 hover:text-white'
-                    }`}
-                  >
-                    {enableStandbyWallpaper ? 'Aktif' : 'Mati'}
-                  </button>
-                </div>
-
-                {enableStandbyWallpaper && (
-                  <div className="space-y-2.5 pt-1">
-                    {/* Timer selector */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-neutral-300 flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-neutral-400" />
-                        <span>Timer Standby:</span>
-                      </span>
-                      <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
-                        {[
-                          { label: '30s', val: 0.5 },
-                          { label: '1m', val: 1 },
-                          { label: '2m', val: 2 },
-                          { label: '5m', val: 5 },
-                        ].map((item) => (
-                          <button
-                            key={item.label}
-                            type="button"
-                            onClick={() => handleUpdateStandbyTimeout(item.val)}
-                            className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                              standbyTimeoutMinutes === item.val
-                                ? 'bg-white text-black shadow-sm'
-                                : 'text-neutral-400 hover:text-white'
-                            }`}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Fit Mode selector */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-neutral-300 flex items-center gap-1.5">
-                        <Maximize2 className="w-3.5 h-3.5 text-neutral-400" />
-                        <span>Mode Tampilan:</span>
-                      </span>
-                      <div className="flex items-center gap-1 bg-[#1A1C24] p-1 rounded-xl border border-white/[0.06]">
+                    {/* Stepper + Manual Input */}
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#14161C] border border-white/[0.06]">
+                      <span className="text-xs text-neutral-300">Kustom Pose:</span>
+                      <div className="flex items-center bg-[#1A1C24] border border-white/[0.08] rounded-xl p-0.5 h-9">
                         <button
                           type="button"
-                          onClick={() => handleUpdateWallpaperFitMode('cover')}
-                          className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                            wallpaperFitMode === 'cover'
-                              ? 'bg-white text-black shadow-sm'
-                              : 'text-neutral-400 hover:text-white'
-                          }`}
-                          title="Potong/Perbesar memenuhi 100% layar"
+                          onClick={() => setShotsCount((prev) => Math.max(1, prev - 1))}
+                          className="w-7 h-full flex items-center justify-center text-neutral-300 hover:text-white hover:bg-white/10 rounded-lg text-sm font-bold transition-colors cursor-pointer"
+                          title="Kurangi Pose"
                         >
-                          Penuh (Crop)
+                          -
                         </button>
+                        <input
+                          type="number"
+                          min={1}
+                          max={24}
+                          value={shotsCount}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            if (!isNaN(val) && val >= 1) {
+                              setShotsCount(Math.min(24, val));
+                            }
+                          }}
+                          className="w-10 text-center bg-transparent text-white font-bold text-xs outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                         <button
                           type="button"
-                          onClick={() => handleUpdateWallpaperFitMode('contain')}
-                          className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                            wallpaperFitMode === 'contain'
-                              ? 'bg-white text-black shadow-sm'
-                              : 'text-neutral-400 hover:text-white'
-                          }`}
-                          title="Tampil utuh tanpa terpotong dengan latar ambient blur"
+                          onClick={() => setShotsCount((prev) => Math.min(24, prev + 1))}
+                          className="w-7 h-full flex items-center justify-center text-neutral-300 hover:text-white hover:bg-white/10 rounded-lg text-sm font-bold transition-colors cursor-pointer"
+                          title="Tambah Pose"
                         >
-                          Utuh (Fit)
+                          +
                         </button>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Presets Row */}
-                    <div className="grid grid-cols-4 gap-1.5 pt-1">
-                      {DEFAULT_WALLPAPERS.map((preset) => {
-                        const isSelected = selectedWallpaperId === preset.id;
-                        return (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            onClick={() => handleSelectWallpaperPreset(preset.id)}
-                            className={`relative rounded-xl overflow-hidden border text-left transition-all group cursor-pointer ${
-                              isSelected
-                                ? 'border-white ring-1 ring-white shadow-md'
-                                : 'border-white/10 opacity-70 hover:opacity-100'
-                            }`}
-                            title={preset.name}
-                          >
-                            <div className="aspect-[16/10] w-full bg-black/40 overflow-hidden">
-                              <img
-                                src={preset.path}
-                                alt={preset.name}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                            <span className="text-[9px] font-medium text-neutral-300 block truncate p-1 bg-[#1A1C24]">
-                              {preset.name.split(' ')[0]}
-                            </span>
-                          </button>
-                        );
-                      })}
-
-                      {/* Custom Upload Trigger */}
-                      <button
-                        type="button"
-                        onClick={() => setShowWallpaperSettingModal(true)}
-                        className={`rounded-xl border flex flex-col items-center justify-center p-1 transition-all cursor-pointer ${
-                          selectedWallpaperId === 'custom'
-                            ? 'border-white bg-[#1A1C24]'
-                            : 'border-white/10 bg-[#1A1C24]/60 hover:bg-[#1A1C24]'
-                        }`}
-                        title="Atur atau Upload Wallpaper Sendiri"
-                      >
-                        <Sparkles className="w-4 h-4 text-amber-300 mb-1" />
-                        <span className="text-[9px] text-neutral-300 text-center leading-tight">
-                          {selectedWallpaperId === 'custom' ? 'Kustom' : 'Atur...'}
-                        </span>
-                      </button>
+                  {/* Timer Countdown */}
+                  <div className="space-y-2.5 pt-2 border-t border-white/[0.08]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                        Countdown Timer
+                      </span>
+                      <span className="text-xs font-mono text-neutral-400">
+                        {countdownSeconds === 0 ? 'Mati' : `${countdownSeconds} Detik`}
+                      </span>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[10px] text-neutral-400 truncate max-w-[170px]">
-                        {selectedWallpaperId === 'custom'
-                          ? `Kustom: ${customWallpaperFileName || 'Upload File'}`
-                          : DEFAULT_WALLPAPERS.find((w) => w.id === selectedWallpaperId)?.name}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowWallpaperSettingModal(true)}
-                        className="text-[11px] text-neutral-300 hover:text-white underline cursor-pointer"
-                      >
-                        Pengaturan Lengkap &rarr;
-                      </button>
+                    <div className="flex items-center gap-1.5">
+                      {[0, 3, 5, 10].map((sec) => (
+                        <button
+                          key={sec}
+                          type="button"
+                          onClick={() => setCountdownSeconds(sec)}
+                          className={`flex-1 h-11 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                            countdownSeconds === sec
+                              ? 'bg-white text-black shadow-sm font-bold'
+                              : 'bg-[#14161C] border border-white/[0.06] text-neutral-300 hover:border-white/20'
+                          }`}
+                        >
+                          {sec === 0 ? 'Off' : `${sec}s`}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+
+              {/* 5. STANDBY TAB */}
+              {setupTab === 'standby' && (
+                <div className="space-y-4 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                      Wallpaper Standby (Screensaver)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStandbyWallpaper(!enableStandbyWallpaper)}
+                      className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                        enableStandbyWallpaper ? 'bg-white text-black shadow-sm' : 'bg-white/10 text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      {enableStandbyWallpaper ? 'Aktif' : 'Mati'}
+                    </button>
+                  </div>
+
+                  {enableStandbyWallpaper && (
+                    <div className="space-y-3.5">
+                      {/* Standby Timeout */}
+                      <div className="space-y-2">
+                        <span className="text-[11px] text-neutral-400">Durasi Timer Diam:</span>
+                        <div className="flex items-center gap-1.5">
+                          {[
+                            { label: '30s', val: 0.5 },
+                            { label: '1m', val: 1 },
+                            { label: '2m', val: 2 },
+                            { label: '5m', val: 5 },
+                          ].map((item) => (
+                            <button
+                              key={item.label}
+                              type="button"
+                              onClick={() => handleUpdateStandbyTimeout(item.val)}
+                              className={`flex-1 h-9 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                                standbyTimeoutMinutes === item.val
+                                  ? 'bg-white text-black shadow-sm font-bold'
+                                  : 'bg-[#14161C] border border-white/[0.06] text-neutral-300 hover:border-white/20'
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Mode Tampilan */}
+                      <div className="space-y-2">
+                        <span className="text-[11px] text-neutral-400">Mode Tampilan:</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateWallpaperFitMode('cover')}
+                            className={`h-9 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                              wallpaperFitMode === 'cover'
+                                ? 'bg-white text-black shadow-sm font-bold'
+                                : 'bg-[#14161C] border border-white/[0.06] text-neutral-300 hover:border-white/20'
+                            }`}
+                          >
+                            Penuh (Crop)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateWallpaperFitMode('contain')}
+                            className={`h-9 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                              wallpaperFitMode === 'contain'
+                                ? 'bg-white text-black shadow-sm font-bold'
+                                : 'bg-[#14161C] border border-white/[0.06] text-neutral-300 hover:border-white/20'
+                            }`}
+                          >
+                            Utuh (Fit)
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Presets */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-neutral-400">Pilih Latar Belakang:</span>
+                          <button
+                            type="button"
+                            onClick={() => setShowWallpaperSettingModal(true)}
+                            className="text-[10px] text-neutral-400 hover:text-white underline cursor-pointer"
+                          >
+                            Atur Lengkap &rarr;
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {DEFAULT_WALLPAPERS.map((preset) => {
+                            const isSelected = selectedWallpaperId === preset.id;
+                            return (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => handleSelectWallpaperPreset(preset.id)}
+                                className={`relative rounded-xl overflow-hidden border text-left transition-all cursor-pointer ${
+                                  isSelected
+                                    ? 'border-white ring-1 ring-white shadow-md'
+                                    : 'border-white/10 opacity-70 hover:opacity-100'
+                                }`}
+                                title={preset.name}
+                              >
+                                <div className="aspect-[16/10] w-full bg-black/40 overflow-hidden">
+                                  <img
+                                    src={preset.path}
+                                    alt={preset.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <span className="text-[9px] font-medium text-neutral-300 block truncate p-1 bg-[#1A1C24] text-center">
+                                  {preset.name.split(' ')[0]}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Launch Kiosk Button */}
-            <div className="pt-4 border-t border-white/[0.06] mt-4">
+            {/* Bottom Panel Primary Action */}
+            <div className="p-4 border-t border-white/[0.08] bg-[#0F1014] flex-shrink-0">
               <button
                 onClick={() => {
                   if (events.length === 0 || !selectedEventId) {
-                    alert('Silakan buat atau pilih acara terlebih dahulu sebelum memulai sesi photobooth.');
+                    showNotification('Silakan buat atau pilih acara terlebih dahulu sebelum memulai sesi photobooth.', 'warning');
                     setEventManagerInitialTab('create');
                     setShowEventManagerModal(true);
                     return;
                   }
+                  handleResetKiosk();
                   setPhase('kiosk');
-                  setSessionStep('idle');
-                  setCurrentShotIndex(0);
-                  setCapturedPhotos([]);
                 }}
-                className="w-full h-14 rounded-2xl bg-white hover:bg-neutral-200 text-black font-bold text-sm flex items-center justify-center gap-2 shadow-2xl transition-all active:scale-[0.99] cursor-pointer"
+                className="w-full h-14 rounded-2xl bg-white hover:bg-neutral-200 text-black font-bold text-base flex items-center justify-center gap-2.5 transition-all shadow-lg active:scale-[0.99] cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-current" />
-                <span>Mulai Sesi Photobooth (Kiosk)</span>
+                <span>Mulai Sesi Photobooth</span>
               </button>
             </div>
           </aside>
@@ -3554,16 +4163,6 @@ const TabletStudioContent: React.FC = () => {
           }}
           initialTab={eventManagerInitialTab}
         />
-
-        <CameraDriverSetupModal
-          isOpen={showDriverSetupModal}
-          onClose={() => setShowDriverSetupModal(false)}
-          onSuccess={() => {
-            setShowDriverSetupModal(false);
-            checkNativeCameraHardware();
-          }}
-          cameraInfo={driverSetupCameraInfo}
-        />
       </div>
     );
   }
@@ -3580,16 +4179,24 @@ const TabletStudioContent: React.FC = () => {
             setIsScreensaverActive(false);
             return;
           }
+          if (retakeSlotIndex !== null) {
+            if (sessionStep === 'idle') {
+              triggerPoseShot(retakeSlotIndex);
+            }
+            return;
+          }
           if (sessionStep === 'idle') {
             triggerPoseShot(0);
           } else if (sessionStep === 'paused_between_poses') {
             triggerPoseShot(currentShotIndex);
           }
         }}
-        className={`relative h-screen w-screen bg-black overflow-hidden select-none touch-none font-sans ${
+        className={`relative h-screen w-screen bg-black overflow-hidden select-none touch-none font-sans flex flex-col ${
           sessionStep === 'idle' || sessionStep === 'paused_between_poses' ? 'cursor-pointer' : ''
         }`}
       >
+        {renderDemoBanner()}
+
         {/* Shutter White Flash Screen */}
         {isFlashing && (
           <div className="absolute inset-0 z-50 bg-white pointer-events-none transition-opacity duration-150" />
@@ -3611,24 +4218,13 @@ const TabletStudioContent: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
               className="absolute inset-0 bg-[#090A0C] flex flex-col items-center justify-center p-6 text-center"
             >
-              <div className="w-20 h-20 rounded-3xl bg-white/[0.05] border border-white/10 flex items-center justify-center text-white mb-5 shadow-2xl relative">
-                <Camera className="w-10 h-10 text-white" />
-                <span
-                  className={`absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-black ${
-                    cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                      ? 'bg-emerald-400 animate-pulse'
-                      : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
-                      ? 'bg-amber-400 animate-pulse'
-                      : cameraSessionState === 'ERROR'
-                      ? 'bg-rose-500'
-                      : 'bg-neutral-500'
-                  }`}
-                />
+              <div className="w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-neutral-300 mb-4 shadow-2xl">
+                <Camera className="w-8 h-8 text-white stroke-[1.5]" />
               </div>
-              <span className="text-[11px] font-mono tracking-widest text-neutral-300 uppercase bg-white/[0.06] border border-white/10 px-3 py-1 rounded-full mb-3">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-mono uppercase tracking-wider text-neutral-400 bg-white/[0.04] border border-white/[0.08] mb-3">
                 Mode Foto Studio (PC Remote)
               </span>
-              <h2 className="text-xl font-bold text-white mb-1">
+              <h2 className="text-xl font-bold text-white tracking-tight mb-2">
                 {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
                   ? nativeCameraModel || 'Kamera Studio Shutter Siap'
                   : cameraSessionState === 'CONNECTING'
@@ -3636,16 +4232,16 @@ const TabletStudioContent: React.FC = () => {
                   : cameraSessionState === 'DETECTING'
                   ? 'Memindai Port USB...'
                   : cameraSessionState === 'ERROR'
-                  ? 'Sambungan Kamera Gagal'
+                  ? 'Kamera Belum Terhubung'
                   : 'Kamera Belum Terhubung'}
               </h2>
               {cameraSessionState === 'ERROR' && cameraSessionError ? (
-                <p className="text-xs text-rose-300 max-w-md mb-6 leading-relaxed bg-rose-500/10 p-3 rounded-xl border border-rose-500/20">
-                  ⚠️ {cameraSessionError}
+                <p className="text-xs text-rose-300 max-w-md mb-6 leading-relaxed bg-rose-500/10 px-3.5 py-2.5 rounded-xl border border-rose-500/20">
+                  {cameraSessionError}
                 </p>
               ) : (
                 <p className="text-xs text-neutral-400 max-w-md mb-6 leading-relaxed">
-                  Sambungkan kamera Sony melalui PC Remote. Atur kamera di mode <strong>FOTO (M) ➔ USB Connection: PC Remote</strong>.
+                  Sambungkan kamera Sony melalui PC Remote. Atur kamera di mode <span className="text-neutral-200 font-medium">FOTO (M) ➔ USB Connection: PC Remote</span>.
                 </p>
               )}
               <div className="flex items-center gap-3">
@@ -3653,9 +4249,9 @@ const TabletStudioContent: React.FC = () => {
                   type="button"
                   onClick={checkNativeCameraHardware}
                   disabled={isDetectingNative}
-                  className="px-5 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                  className="px-6 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.12] hover:border-white/20 text-white font-medium text-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
                 >
-                  <RefreshCw className={`w-4 h-4 ${isDetectingNative ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isDetectingNative ? 'animate-spin' : ''}`} />
                   <span>{isDetectingNative ? 'Menghubungkan...' : 'Sambungkan Kamera PC Remote'}</span>
                 </button>
                 <button
@@ -3664,9 +4260,9 @@ const TabletStudioContent: React.FC = () => {
                     e.stopPropagation();
                     handleSwitchCameraMode('webcam');
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-neutral-300 hover:text-white font-medium text-xs flex items-center gap-2 transition-all cursor-pointer"
                 >
-                  <Video className="w-4 h-4 text-neutral-300" />
+                  <Video className="w-3.5 h-3.5 text-neutral-300" />
                   <span>Beralih ke Live View Streaming</span>
                 </button>
               </div>
@@ -3744,8 +4340,27 @@ const TabletStudioContent: React.FC = () => {
           </span>
         </div>
 
-        {/* Top-Left: PIP Pose Thumbnails */}
-        {capturedPhotos.length > 0 && sessionStep !== 'countdown' && (
+        {/* Top-Left: PIP Pose Thumbnails or Targeted Retake Indicator */}
+        {retakeSlotIndex !== null ? (
+          <div className="absolute top-6 left-6 z-30 flex items-center gap-3 bg-black/75 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/20 shadow-2xl pointer-events-none animate-fadeIn">
+            {capturedPhotos[retakeSlotIndex] && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={capturedPhotos[retakeSlotIndex]}
+                alt={`Foto Lama Pose ${retakeSlotIndex + 1}`}
+                className="w-10 h-14 rounded-lg object-cover border border-white/30"
+              />
+            )}
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-300 flex items-center gap-1">
+                <RotateCcw className="w-3 h-3 text-neutral-300" /> Target Ambil Ulang
+              </span>
+              <span className="text-xs font-semibold text-white">
+                Pose {retakeSlotIndex + 1}
+              </span>
+            </div>
+          </div>
+        ) : capturedPhotos.length > 0 && sessionStep !== 'countdown' ? (
           <div className="absolute top-6 left-6 z-30 flex flex-col gap-2 pointer-events-none animate-fadeIn">
             {capturedPhotos.map((photo, pIdx) => (
               <div
@@ -3760,7 +4375,7 @@ const TabletStudioContent: React.FC = () => {
               </div>
             ))}
           </div>
-        )}
+        ) : null}
 
         {/* Top-Right: Quick Controls (Standby Wallpaper, Galeri Foto & Pengaturan) */}
         <div
@@ -3776,7 +4391,7 @@ const TabletStudioContent: React.FC = () => {
             className="h-10 px-3.5 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-white/20 hover:border-white/40 flex items-center gap-1.5 text-white/90 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all cursor-pointer"
             title="Pengaturan Timer & Wallpaper Standby"
           >
-            <Sparkles className="w-4 h-4 text-amber-300" />
+            <Clock className="w-4 h-4 text-neutral-300" />
             <span className="hidden sm:inline">Standby:</span>
             <span className="font-mono">
               {enableStandbyWallpaper
@@ -3805,22 +4420,40 @@ const TabletStudioContent: React.FC = () => {
             )}
           </button>
 
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleResetKiosk();
-              setPhase('setup');
-            }}
-            className="h-10 px-4 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-white/20 flex items-center gap-2 text-white/90 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all hover:border-white/40 cursor-pointer"
-            title="Kembali ke Layar Pengaturan (ESC)"
-          >
-            <ChevronLeft className="w-4 h-4 text-white" />
-            <span>Pengaturan</span>
-            <span className="hidden sm:inline px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-neutral-300 font-mono">
-              ESC
-            </span>
-          </button>
+          {retakeSlotIndex !== null ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCancelRetake();
+              }}
+              className="h-10 px-4 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-white/20 flex items-center gap-2 text-white/90 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all hover:border-white/40 cursor-pointer"
+              title="Batalkan ambil ulang dan kembali ke hasil foto (ESC)"
+            >
+              <X className="w-4 h-4 text-white" />
+              <span>Batal Ambil Ulang</span>
+              <span className="hidden sm:inline px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-neutral-300 font-mono">
+                ESC
+              </span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleResetKiosk();
+                setPhase('setup');
+              }}
+              className="h-10 px-4 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md border border-white/20 flex items-center gap-2 text-white/90 hover:text-white text-xs font-semibold shadow-2xl active:scale-95 transition-all hover:border-white/40 cursor-pointer"
+              title="Kembali ke Layar Pengaturan (ESC)"
+            >
+              <ChevronLeft className="w-4 h-4 text-white" />
+              <span>Pengaturan</span>
+              <span className="hidden sm:inline px-1.5 py-0.5 rounded bg-white/15 text-[10px] text-neutral-300 font-mono">
+                ESC
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Countdown Overlay HUD */}
@@ -3830,7 +4463,9 @@ const TabletStudioContent: React.FC = () => {
               {countdownRemaining}
             </span>
             <span className="text-xs font-bold tracking-widest uppercase text-white drop-shadow-md bg-black/70 px-5 py-2 rounded-full mt-4">
-              Senyum untuk Pose {currentShotIndex + 1}!
+              {retakeSlotIndex !== null
+                ? `Senyum untuk Pose ${retakeSlotIndex + 1}!`
+                : `Senyum untuk Pose ${currentShotIndex + 1}!`}
             </span>
           </div>
         )}
@@ -3849,22 +4484,44 @@ const TabletStudioContent: React.FC = () => {
         {sessionStep === 'idle' && (
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-10 inset-x-0 z-20 flex flex-col items-center justify-center pointer-events-auto animate-fadeIn"
+            className="absolute bottom-10 inset-x-0 z-20 flex flex-col items-center justify-center pointer-events-auto animate-fadeIn gap-2.5"
           >
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                triggerPoseShot(0);
+                if (retakeSlotIndex !== null) {
+                  triggerPoseShot(retakeSlotIndex);
+                } else {
+                  triggerPoseShot(0);
+                }
               }}
               className="px-9 py-4 rounded-full bg-white text-black font-bold text-sm tracking-wider uppercase flex items-center gap-3 shadow-[0_10px_35px_rgba(0,0,0,0.6)] active:scale-95 transition-all hover:bg-neutral-200 cursor-pointer"
             >
               <Camera className="w-5 h-5 fill-black" />
-              <span>SENTUH LAYAR ATAU TEKAN SPACE UNTUK MEMOTRET</span>
+              <span>
+                {retakeSlotIndex !== null
+                  ? `AMBIL FOTO UNTUK POSE ${retakeSlotIndex + 1}`
+                  : 'SENTUH LAYAR ATAU TEKAN SPACE UNTUK MEMOTRET'}
+              </span>
             </button>
-            <span className="text-[11px] font-medium text-white/90 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] mt-2.5">
-              Total {shotsCount} Pose bergantian santai
-            </span>
+            {retakeSlotIndex !== null ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCancelRetake();
+                }}
+                className="text-xs text-neutral-300 hover:text-white flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 transition-colors shadow-md cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Batal & Kembali ke Hasil</span>
+              </button>
+            ) : (
+              <span className="text-[11px] font-medium text-white/90 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+                Total {shotsCount} Pose bergantian santai
+              </span>
+            )}
           </div>
         )}
 
@@ -4003,6 +4660,7 @@ const TabletStudioContent: React.FC = () => {
   // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div className="h-screen w-screen bg-[#090A0C] text-[#EDEDED] flex flex-col font-sans select-none overflow-hidden antialiased">
+      {renderDemoBanner()}
       {/* Top Header Bar */}
       <header className="h-16 px-6 sm:px-10 border-b border-white/[0.08] bg-[#0F1014] flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -4093,13 +4751,13 @@ const TabletStudioContent: React.FC = () => {
           </div>
 
           {/* Sub-selector for raw poses if original tab is selected */}
-          {resultTab === 'original' && capturedPhotos.length > 1 && (
-            <div className="flex items-center gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.06]">
+          {resultTab === 'original' && capturedPhotos.length >= 1 && (
+            <div className="flex items-center gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.06] overflow-x-auto max-w-full">
               {capturedPhotos.map((_, idx) => (
                 <button
                   key={idx}
                   onClick={() => setReviewRawIndex(idx)}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     reviewRawIndex === idx
                       ? 'bg-white text-black font-semibold shadow-sm'
                       : 'text-neutral-400 hover:text-white'
@@ -4115,7 +4773,7 @@ const TabletStudioContent: React.FC = () => {
             style={{
               aspectRatio: resultTab === 'photo' ? `${frameDimensions.width} / ${frameDimensions.height}` : undefined,
             }}
-            className="h-full max-h-[66vh] max-w-full rounded-2xl bg-black border border-white/[0.1] overflow-hidden shadow-2xl flex items-center justify-center p-1 transition-all duration-300"
+            className="relative h-full max-h-[66vh] max-w-full rounded-2xl bg-black border border-white/[0.1] overflow-hidden shadow-2xl flex items-center justify-center p-1 transition-all duration-300"
           >
             {resultTab === 'photo' ? (
               finalPhotoDataUrl && (
@@ -4137,7 +4795,28 @@ const TabletStudioContent: React.FC = () => {
                 />
               )
             )}
+
+            {/* Visual Demo Watermark Overlay */}
+            {isDemoMode && (
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div className="rotate-[-25deg] border-2 border-amber-400/40 bg-black/60 backdrop-blur-[2px] px-6 py-2 rounded-xl text-amber-300/80 font-black tracking-widest text-xs uppercase shadow-2xl select-none">
+                  MINGLEBOOTH DEMO • CETAK TERKUNCI
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Targeted Retake Button for selected pose */}
+          {resultTab === 'original' && capturedPhotos[reviewRawIndex] && (
+            <button
+              type="button"
+              onClick={() => handleStartRetake(reviewRawIndex)}
+              className="px-4 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.12] hover:border-white/20 text-white font-medium text-xs flex items-center gap-2 transition-all cursor-pointer active:scale-98 shadow-md"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-neutral-300" />
+              <span>Ulangi Foto</span>
+            </button>
+          )}
         </div>
 
         {/* Right Side: QR Code Card & Print Trigger */}
@@ -4165,17 +4844,21 @@ const TabletStudioContent: React.FC = () => {
           <div className="w-full space-y-2 pt-1">
             <button
               onClick={handlePrintPhoto}
-              className="w-full h-11 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-lg transition-all active:scale-98"
+              className={`w-full h-11 rounded-xl font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-lg transition-all ${
+                isDemoMode
+                  ? 'bg-neutral-800 text-neutral-400 border border-white/[0.08] hover:bg-neutral-700 active:scale-98'
+                  : 'bg-white hover:bg-neutral-200 text-black active:scale-98'
+              }`}
+              title={isDemoMode ? 'Fitur Cetak Foto tersedia setelah langganan aktif.' : 'Cetak Foto Langsung'}
             >
-              <Printer className="w-4 h-4 text-black" />
-              <span>Cetak Foto Langsung</span>
+              <Printer className={`w-4 h-4 ${isDemoMode ? 'text-amber-400' : 'text-black'}`} />
+              <span>{isDemoMode ? 'Cetak Terkunci (Demo)' : 'Cetak Foto Langsung'}</span>
             </button>
 
             <button
               onClick={() => {
+                handleResetKiosk();
                 setPhase('kiosk');
-                setCapturedPhotos([]);
-                setCurrentShotIndex(0);
               }}
               className="w-full h-10 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
             >
@@ -4199,6 +4882,48 @@ const TabletStudioContent: React.FC = () => {
           `}</style>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={printImageUrl} alt="Print Preview" />
+        </div>
+      )}
+
+      {/* In-app Non-blocking Touch-friendly Toast Notification Banner */}
+      {toastNotice && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[99999] max-w-lg w-[calc(100%-3rem)] pointer-events-auto animate-fadeIn select-none">
+          <div
+            className={`p-4 rounded-2xl border shadow-2xl backdrop-blur-xl flex items-start gap-3.5 transition-all ${
+              toastNotice.type === 'error'
+                ? 'bg-[#1a0f12]/95 border-rose-500/30 text-rose-200 shadow-rose-950/40'
+                : toastNotice.type === 'warning'
+                ? 'bg-[#1c1608]/95 border-amber-500/30 text-amber-200 shadow-amber-950/40'
+                : toastNotice.type === 'success'
+                ? 'bg-[#0b1c14]/95 border-emerald-500/30 text-emerald-200 shadow-emerald-950/40'
+                : 'bg-[#121316]/95 border-white/15 text-neutral-200 shadow-black/60'
+            }`}
+          >
+            <div className="shrink-0 mt-0.5">
+              {toastNotice.type === 'error' && <AlertCircle className="w-5 h-5 text-rose-400" />}
+              {toastNotice.type === 'warning' && <AlertCircle className="w-5 h-5 text-amber-400" />}
+              {toastNotice.type === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
+              {toastNotice.type === 'info' && <Info className="w-5 h-5 text-blue-400" />}
+            </div>
+            <div className="flex-1 min-w-0 pr-2">
+              {toastNotice.title && (
+                <h4 className="text-xs font-bold uppercase tracking-wider mb-1 text-white">
+                  {toastNotice.title}
+                </h4>
+              )}
+              <p className="text-xs font-medium leading-relaxed break-words whitespace-pre-line">
+                {toastNotice.message}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setToastNotice(null)}
+              className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+              title="Tutup pemberitahuan"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -4262,10 +4987,61 @@ class StudioErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBound
 }
 
 export const App: React.FC = () => {
+  const [showCameraQA, setShowCameraQA] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.hash === '#qa' || window.location.search.includes('qa');
+    }
+    return false;
+  });
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mb_is_demo') === 'true';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const electronAPI = (window as any).electronAPI;
+    if (electronAPI?.qa?.isQaMode) {
+      electronAPI.qa.isQaMode().then((isQa: boolean) => {
+        if (isQa) setShowCameraQA(true);
+      });
+    }
+    const handleHashChange = () => {
+      if (window.location.hash === '#qa') setShowCameraQA(true);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  if (showCameraQA) {
+    return (
+      <CameraQAPanel
+        onClose={() => {
+          setShowCameraQA(false);
+          if (typeof window !== 'undefined' && window.location.hash === '#qa') {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        }}
+      />
+    );
+  }
+
   return (
     <StudioErrorBoundary>
-      <VendorAuthGate>
-        <TabletStudioContent />
+      <VendorAuthGate
+        onOpenQA={() => setShowCameraQA(true)}
+        onAuthSuccess={(demoState) => setIsDemoMode(demoState)}
+      >
+        <TabletStudioContent
+          onOpenQA={() => setShowCameraQA(true)}
+          isDemoMode={isDemoMode}
+          onEndDemo={() => {
+            localStorage.removeItem('mb_license_token');
+            localStorage.removeItem('mb_is_demo');
+            setIsDemoMode(false);
+          }}
+        />
       </VendorAuthGate>
     </StudioErrorBoundary>
   );

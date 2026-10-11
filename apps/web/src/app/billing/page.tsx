@@ -12,6 +12,8 @@ import {
   LogIn,
   UserPlus,
   ArrowRight,
+  Play,
+  Download,
 } from 'lucide-react';
 
 export default function BillingPage() {
@@ -21,6 +23,109 @@ export default function BillingPage() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
   const [justRegistered, setJustRegistered] = useState(false);
   const [registeredPlan, setRegisteredPlan] = useState<string | null>(null);
+
+  const [payments, setPayments] = useState<any[]>([]);
+  const [dynamicPrices, setDynamicPrices] = useState<Record<string, { monthly: number; yearly: number }>>({
+    starter: { monthly: 549000, yearly: 1499000 },
+    pro: { monthly: 1099000, yearly: 2999000 },
+    business: { monthly: 2199000, yearly: 5999000 },
+  });
+  const [checkingOutPlan, setCheckingOutPlan] = useState<string | null>(null);
+
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('mb_web_token') || '' : '';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
+  const fetchOrgAndBilling = async () => {
+    setLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch('/api/vendor/billing', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.organization) setOrg(data.organization);
+        if (data.payments) setPayments(data.payments);
+      } else {
+        const eventsRes = await fetch('/api/vendor/events', { headers });
+        if (eventsRes.ok) {
+          const eventsData = await eventsRes.json();
+          if (eventsData.org) setOrg(eventsData.org);
+        }
+      }
+    } catch (err) {
+      console.error('Fetch billing error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchPricing = async () => {
+    try {
+      const res = await fetch('/api/pricing');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.prices && Array.isArray(json.prices)) {
+          const map: Record<string, { monthly: number; yearly: number }> = {
+            starter: { monthly: 549000, yearly: 1499000 },
+            pro: { monthly: 1099000, yearly: 2999000 },
+            business: { monthly: 2199000, yearly: 5999000 },
+          };
+          json.prices.forEach((p: any) => {
+            if (map[p.planId] && (p.billingInterval === 'monthly' || p.billingInterval === 'yearly')) {
+              map[p.planId][p.billingInterval as 'monthly' | 'yearly'] = Number(p.amountIdr);
+            }
+          });
+          setDynamicPrices(map);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load dynamic pricing:', err);
+    }
+  };
+
+  const handleCheckout = async (planId: string, baseLynkUrl: string) => {
+    setCheckingOutPlan(planId);
+    try {
+      let orderId = '';
+      const headers = getAuthHeaders();
+      const res = await fetch('/api/vendor/checkout', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          planTier: planId,
+          billingInterval: billingCycle,
+          customerEmail: currentUser?.email,
+          paymentLinkUrl: baseLynkUrl,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.order?.orderId) {
+          orderId = data.order.orderId;
+        }
+      }
+
+      // Build target Lynk URL with user email and order reference
+      const url = new URL(baseLynkUrl);
+      if (currentUser?.email) {
+        url.searchParams.set('email', currentUser.email);
+      }
+      if (orderId) {
+        url.searchParams.set('refId', orderId);
+        url.searchParams.set('orderId', orderId);
+      }
+      window.open(url.toString(), '_blank');
+      fetchOrgAndBilling();
+    } catch (err) {
+      console.error('Checkout creation error:', err);
+      window.open(baseLynkUrl, '_blank');
+    } finally {
+      setCheckingOutPlan(null);
+    }
+  };
 
   useEffect(() => {
     // Check URL search params for cycle, email, or registered flag passed from registration
@@ -46,32 +151,19 @@ export default function BillingPage() {
 
     // Check if user is logged in
     const session = localStorage.getItem('mb_web_user');
+    fetchPricing();
     if (session) {
       const parsed = JSON.parse(session);
       setCurrentUser(parsed);
-      fetchOrg();
+      fetchOrgAndBilling();
     } else {
       setLoading(false);
     }
   }, []);
 
-  const fetchOrg = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/vendor/events');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.org) setOrg(data.org);
-      }
-    } catch (err) {
-      console.error('Fetch org error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const calculateDaysRemaining = (dateStr?: string) => {
-    if (!dateStr) return 365;
+  const calculateDaysRemaining = (dateStr?: string, status?: string) => {
+    if (status === 'pending_payment' || status === 'expired') return 0;
+    if (!dateStr || new Date(dateStr).getTime() === 0) return 0;
     const diff = new Date(dateStr).getTime() - Date.now();
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
   };
@@ -81,10 +173,10 @@ export default function BillingPage() {
     {
       id: 'starter',
       name: 'Starter',
-      monthlyPrice: 'Rp 549.000',
-      yearlyPrice: 'Rp 1.499.000',
-      monthlyAmount: 549000,
-      yearlyAmount: 1499000,
+      monthlyPrice: `Rp ${(dynamicPrices.starter?.monthly || 549000).toLocaleString('id-ID')}`,
+      yearlyPrice: `Rp ${(dynamicPrices.starter?.yearly || 1499000).toLocaleString('id-ID')}`,
+      monthlyAmount: dynamicPrices.starter?.monthly || 549000,
+      yearlyAmount: dynamicPrices.starter?.yearly || 1499000,
       description: 'Solusi lengkap untuk solo vendor photobooth atau roaming booth.',
       quota: '1 Perangkat Booth',
       features: [
@@ -108,10 +200,10 @@ export default function BillingPage() {
     {
       id: 'pro',
       name: 'Pro',
-      monthlyPrice: 'Rp 1.099.000',
-      yearlyPrice: 'Rp 2.999.000',
-      monthlyAmount: 1099000,
-      yearlyAmount: 2999000,
+      monthlyPrice: `Rp ${(dynamicPrices.pro?.monthly || 1099000).toLocaleString('id-ID')}`,
+      yearlyPrice: `Rp ${(dynamicPrices.pro?.yearly || 2999000).toLocaleString('id-ID')}`,
+      monthlyAmount: dynamicPrices.pro?.monthly || 1099000,
+      yearlyAmount: dynamicPrices.pro?.yearly || 2999000,
       description: 'Pilihan paling populer untuk vendor photobooth aktif & wedding studio.',
       quota: '3 Perangkat Booth',
       features: [
@@ -133,10 +225,10 @@ export default function BillingPage() {
     {
       id: 'business',
       name: 'Business',
-      monthlyPrice: 'Rp 2.199.000',
-      yearlyPrice: 'Rp 5.999.000',
-      monthlyAmount: 2199000,
-      yearlyAmount: 5999000,
+      monthlyPrice: `Rp ${(dynamicPrices.business?.monthly || 2199000).toLocaleString('id-ID')}`,
+      yearlyPrice: `Rp ${(dynamicPrices.business?.yearly || 5999000).toLocaleString('id-ID')}`,
+      monthlyAmount: dynamicPrices.business?.monthly || 2199000,
+      yearlyAmount: dynamicPrices.business?.yearly || 5999000,
       description: 'Untuk agensi besar dan enterprise dengan armada photobooth multi-event.',
       quota: '10 Perangkat Booth',
       features: [
@@ -255,18 +347,24 @@ export default function BillingPage() {
                   </span>
                 </div>
                 <p className="text-xs text-neutral-400 mt-1">
-                  Paket Aktif: <strong className="text-white capitalize">{org?.plan_tier || 'Pro'}</strong> • Kuota:{' '}
+                  Paket: <strong className="text-white capitalize">{org?.plan_tier || 'Pro'}</strong> • Kuota:{' '}
                   <strong className="text-white">{org?.max_devices_quota || 3} Perangkat</strong> • Masa Aktif:{' '}
                   <strong className="text-white">
-                    {calculateDaysRemaining(org?.subscription_expires_at)} hari lagi
+                    {org?.subscription_status === 'pending_payment'
+                      ? 'Menunggu Pembayaran'
+                      : org?.subscription_status === 'expired'
+                      ? 'Kedaluwarsa'
+                      : `${calculateDaysRemaining(org?.subscription_expires_at, org?.subscription_status)} hari lagi`}
                   </strong>{' '}
-                  ({new Date(org?.subscription_expires_at || Date.now()).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })})
+                  {org?.subscription_status === 'active' && org?.subscription_expires_at && new Date(org.subscription_expires_at).getTime() > 0 && (
+                    <span>({new Date(org.subscription_expires_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })})</span>
+                  )}
                 </p>
               </div>
             </div>
 
             <button
-              onClick={fetchOrg}
+              onClick={fetchOrgAndBilling}
               disabled={loading}
               className="h-8 px-3 rounded-lg bg-[#181A1E] hover:bg-[#202328] border border-white/[0.08] text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 transition-colors"
             >
@@ -274,7 +372,89 @@ export default function BillingPage() {
               <span>Sinkronkan Data</span>
             </button>
           </section>
-        ) : !currentUser ? (
+        ) : null}
+
+        {/* Riwayat Pembayaran & Transaksi (Section) */}
+        {currentUser && (
+          <section className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-semibold tracking-tight text-white">Riwayat Transaksi &amp; Pembayaran</h2>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Catatan pembayaran lisensi MingleBooth yang terverifikasi via Lynk.id.
+                </p>
+              </div>
+              <button
+                onClick={fetchOrgAndBilling}
+                disabled={loading}
+                className="h-8 px-3 rounded-lg bg-[#181A1E] hover:bg-[#202328] border border-white/[0.08] text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>Segarkan</span>
+              </button>
+            </div>
+
+            <div className="bg-[#121316] border border-white/[0.07] rounded-2xl overflow-hidden divide-y divide-white/[0.04]">
+              {loading && payments.length === 0 ? (
+                <div className="p-8 text-center text-xs text-neutral-500 flex items-center justify-center gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Memuat riwayat transaksi...</span>
+                </div>
+              ) : payments.length === 0 ? (
+                <div className="p-8 text-center flex flex-col items-center gap-2">
+                  <CreditCard className="w-6 h-6 text-neutral-500" />
+                  <span className="text-xs font-semibold text-neutral-300">Belum Ada Transaksi Pembayaran</span>
+                  <p className="text-[11px] text-neutral-500 max-w-sm">
+                    Pilih salah satu paket di bawah dan selesaikan pembayaran untuk mengaktifkan lisensi MingleBooth Studio.
+                  </p>
+                </div>
+              ) : (
+                payments.map((p) => {
+                  const isPaid = p.paymentStatus === 'PAID';
+                  return (
+                    <div key={p.id || p.orderId} className="p-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-white font-mono">{p.orderId}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            isPaid
+                              ? 'bg-emerald-400/10 text-emerald-400 border border-emerald-400/20'
+                              : 'bg-amber-400/10 text-amber-400 border border-amber-400/20'
+                          }`}>
+                            {p.paymentStatus}
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-white/[0.06] text-neutral-300 border border-white/[0.08] capitalize">
+                            Paket {p.planTier}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-neutral-400 flex items-center gap-2 mt-1 flex-wrap">
+                          <span>Dibuat: {new Date(p.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          {p.paidAt && (
+                            <>
+                              <span>•</span>
+                              <span className="text-emerald-400/80">Lunas: {new Date(p.paidAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-left sm:text-right">
+                        <span className="text-sm font-bold text-white block">
+                          Rp {Number(p.amountIdr).toLocaleString('id-ID')}
+                        </span>
+                        <span className="text-[10px] text-neutral-500 font-mono">
+                          Lynk.id Checkout
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        )}
+
+        {!currentUser ? (
           <div className="p-3.5 sm:p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-neutral-300">
             <div className="flex items-center gap-2.5">
               <LogIn className="w-4 h-4 text-neutral-400 flex-shrink-0" />
@@ -289,6 +469,33 @@ export default function BillingPage() {
             </Link>
           </div>
         ) : null}
+
+        {/* Try Demo First Banner */}
+        <div className="p-4 sm:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg">
+          <div className="flex items-start gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 mt-0.5 flex-shrink-0">
+              <Play className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-semibold text-white">Ingin Menguji Coba Terlebih Dahulu?</h3>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  Mode Demo Gratis
+                </span>
+              </div>
+              <p className="text-xs text-neutral-300 mt-1 max-w-2xl leading-relaxed">
+                Anda dapat mendaftar akun dan masuk ke MingleBooth Studio untuk mencoba koneksi kamera Sony α7C II, Alpha tethering, atau webcam secara lokal dalam Mode Demo gratis. Selesaikan pembayaran paket di bawah ini ketika Anda siap mengaktifkan Galeri Cloud Tamu, Live QR, dan armada booth komersial.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/tablet"
+            className="h-9 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold flex items-center gap-1.5 transition-all whitespace-nowrap self-start sm:self-auto flex-shrink-0 shadow-sm active:scale-95"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Unduh MingleBooth Studio</span>
+          </Link>
+        </div>
 
         {/* Pricing Cards */}
         <section className="flex flex-col gap-8">
@@ -402,24 +609,20 @@ export default function BillingPage() {
                   <div className="pt-6 flex flex-col gap-2">
                     {currentUser ? (
                       <>
-                        <a
-                          href={
-                            currentUser?.email
-                              ? `${targetLynkUrl}${targetLynkUrl.includes('?') ? '&' : '?'}email=${encodeURIComponent(currentUser.email)}`
-                              : targetLynkUrl
-                          }
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => handleCheckout(p.id, targetLynkUrl)}
+                          disabled={checkingOutPlan === p.id}
                           className={`w-full py-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all ${
                             p.isPopular
                               ? 'bg-white hover:bg-neutral-200 text-black shadow-md'
                               : 'bg-[#1A1D23] hover:bg-[#22262E] text-white border border-white/[0.08]'
-                          }`}
+                          } ${checkingOutPlan === p.id ? 'opacity-70 cursor-wait' : ''}`}
                         >
                           <CreditCard className="w-3.5 h-3.5" />
-                          <span>Bayar via Lynk.id</span>
+                          <span>{checkingOutPlan === p.id ? 'Memproses Order...' : 'Bayar via Lynk.id'}</span>
                           <ExternalLink className="w-3 h-3 opacity-60" />
-                        </a>
+                        </button>
                         {currentUser?.email && (
                           <p className="text-[10px] text-neutral-500 text-center">
                             Gunakan email <span className="text-neutral-300 font-mono">{currentUser.email}</span> saat checkout

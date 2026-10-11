@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { verifyServerAuth, corsHeaders } from '@/lib/auth-server';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
 export const dynamic = 'force-dynamic';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-org-id, x-vendor-email',
-};
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });
@@ -15,32 +11,16 @@ export async function OPTIONS() {
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await verifyServerAuth(req);
+    if (!auth.success) {
+      return NextResponse.json(
+        { error: auth.error, code: auth.code },
+        { status: auth.status, headers: corsHeaders }
+      );
+    }
+
     const client = getServiceSupabase();
-    const vendorEmail = req.headers.get('x-vendor-email') || req.nextUrl.searchParams.get('email');
-    const orgIdHeader = req.headers.get('x-org-id') || req.nextUrl.searchParams.get('orgId');
-
-    let orgId = orgIdHeader;
-
-    if (!orgId && vendorEmail) {
-      const { data: userProfile } = await client
-        .from('user_profiles')
-        .select('organization_id')
-        .eq('email', vendorEmail)
-        .limit(1)
-        .single();
-      if (userProfile?.organization_id) {
-        orgId = userProfile.organization_id;
-      }
-    }
-
-    if (!orgId) {
-      const { data: defaultOrg } = await client.from('organizations').select('id').eq('slug', 'abc-photobooth').limit(1).single();
-      orgId = defaultOrg?.id;
-    }
-
-    if (!orgId) {
-      return NextResponse.json({ templates: [] }, { headers: corsHeaders });
-    }
+    const orgId = auth.orgId;
 
     // STRICT MULTI-TENANT FILTER
     const { data: templates, error } = await client
@@ -68,7 +48,62 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'create_template',
+        'Pembuatan template baru dinonaktifkan pada Vercel Preview untuk melindungi integritas database produksi bersama.'
+      );
+    }
+
+    const auth = await verifyServerAuth(req);
+    if (!auth.success) {
+      return NextResponse.json(
+        { error: auth.error, code: auth.code },
+        { status: auth.status, headers: corsHeaders }
+      );
+    }
+
+    if (auth.payload?.isDemo) {
+      return NextResponse.json(
+        { error: 'Mode Demo tidak dapat membuat template kustom di cloud. Silakan aktifkan langganan berbayar.', code: 'DEMO_MODE_BLOCKED' },
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
     const client = getServiceSupabase();
+
+    // Verify active subscription in database
+    if (!auth.isSuperAdmin) {
+      const { data: orgData, error: orgErr } = await client
+        .from('organizations')
+        .select('id, name, subscription_status, subscription_expires_at')
+        .eq('id', auth.orgId)
+        .single();
+
+      if (orgErr || !orgData) {
+        return NextResponse.json(
+          { error: 'Organisasi vendor tidak ditemukan.', code: 'ORG_ACCESS_DENIED' },
+          { status: 404, headers: corsHeaders }
+        );
+      }
+
+      const now = new Date();
+      const expiresAt = orgData.subscription_expires_at ? new Date(orgData.subscription_expires_at) : new Date(0);
+      const hasActiveSub = orgData.subscription_status === 'active' && expiresAt >= now;
+
+      if (!hasActiveSub) {
+        return NextResponse.json(
+          {
+            error: orgData.subscription_status === 'expired'
+              ? 'Masa aktif langganan Anda telah berakhir. Perpanjang langganan untuk mengunggah template baru.'
+              : 'Akun Anda belum memiliki langganan aktif. Silakan pilih paket langganan untuk mengunggah template.',
+            code: 'SUBSCRIPTION_REQUIRED',
+          },
+          { status: 403, headers: corsHeaders }
+        );
+      }
+    }
+
     const body = await req.json();
     const {
       name,
@@ -76,40 +111,19 @@ export async function POST(req: NextRequest) {
       slots = 1,
       overlayStoragePath,
       overlayBase64,
-      orgId: requestOrgId,
-      email: vendorEmail,
     } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400, headers: corsHeaders });
     }
 
-    let targetOrgId = requestOrgId;
-
-    if (!targetOrgId && vendorEmail) {
-      const { data: profile } = await client
-        .from('user_profiles')
-        .select('organization_id')
-        .eq('email', vendorEmail)
-        .limit(1)
-        .single();
-      targetOrgId = profile?.organization_id;
-    }
-
-    if (!targetOrgId) {
-      const { data: org } = await client.from('organizations').select('id').eq('slug', 'abc-photobooth').limit(1).single();
-      targetOrgId = org?.id;
-    }
-
-    if (!targetOrgId) {
-      return NextResponse.json({ error: 'Organization not found' }, { status: 400, headers: corsHeaders });
-    }
+    const targetOrgId = auth.orgId;
 
     const { data: newTemplate, error } = await client
       .from('event_templates')
       .insert({
         organization_id: targetOrgId,
-        name,
+        name: name.trim(),
         aspect_ratio: aspectRatio,
         config_json: {
           slotsCount: slots,
@@ -134,6 +148,21 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    if (isPreviewDeployment()) {
+      return previewBlockedResponse(
+        'delete_template',
+        'Penghapusan template dinonaktifkan pada Vercel Preview.'
+      );
+    }
+
+    const auth = await verifyServerAuth(req);
+    if (!auth.success) {
+      return NextResponse.json(
+        { error: auth.error, code: auth.code },
+        { status: auth.status, headers: corsHeaders }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const templateId = searchParams.get('id');
 
@@ -142,6 +171,21 @@ export async function DELETE(req: NextRequest) {
     }
 
     const client = getServiceSupabase();
+
+    // Verify template ownership
+    const { data: existingTemplate } = await client
+      .from('event_templates')
+      .select('id, organization_id')
+      .eq('id', templateId)
+      .maybeSingle();
+
+    if (!existingTemplate || (!auth.isSuperAdmin && existingTemplate.organization_id !== auth.orgId)) {
+      return NextResponse.json(
+        { error: 'Akses ditolak: Template tidak ditemukan atau bukan milik organisasi Anda.', code: 'ORG_ACCESS_DENIED' },
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
     const { error } = await client.from('event_templates').delete().eq('id', templateId);
 
     if (error) {

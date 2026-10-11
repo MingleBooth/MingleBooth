@@ -1,33 +1,49 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Laptop, Lock, Mail, Key, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
-import { usePhotoboothStore } from '../store/photobooth-store';
+import { ShieldCheck, Laptop, AlertCircle } from 'lucide-react';
+import { LicenseVerifier } from '@minglebooth/license';
 import { API_BASE_URL } from '../config';
 import logoHeader from '../assets/logo-minglebooth-header.png';
 
 interface VendorAuthGateProps {
   children: React.ReactNode;
+  onOpenQA?: () => void;
+  onAuthSuccess?: (isDemo: boolean) => void;
 }
 
-export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
+export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
+  children,
+  onOpenQA,
+  onAuthSuccess,
+}) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [gracePeriodNotice, setGracePeriodNotice] = useState<string | null>(null);
 
   // Form fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [deviceName, setDeviceName] = useState('MacBook Operator Booth 1');
+  const isWindows = typeof navigator !== 'undefined' && /win/i.test(navigator.userAgent || (navigator as any).platform || '');
+  const [deviceName, setDeviceName] = useState(() =>
+    isWindows ? 'Windows Operator Booth 1' : 'MacBook Operator Booth 1'
+  );
   const [hwid, setHwid] = useState('');
 
   useEffect(() => {
-    // 1. Get Hardware Fingerprint
-    const fetchHWID = async () => {
+    const initAuth = async () => {
+      // 1. Get Hardware Fingerprint
+      let currentHwid = '';
       if (typeof window !== 'undefined' && (window as any).electronAPI?.getHWID) {
-        const id = await (window as any).electronAPI.getHWID();
-        setHwid(id);
-      } else {
-        // Browser fallback fingerprint
+        try {
+          currentHwid = await (window as any).electronAPI.getHWID();
+        } catch {
+          currentHwid = '';
+        }
+      }
+      
+      if (!currentHwid) {
+        // Browser / fallback fingerprint
         const nav = window.navigator;
         const screen = window.screen;
         const raw = `${nav.userAgent}-${nav.language}-${screen.colorDepth}-${screen.width}x${screen.height}`;
@@ -36,20 +52,70 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
           hash = (hash << 5) - hash + raw.charCodeAt(i);
           hash |= 0;
         }
-        setHwid(`BRW-${Math.abs(hash).toString(16).padStart(8, '0')}`);
+        currentHwid = `BRW-${Math.abs(hash).toString(16).padStart(8, '0')}`;
       }
+      setHwid(currentHwid);
+
+      // 2. Cryptographic Local Verification of Cached Token
+      const token = localStorage.getItem('mb_license_token');
+      if (token) {
+        const verifier = new LicenseVerifier(true);
+        const result = verifier.verifyTokenString(token, currentHwid);
+
+        if (result.isValid) {
+          if (result.isGracePeriod) {
+            setGracePeriodNotice(result.message);
+          }
+          const localIsDemo = Boolean(result.isDemo || (result as any).code === 'DEMO_MODE' || localStorage.getItem('mb_is_demo') === 'true');
+          onAuthSuccess?.(localIsDemo);
+          setIsAuthenticated(true);
+
+          // Non-blocking background verification with cloud server
+          fetch(`${API_BASE_URL}/api/auth/verify-license`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              token,
+              hardwareFingerprint: currentHwid,
+            }),
+          })
+            .then(async (res) => {
+              if (res.ok) {
+                const data = await res.json();
+                const serverIsDemo = Boolean(data.isDemo || !data.isLicensed);
+                localStorage.setItem('mb_is_demo', serverIsDemo ? 'true' : 'false');
+                onAuthSuccess?.(serverIsDemo);
+              } else if (res.status === 401 || res.status === 403) {
+                const errData = await res.json().catch(() => ({}));
+                if (['DEVICE_MISMATCH', 'ORG_ACCESS_DENIED'].includes(errData.code)) {
+                  console.warn('[VendorAuthGate] Cloud revoked token:', errData);
+                  localStorage.removeItem('mb_license_token');
+                  setIsAuthenticated(false);
+                  setErrorMsg(errData.error || 'Lisensi tidak lagi valid di server.');
+                }
+              }
+            })
+            .catch((netErr) => {
+              // Network offline / unreachable: ALLOW local operation with valid cached token
+              console.log('[VendorAuthGate] Cloud unreachable, continuing in verified offline mode:', netErr.message);
+            });
+        } else {
+          // Token is corrupted, expired past grace period, or bound to another machine
+          console.warn('[VendorAuthGate] Cached token failed validation:', result.code);
+          setErrorMsg(result.message);
+          setIsAuthenticated(false);
+        }
+      } else {
+        setIsAuthenticated(false);
+      }
+
+      setLoading(false);
     };
 
-    fetchHWID();
-
-    // 2. Check cached offline license token
-    const token = localStorage.getItem('mb_license_token');
-    const cachedOrg = localStorage.getItem('mb_vendor_org');
-
-    if (token && cachedOrg) {
-      setIsAuthenticated(true);
-    }
-    setLoading(false);
+    initAuth();
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -71,23 +137,48 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
           password,
           hardwareFingerprint: hwid,
           deviceName,
-          osType: 'mac',
-          appVersion: '1.0.0',
+          osType: isWindows ? 'windows' : 'mac',
+          appVersion: '1.0.0-rc.1',
         }),
       });
 
       const data = await res.json();
 
-      if (res.ok && data.success) {
+      if (res.ok && data.success && data.licenseToken) {
+        // Verify token immediately before saving
+        const verifier = new LicenseVerifier(true);
+        const check = verifier.verifyTokenString(data.licenseToken, hwid);
+        if (!check.isValid) {
+          setErrorMsg(check.message || 'Token lisensi yang diterima tidak valid.');
+          return;
+        }
+
+        const isDemo = Boolean(data.isDemo || check.isDemo);
         localStorage.setItem('mb_license_token', data.licenseToken);
         localStorage.setItem('mb_vendor_org', JSON.stringify(data.organization));
         localStorage.setItem('mb_device_info', JSON.stringify(data.device));
+        localStorage.setItem('mb_is_demo', isDemo ? 'true' : 'false');
+
+        if (check.isGracePeriod) {
+          setGracePeriodNotice(check.message);
+        } else {
+          setGracePeriodNotice(null);
+        }
+        onAuthSuccess?.(isDemo);
         setIsAuthenticated(true);
       } else {
-        setErrorMsg(data.error || 'Login gagal. Periksa kembali email dan status lisensi Anda.');
+        let msg = data.error || 'Login gagal. Periksa kembali email dan password akun Anda.';
+        if (data.code === 'DEVICE_QUOTA_EXCEEDED') {
+          msg = 'Kuota perangkat untuk paket lisensi ini telah penuh. Silakan nonaktifkan perangkat lama di Dashboard Web.';
+        } else if (data.code === 'ORG_ACCESS_DENIED') {
+          msg = 'Akses vendor tidak aktif atau ditolak (ORG_ACCESS_DENIED).';
+        } else if (data.code === 'INVALID_CREDENTIALS') {
+          msg = 'Email atau password akun vendor salah.';
+        }
+        setErrorMsg(msg);
       }
     } catch (err: any) {
-      setErrorMsg('Gagal terhubung ke server autentikasi: ' + err.message);
+      setErrorMsg('Gagal terhubung ke server autentikasi (NETWORK_UNAVAILABLE): ' + err.message);
     } finally {
       setSubmitting(false);
     }
@@ -185,6 +276,16 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
             </button>
           </form>
 
+          {/* Informational Guidance for Unpaid Accounts */}
+          <div className="pt-2 border-t border-white/[0.08] flex flex-col items-center gap-1.5 text-center">
+            <span className="text-[11px] font-semibold text-neutral-300">
+              Belum Memiliki Langganan Aktif?
+            </span>
+            <p className="text-[11px] text-neutral-400 leading-relaxed px-1">
+              Akun vendor terdaftar yang belum memiliki langganan aktif akan otomatis masuk ke <strong className="text-amber-400">Mode Demo</strong> untuk pengujian kamera lokal sebelum aktivasi berbayar.
+            </p>
+          </div>
+
           <div className="flex flex-col items-center gap-2.5 pt-3 border-t border-white/[0.06]">
             <a
               href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"
@@ -217,5 +318,20 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {gracePeriodNotice && (
+        <div className="fixed top-0 left-0 right-0 z-[9999] bg-amber-500/95 backdrop-blur text-black text-xs font-semibold px-4 py-1.5 flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-2">
+            <span>⚠️</span>
+            <span>{gracePeriodNotice}</span>
+          </div>
+          <span className="text-[10px] bg-black/20 text-black px-2 py-0.5 rounded font-mono uppercase">
+            Mode Tenggang Offline
+          </span>
+        </div>
+      )}
+      {children}
+    </>
+  );
 };

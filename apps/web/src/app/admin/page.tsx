@@ -29,10 +29,16 @@ export default function SuperAdminPortalPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [currentAdmin, setCurrentAdmin] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'vendors' | 'admins' | 'transactions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'vendors' | 'admins' | 'transactions' | 'pricing'>('overview');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+
+  // Dynamic Pricing State (Phase 15.4.3.2)
+  const [pricingCatalog, setPricingCatalog] = useState<any>(null);
+  const [loadingPricing, setLoadingPricing] = useState(false);
+  const [editingPrice, setEditingPrice] = useState<{ planId: string; interval: 'monthly' | 'yearly'; amount: number } | null>(null);
+  const [savingPrice, setSavingPrice] = useState(false);
 
   // New Admin Modal
   const [isAddAdminOpen, setIsAddAdminOpen] = useState(false);
@@ -57,6 +63,7 @@ export default function SuperAdminPortalPage() {
     }
     setCurrentAdmin(parsed);
     fetchOverview();
+    fetchPricing();
   }, [router]);
 
   const handleLogout = () => {
@@ -64,10 +71,17 @@ export default function SuperAdminPortalPage() {
     router.push('/login');
   };
 
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('mb_web_token') || '' : '';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
   const fetchOverview = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/overview');
+      const res = await fetch('/api/admin/overview', { headers: getAuthHeaders() });
       if (res.ok) {
         const result = await res.json();
         setData(result);
@@ -79,12 +93,54 @@ export default function SuperAdminPortalPage() {
     }
   };
 
+  const fetchPricing = async () => {
+    setLoadingPricing(true);
+    try {
+      const res = await fetch('/api/admin/pricing', { headers: getAuthHeaders() });
+      if (res.ok) {
+        const json = await res.json();
+        setPricingCatalog(json);
+      }
+    } catch (err) {
+      console.error('Failed to fetch pricing:', err);
+    } finally {
+      setLoadingPricing(false);
+    }
+  };
+
+  const handleSavePrice = async (planId: string, interval: 'monthly' | 'yearly', newAmount: number) => {
+    setSavingPrice(true);
+    try {
+      const res = await fetch('/api/admin/pricing', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          planId,
+          billingInterval: interval,
+          newAmountIdr: newAmount,
+        }),
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        setStatusMsg(resData.message || 'Harga berhasil diperbarui');
+        setEditingPrice(null);
+        fetchPricing();
+      } else {
+        alert(resData.error || 'Gagal mengubah harga');
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSavingPrice(false);
+    }
+  };
+
   const handleVendorAction = async (orgId: string, action: string, planTier?: string) => {
     setStatusMsg(null);
     try {
       const res = await fetch('/api/admin/vendors', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ orgId, action, planTier }),
       });
       const resData = await res.json();
@@ -106,7 +162,7 @@ export default function SuperAdminPortalPage() {
     try {
       const res = await fetch('/api/admin/admins', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           email: newAdminEmail,
           fullName: newAdminName,
@@ -133,7 +189,10 @@ export default function SuperAdminPortalPage() {
   const handleDeleteAdmin = async (userId: string, email: string) => {
     if (!confirm(`Hapus akses superadmin untuk ${email}?`)) return;
     try {
-      const res = await fetch(`/api/admin/admins?id=${userId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/admins?id=${userId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         setStatusMsg(`Akun ${email} berhasil dihapus.`);
         fetchOverview();
@@ -197,6 +256,7 @@ export default function SuperAdminPortalPage() {
             { id: 'vendors', label: 'Organisasi Vendor' },
             { id: 'admins', label: 'Kelola Akun & Admin' },
             { id: 'transactions', label: 'Log Transaksi' },
+            { id: 'pricing', label: 'Konfigurasi Harga' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -489,6 +549,181 @@ export default function SuperAdminPortalPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Tab 5: Dynamic Pricing Configuration (Phase 15.4.3.2) */}
+        {activeTab === 'pricing' && (
+          <div className="flex flex-col gap-6 animate-fadeIn">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-white">Konfigurasi Harga Dinamis (Phase 15.4.3.2)</h2>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Ubah harga langganan Starter, Pro, dan Business tanpa rebuild aplikasi desktop. Harga baru otomatis diterapkan pada checkout berikutnya tanpa mempengaruhi order yang sudah dibuat atau dibayar.
+                </p>
+              </div>
+              <button
+                onClick={fetchPricing}
+                className="px-3 py-1.5 rounded-lg bg-[#16181E] hover:bg-[#1E2028] border border-white/[0.06] text-xs text-neutral-300 flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingPricing ? 'animate-spin' : ''}`} />
+                <span>Segarkan Harga</span>
+              </button>
+            </div>
+
+            {/* Plan Price Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {['starter', 'pro', 'business'].map((tier) => {
+                const monthlyPrice = pricingCatalog?.activePrices?.find(
+                  (p: any) => p.planId === tier && p.billingInterval === 'monthly'
+                );
+                const yearlyPrice = pricingCatalog?.activePrices?.find(
+                  (p: any) => p.planId === tier && p.billingInterval === 'yearly'
+                );
+
+                return (
+                  <div
+                    key={tier}
+                    className="p-5 rounded-2xl bg-[#121316] border border-white/[0.08] flex flex-col justify-between gap-6 shadow-xl"
+                  >
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+                        <div>
+                          <h3 className="text-sm font-bold text-white capitalize">{tier}</h3>
+                          <span className="text-[10px] text-neutral-400">
+                            Quota: {tier === 'business' ? 10 : tier === 'starter' ? 1 : 3} Perangkat HWID
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          Aktif
+                        </span>
+                      </div>
+
+                      {/* Monthly Price Block */}
+                      <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-neutral-300 font-medium">Bulanan (30 Hari)</span>
+                          <span className="text-[10px] font-mono text-neutral-500">v{monthlyPrice?.version || 1}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-base font-bold text-white font-mono">
+                            Rp {(monthlyPrice?.amountIdr || 0).toLocaleString('id-ID')}
+                          </span>
+                          <button
+                            onClick={() =>
+                              setEditingPrice({
+                                planId: tier,
+                                interval: 'monthly',
+                                amount: monthlyPrice?.amountIdr || 0,
+                              })
+                            }
+                            className="text-xs text-indigo-400 hover:text-indigo-300 font-medium underline decoration-indigo-400/30"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Yearly Price Block */}
+                      <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-neutral-300 font-medium">Tahunan (365 Hari)</span>
+                          <span className="text-[10px] font-mono text-neutral-500">v{yearlyPrice?.version || 1}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-base font-bold text-white font-mono">
+                            Rp {(yearlyPrice?.amountIdr || 0).toLocaleString('id-ID')}
+                          </span>
+                          <button
+                            onClick={() =>
+                              setEditingPrice({
+                                planId: tier,
+                                interval: 'yearly',
+                                amount: yearlyPrice?.amountIdr || 0,
+                              })
+                            }
+                            className="text-xs text-indigo-400 hover:text-indigo-300 font-medium underline decoration-indigo-400/30"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-[11px] text-neutral-500 italic">
+                      Sumber: {pricingCatalog?.source || 'DATABASE'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Price Edit Modal */}
+            {editingPrice && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6 select-none animate-fadeIn">
+                <div className="max-w-sm w-full bg-[#121316] border border-white/[0.08] rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
+                    <h3 className="text-sm font-semibold text-white">
+                      Ubah Harga {editingPrice.planId.toUpperCase()} ({editingPrice.interval})
+                    </h3>
+                    <button
+                      onClick={() => setEditingPrice(null)}
+                      className="w-6 h-6 rounded-md hover:bg-white/[0.08] text-neutral-400 flex items-center justify-center"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSavePrice(editingPrice.planId, editingPrice.interval, editingPrice.amount);
+                    }}
+                    className="flex flex-col gap-4"
+                  >
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-neutral-400 font-medium">
+                        Nominal Baru dalam Integer Rupiah (IDR)
+                      </label>
+                      <input
+                        type="number"
+                        min="10000"
+                        step="1000"
+                        required
+                        value={editingPrice.amount}
+                        onChange={(e) =>
+                          setEditingPrice({
+                            ...editingPrice,
+                            amount: parseInt(e.target.value, 10) || 0,
+                          })
+                        }
+                        className="bg-[#181A1F] border border-white/[0.08] text-sm font-mono rounded-xl px-3.5 py-2.5 text-white outline-none focus:border-white/30"
+                      />
+                      <span className="text-[11px] text-neutral-500">
+                        Format: Rp {editingPrice.amount.toLocaleString('id-ID')}
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2 pt-2 border-t border-white/[0.06]">
+                      <button
+                        type="button"
+                        onClick={() => setEditingPrice(null)}
+                        className="flex-1 py-2.5 rounded-xl bg-[#181A1F] hover:bg-[#202328] text-xs text-neutral-300 transition-colors"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={savingPrice || editingPrice.amount <= 0}
+                        className="flex-1 py-2.5 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs transition-colors"
+                      >
+                        {savingPrice ? 'Menyimpan...' : 'Perbarui Harga'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

@@ -54,4 +54,11 @@ export interface LicenseVerificationResult {
   tier: PlanTier;
   allowedFeatures: PlanLimits;
   message: string;
+  code?: 'LICENSE_VALID' | 'LICENSE_INVALID' | 'LICENSE_EXPIRED' | 'DEVICE_MISMATCH' | 'AUTH_REQUIRED' | 'ORG_ACCESS_DENIED' | 'DEMO_MODE';
+  isGracePeriod?: boolean;
+  isDemo?: boolean;
+  orgId?: string;
+  orgName?: string;
+  hwid?: string;
+  payload?: any;
 }

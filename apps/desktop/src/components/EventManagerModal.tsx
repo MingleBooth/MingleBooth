@@ -7,7 +7,6 @@ import {
   Trash2,
   Check,
   Search,
-  Sparkles,
   Users,
   CheckCircle2,
   AlertCircle,
@@ -31,6 +30,8 @@ interface EventManagerModalProps {
   onSelectEvent: (id: string) => void;
   onEventsUpdated: (updatedEvents: EventItem[], newSelectedId?: string) => void;
   initialTab?: 'list' | 'create';
+  isDemoMode?: boolean;
+  onOpenSubscription?: () => void;
 }
 
 export const EventManagerModal: React.FC<EventManagerModalProps> = ({
@@ -41,6 +42,8 @@ export const EventManagerModal: React.FC<EventManagerModalProps> = ({
   onSelectEvent,
   onEventsUpdated,
   initialTab = 'list',
+  isDemoMode = false,
+  onOpenSubscription,
 }) => {
   const [activeTab, setActiveTab] = useState<'list' | 'create'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
@@ -115,6 +118,10 @@ export const EventManagerModal: React.FC<EventManagerModalProps> = ({
   // ── 1. CREATE EVENT (C) ──
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isDemoMode) {
+      setErrorMessage('Pembuatan acara cloud dinonaktifkan dalam Mode Demo. Anda dapat menguji photobooth menggunakan sesi acara demo.');
+      return;
+    }
     if (!createName.trim()) {
       setErrorMessage('Nama acara wajib diisi.');
       return;
@@ -189,6 +196,10 @@ export const EventManagerModal: React.FC<EventManagerModalProps> = ({
 
   // ── 3. SAVE EDIT EVENT (U) ──
   const handleSaveEdit = async (eventId: string) => {
+    if (isDemoMode) {
+      setErrorMessage('Pengubahan acara cloud dinonaktifkan dalam Mode Demo.');
+      return;
+    }
     if (!editName.trim()) {
       setErrorMessage('Nama acara tidak boleh kosong.');
       return;
@@ -233,6 +244,10 @@ export const EventManagerModal: React.FC<EventManagerModalProps> = ({
 
   // ── 4. DELETE EVENT (D) ──
   const handleDeleteEvent = async (eventId: string) => {
+    if (isDemoMode) {
+      setErrorMessage('Penghapusan acara dinonaktifkan dalam Mode Demo.');
+      return;
+    }
     setIsSubmitting(true);
     setErrorMessage(null);
 
@@ -296,6 +311,25 @@ export const EventManagerModal: React.FC<EventManagerModalProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {/* Demo Mode Notice Banner */}
+        {isDemoMode && (
+          <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-300 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+              <span>Mode Demo: Manajemen Acara Cloud dinonaktifkan. Sesi acara lokal sementara aktif.</span>
+            </div>
+            {onOpenSubscription && (
+              <button
+                type="button"
+                onClick={onOpenSubscription}
+                className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-bold text-[11px] flex-shrink-0 transition-transform active:scale-95 cursor-pointer ml-2"
+              >
+                Aktifkan Langganan
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Tab Switcher */}
         <div className="flex items-center gap-2 p-1 bg-[#171920] border border-white/[0.06] rounded-2xl flex-shrink-0">
@@ -719,7 +753,7 @@ export const EventManagerModal: React.FC<EventManagerModalProps> = ({
                 {isSubmitting ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <Sparkles className="w-3.5 h-3.5" />
+                  <Check className="w-3.5 h-3.5" />
                 )}
                 <span>Simpan & Gunakan Acara</span>
               </button>

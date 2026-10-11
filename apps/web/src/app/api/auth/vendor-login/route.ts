@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { createSignedToken } from '@/lib/auth-server';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +26,13 @@ export async function OPTIONS() {
  * 4. Issues signed license token.
  */
 export async function POST(req: NextRequest) {
+  if (isPreviewDeployment()) {
+    return previewBlockedResponse(
+      'vendor_device_activation',
+      'Aktivasi perangkat desktop dinonaktifkan pada Vercel Preview untuk melindungi integritas lisensi perangkat produksi.'
+    );
+  }
+
   try {
     const body = await req.json();
     const {
@@ -43,25 +52,31 @@ export async function POST(req: NextRequest) {
     }
 
     const client = getServiceSupabase();
+    const cleanEmail = (email || '').toLowerCase().trim();
 
-    // 1. Fetch organization
-    // For demo/dev mode: match default org or look up user profile
+    // 1. Fetch organization authoritatively bound to this user profile
     const { data: userProfile } = await client
       .from('user_profiles')
       .select('organization_id, role, full_name')
-      .eq('email', email)
+      .ilike('email', cleanEmail)
       .limit(1)
-      .single();
+      .maybeSingle();
+
+    const isAdmin =
+      cleanEmail.includes('admin') ||
+      cleanEmail.endsWith('@minglebooth.com') ||
+      userProfile?.role === 'superadmin' ||
+      userProfile?.role === 'admin';
 
     let orgId = userProfile?.organization_id;
 
-    if (!orgId) {
-      const { data: defaultOrg } = await client
+    if (!orgId && isAdmin) {
+      const { data: hqOrg } = await client
         .from('organizations')
         .select('id')
-        .limit(1)
-        .single();
-      orgId = defaultOrg?.id;
+        .eq('slug', 'minglebooth-hq')
+        .maybeSingle();
+      if (hqOrg) orgId = hqOrg.id;
     }
 
     if (!orgId) {
@@ -86,38 +101,99 @@ export async function POST(req: NextRequest) {
 
     // 2. Check subscription status & expiration date
     const now = new Date();
-    const expiresAt = new Date(org.subscription_expires_at);
+    const expiresAt = org.subscription_expires_at ? new Date(org.subscription_expires_at) : new Date(0);
 
-    if (org.subscription_status === 'expired' || expiresAt < now) {
+    const isSuperAdmin =
+      isAdmin ||
+      userProfile?.role === 'superadmin' ||
+      userProfile?.role === 'admin' ||
+      org.slug === 'minglebooth-hq';
+
+    const hasActiveSubscription =
+      (org.subscription_status === 'active' || isSuperAdmin) &&
+      (expiresAt >= now || isSuperAdmin);
+
+    // If unpaid account (pending_payment, expired, etc.):
+    // Allow login into limited Demo Presentation WITHOUT registering a device or consuming device quota
+    if (!hasActiveSubscription) {
+      const demoTokenPayload = {
+        orgId: org.id,
+        orgName: org.name,
+        planTier: org.plan_tier,
+        maxDevices: 0,
+        hwid: hardwareFingerprint,
+        expiresAt: org.subscription_expires_at || new Date(0).toISOString(),
+        issuedAt: new Date().toISOString(),
+        isDemo: true,
+        subscriptionStatus: org.subscription_status,
+      };
+
+      const demoLicenseToken = createSignedToken(demoTokenPayload);
+
       return NextResponse.json(
         {
-          error: 'Masa aktif langganan Anda telah berakhir. Silakan lakukan perpanjangan di halaman Billing.',
-          code: 'SUBSCRIPTION_EXPIRED',
+          success: true,
+          isDemo: true,
+          isLicensed: false,
+          subscriptionStatus: org.subscription_status,
+          message:
+            org.subscription_status === 'expired'
+              ? 'Masa aktif langganan telah berakhir. Aplikasi berjalan dalam Mode Demo.'
+              : 'Akun Anda belum memiliki langganan aktif. Aplikasi berjalan dalam Mode Demo untuk pengujian kamera.',
+          licenseToken: demoLicenseToken,
+          organization: {
+            id: org.id,
+            name: org.name,
+            planTier: org.plan_tier,
+            subscriptionStatus: org.subscription_status,
+            expiresAt: org.subscription_expires_at,
+            maxDevicesQuota: org.max_devices_quota,
+            activeDevicesCount: 0,
+          },
+          device: {
+            hwid: hardwareFingerprint,
+            name: deviceName,
+            is_demo: true,
+          },
         },
-        { status: 403, headers: corsHeaders }
+        { status: 200, headers: corsHeaders }
       );
     }
 
-    // 3. Check registered devices for this organization
-    const { data: registeredDevices, error: devError } = await client
+    // 3. Check registered devices and quota for this organization (PAID ACCOUNTS ONLY)
+    const { data: orgDevice } = await client
       .from('devices')
       .select('*')
       .eq('organization_id', org.id)
+      .eq('hardware_fingerprint', hardwareFingerprint)
+      .maybeSingle();
+
+    const { count: activeCount } = await client
+      .from('devices')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', org.id)
       .eq('is_active', true);
 
-    const existingDevice = registeredDevices?.find(
-      (d) => d.hardware_fingerprint === hardwareFingerprint
-    );
+    const maxQuota = isSuperAdmin ? 9999 : (org.max_devices_quota || 99);
+    const currentActiveCount = activeCount || 0;
 
-    const maxQuota = org.max_devices_quota || 3;
-    const currentActiveCount = registeredDevices?.length || 0;
-
-    if (!existingDevice) {
-      // New device trying to activate
-      if (currentActiveCount >= maxQuota) {
+    if (orgDevice && orgDevice.is_active) {
+      // Existing active device: update last seen & metadata
+      await client
+        .from('devices')
+        .update({
+          last_seen_at: new Date().toISOString(),
+          device_name: deviceName,
+          os_type: osType,
+          app_version: appVersion,
+        })
+        .eq('id', orgDevice.id);
+    } else {
+      // New device OR reactivating a deactivated device
+      if (!isSuperAdmin && currentActiveCount >= maxQuota) {
         return NextResponse.json(
           {
-            error: `Batas kuota perangkat tercapai (${currentActiveCount}/${maxQuota}). Silakan non-aktifkan salah satu laptop lama di Vendor Dashboard atau upgrade paket lisensi Anda.`,
+            error: `Batas kuota perangkat tercapai (${currentActiveCount}/${maxQuota}). Silakan non-aktifkan salah satu laptop lama di Vendor Dashboard atau hubungi admin.`,
             code: 'DEVICE_QUOTA_EXCEEDED',
             currentActiveCount,
             maxQuota,
@@ -126,30 +202,36 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Register new device in Supabase
-      const { error: insertDevError } = await client.from('devices').insert({
-        organization_id: org.id,
-        hardware_fingerprint: hardwareFingerprint,
-        device_name: deviceName,
-        os_type: osType,
-        app_version: appVersion,
-        is_active: true,
-        last_seen_at: new Date().toISOString(),
-        activated_at: new Date().toISOString(),
-      });
-
-      if (insertDevError) {
-        console.error('[Device Activation Insert Error]:', insertDevError);
-      }
-    } else {
-      // Update last seen for existing device
-      await client
-        .from('devices')
-        .update({
-          last_seen_at: new Date().toISOString(),
+      if (orgDevice) {
+        // Reactivate previously deactivated device (prevents unique constraint violation)
+        await client
+          .from('devices')
+          .update({
+            is_active: true,
+            last_seen_at: new Date().toISOString(),
+            activated_at: new Date().toISOString(),
+            device_name: deviceName,
+            os_type: osType,
+            app_version: appVersion,
+          })
+          .eq('id', orgDevice.id);
+      } else {
+        // Insert brand new device
+        const { error: insertDevError } = await client.from('devices').insert({
+          organization_id: org.id,
+          hardware_fingerprint: hardwareFingerprint,
           device_name: deviceName,
-        })
-        .eq('id', existingDevice.id);
+          os_type: osType,
+          app_version: appVersion,
+          is_active: true,
+          last_seen_at: new Date().toISOString(),
+          activated_at: new Date().toISOString(),
+        });
+
+        if (insertDevError) {
+          console.error('[Device Activation Insert Error]:', insertDevError);
+        }
+      }
     }
 
     // 4. Generate signed license token for offline use
@@ -163,14 +245,7 @@ export async function POST(req: NextRequest) {
       issuedAt: new Date().toISOString(),
     };
 
-    const licenseSignature = crypto
-      .createHmac('sha256', process.env.SUPABASE_SERVICE_ROLE_KEY || 'minglebooth_secret_hwid_key')
-      .update(JSON.stringify(tokenPayload))
-      .digest('hex');
-
-    const licenseToken = Buffer.from(
-      JSON.stringify({ payload: tokenPayload, sig: licenseSignature })
-    ).toString('base64');
+    const licenseToken = createSignedToken(tokenPayload);
 
     return NextResponse.json(
       {
@@ -184,7 +259,7 @@ export async function POST(req: NextRequest) {
           subscriptionStatus: org.subscription_status,
           expiresAt: org.subscription_expires_at,
           maxDevicesQuota: maxQuota,
-          activeDevicesCount: existingDevice ? currentActiveCount : currentActiveCount + 1,
+          activeDevicesCount: (orgDevice && orgDevice.is_active) ? currentActiveCount : Math.min(currentActiveCount + 1, maxQuota),
         },
         device: {
           hwid: hardwareFingerprint,

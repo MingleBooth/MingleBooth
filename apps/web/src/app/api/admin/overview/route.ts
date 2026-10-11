@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { verifyServerAuth } from '@/lib/auth-server';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const auth = await verifyServerAuth(req);
+    if (!auth.isValid) {
+      return NextResponse.json({ error: auth.error, code: 'AUTH_REQUIRED' }, { status: auth.status || 401 });
+    }
+    if (!auth.isSuperAdmin) {
+      return NextResponse.json({ error: 'Superadmin role required', code: 'ORG_ACCESS_DENIED' }, { status: 403 });
+    }
+
     const client = getServiceSupabase();
 
     // 1. Fetch Organizations with Devices & Events

@@ -9,10 +9,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleKioskTabFullscreen: () => ipcRenderer.invoke('app:toggle-kiosk-tab-fullscreen'),
   triggerCameraShutter: () => ipcRenderer.invoke('camera:trigger-shutter'),
   getHWID: () => ipcRenderer.invoke('system:get-hwid'),
-  printPhoto: (options) => ipcRenderer.invoke('printer:print-photo', options),
+  printPhoto: (options, copies, silent) => {
+    const payload = typeof options === 'string'
+      ? { filePath: options, copies: copies || 1, silent: silent !== undefined ? silent : true }
+      : (options || {});
+    return ipcRenderer.invoke('printer:print-photo', payload);
+  },
   openFolder: (folderPath) => ipcRenderer.invoke('storage:open-folder', folderPath),
   openEventFolder: (payload) => ipcRenderer.invoke('storage:open-event-folder', payload),
   saveCaptureFiles: (data) => ipcRenderer.invoke('storage:save-capture-files', data),
+  cleanDemoStorage: () => ipcRenderer.invoke('storage:clean-demo-files'),
+  getDemoStorageDir: () => ipcRenderer.invoke('storage:get-demo-dir'),
+  openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   selectFolder: (currentPath) => ipcRenderer.invoke('storage:select-folder', currentPath),
   listFiles: (options) => ipcRenderer.invoke('storage:list-files', options),
   getPrinters: () => ipcRenderer.invoke('printer:get-printers'),
@@ -22,6 +30,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on('tether:photo-captured', handler);
     return () => ipcRenderer.removeListener('tether:photo-captured', handler);
+  },
+  onTetherRawDetected: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('tether:raw-detected', handler);
+    return () => ipcRenderer.removeListener('tether:raw-detected', handler);
   },
   // Native Direct USB Camera Controls
   getNativeCameraStatus: () => ipcRenderer.invoke('camera:get-native-status'),
@@ -33,11 +46,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   connectNativeCamera: (targetCamera) => ipcRenderer.invoke('camera:connect', targetCamera),
   disconnectNativeCamera: () => ipcRenderer.invoke('camera:disconnect'),
   startCameraLiveView: () => ipcRenderer.invoke('camera:start-liveview'),
+  startLiveView: () => ipcRenderer.invoke('camera:start-liveview'),
   stopCameraLiveView: () => ipcRenderer.invoke('camera:stop-liveview'),
+  stopLiveView: () => ipcRenderer.invoke('camera:stop-liveview'),
+  getCameraLiveViewState: () => ipcRenderer.invoke('camera:get-live-view-state'),
   getNativeCameraState: () => ipcRenderer.invoke('camera:get-state'),
   startNativeTether: () => ipcRenderer.invoke('camera:start-native-tether'),
   stopNativeTether: () => ipcRenderer.invoke('camera:stop-native-tether'),
   triggerNativeCapture: () => ipcRenderer.invoke('camera:direct-capture'),
+  directCapture: () => ipcRenderer.invoke('camera:direct-capture'),
   onCameraStateChange: (callback) => {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on('camera:state-change', handler);
@@ -71,5 +88,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   requestCameraAccess: () => ipcRenderer.invoke('camera:request-access'),
   getCameraAccessStatus: () => ipcRenderer.invoke('camera:get-status'),
   openCameraPrivacySettings: () => ipcRenderer.invoke('camera:open-privacy-settings'),
+  // MingleBooth Dedicated Graphical Camera QA Suite
+  qa: {
+    checkEnvironment: () => ipcRenderer.invoke('qa:check-environment'),
+    detectCamera: () => ipcRenderer.invoke('qa:detect-camera'),
+    setupDriver: () => ipcRenderer.invoke('qa:setup-driver'),
+    testConnection: (profile) => ipcRenderer.invoke('qa:test-connection', profile),
+    triggerCapture: (profile) => ipcRenderer.invoke('qa:trigger-capture', profile),
+    rollbackDriver: () => ipcRenderer.invoke('qa:rollback-driver'),
+    enableTestMode: () => ipcRenderer.invoke('qa:enable-test-mode'),
+    restoreNormalMode: () => ipcRenderer.invoke('qa:restore-normal-mode'),
+    testElevation: () => ipcRenderer.invoke('qa:test-elevation'),
+    rebootSystem: () => ipcRenderer.invoke('qa:reboot-system'),
+    exportReport: () => ipcRenderer.invoke('qa:export-report'),
+    isQaMode: () => ipcRenderer.invoke('qa:is-qa-mode'),
+  },
 });
 

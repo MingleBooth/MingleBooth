@@ -1,17 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
+import { verifyServerAuth } from '@/lib/auth-server';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  if (isPreviewDeployment()) {
+    return previewBlockedResponse('setup_superadmin', 'Superadmin setup is disabled in Preview deployments.');
+  }
+
   try {
+    const client = getServiceSupabase();
+
+    // Check if superadmin already exists
+    const { count } = await client
+      .from('user_profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('role', 'SUPER_ADMIN');
+
+    if (count && count > 0) {
+      const auth = await verifyServerAuth(req);
+      if (!auth.isValid || !auth.isSuperAdmin) {
+        return NextResponse.json(
+          { error: 'Superadmin account already initialized. Access denied.', code: 'ORG_ACCESS_DENIED' },
+          { status: 403 }
+        );
+      }
+    }
+
     const body = await req.json().catch(() => ({}));
     const email = body.email || 'superadmin@minglebooth.com';
     const password = body.password || 'SuperAdmin2026!';
     const fullName = body.fullName || 'Super Administrator MingleBooth';
-
-    const client = getServiceSupabase();
 
     // 1. Get or create Master Organization
     let { data: org } = await client

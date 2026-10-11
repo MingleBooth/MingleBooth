@@ -3,6 +3,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import sharp from 'sharp';
 import { getServiceSupabase } from '@/lib/supabase';
+import { verifyServerAuth } from '@/lib/auth-server';
+import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,12 +40,73 @@ export async function OPTIONS() {
  * 3. Logs synchronization into public.cloud_sync_logs
  */
 export async function POST(req: NextRequest) {
+  if (isPreviewDeployment()) {
+    return previewBlockedResponse('sync_upload', 'Cloud sync upload is disabled in Preview deployments to protect production storage and galleries.');
+  }
+
   try {
+    // 1. Mandatory Cryptographic Server Authentication
+    const auth = await verifyServerAuth(req);
+    if (!auth.success || !auth.orgId) {
+      return NextResponse.json(
+        { error: auth.error || 'Autentikasi Bearer wajib untuk sinkronisasi cloud.', code: auth.code || 'AUTH_REQUIRED' },
+        { status: auth.status || 401, headers: corsHeaders }
+      );
+    }
+
+    // Explicitly reject Demo tokens
+    if (auth.payload?.isDemo) {
+      return NextResponse.json(
+        { error: 'Mode Demo tidak memiliki akses sinkronisasi cloud. Silakan aktifkan langganan berbayar.', code: 'DEMO_MODE_BLOCKED' },
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
+    const client = getServiceSupabase();
+    if (!client) {
+      return NextResponse.json(
+        { error: 'Koneksi database tidak tersedia.' },
+        { status: 503, headers: corsHeaders }
+      );
+    }
+
+    // 2. Authoritative Database Subscription Verification
+    const isSuperAdmin = !!auth.isSuperAdmin;
+    if (!isSuperAdmin) {
+      const { data: orgData, error: orgErr } = await client
+        .from('organizations')
+        .select('id, name, subscription_status, subscription_expires_at')
+        .eq('id', auth.orgId)
+        .single();
+
+      if (orgErr || !orgData) {
+        return NextResponse.json(
+          { error: 'Organisasi vendor tidak ditemukan di database.', code: 'ORG_ACCESS_DENIED' },
+          { status: 404, headers: corsHeaders }
+        );
+      }
+
+      const now = new Date();
+      const expiresAt = orgData.subscription_expires_at ? new Date(orgData.subscription_expires_at) : new Date(0);
+      const hasActiveSub = orgData.subscription_status === 'active' && expiresAt >= now;
+
+      if (!hasActiveSub) {
+        return NextResponse.json(
+          {
+            error: orgData.subscription_status === 'expired'
+              ? 'Masa aktif langganan telah berakhir. Sinkronisasi cloud diblokir.'
+              : 'Akun Anda belum memiliki langganan aktif. Sinkronisasi cloud hanya tersedia untuk akun berbayar.',
+            code: 'SUBSCRIPTION_REQUIRED',
+          },
+          { status: 403, headers: corsHeaders }
+        );
+      }
+    }
+
     const body = await req.json();
     const {
       photoId,
       eventId,
-      organizationId,
       fileDataUrl,
       type = 'photo',
       rawIndex = 1,
@@ -51,8 +114,44 @@ export async function POST(req: NextRequest) {
 
     if (!photoId || !eventId || !fileDataUrl) {
       return NextResponse.json(
-        { error: 'Missing required sync fields' },
+        { error: 'Missing required sync fields (photoId, eventId, fileDataUrl)' },
         { status: 400, headers: corsHeaders }
+      );
+    }
+
+    if (typeof photoId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(photoId) || photoId.length < 3 || photoId.length > 100) {
+      return NextResponse.json(
+        { error: 'Invalid photoId format. Must be 3-100 alphanumeric characters, dashes, or underscores' },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    if (typeof eventId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(eventId) || eventId.length < 1 || eventId.length > 100) {
+      return NextResponse.json(
+        { error: 'Invalid eventId format' },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    if (!['photo', 'gif', 'raw'].includes(type)) {
+      return NextResponse.json(
+        { error: 'Invalid sync type. Must be photo, gif, or raw' },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    const parsedRawIndex = parseInt(String(rawIndex), 10);
+    if (type === 'raw' && (isNaN(parsedRawIndex) || parsedRawIndex < 1 || parsedRawIndex > 50)) {
+      return NextResponse.json(
+        { error: 'Invalid rawIndex. Must be an integer between 1 and 50' },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    if (typeof fileDataUrl !== 'string' || fileDataUrl.length > 15 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: 'Payload size exceeds safety limit (15MB)' },
+        { status: 413, headers: corsHeaders }
       );
     }
 
@@ -148,67 +247,73 @@ export async function POST(req: NextRequest) {
     const syncedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // ── Resolve Event and Organization from Supabase ──
-    const client = getServiceSupabase();
-    let validOrgId: string | null = null;
+    // ── Resolve Event and Organization strictly scoped to authenticated tenant ──
+    const validOrgId = auth.orgId;
     let validEventId: string | null = null;
 
-    if (client) {
-      try {
-        const isUuid = (str: string) =>
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    try {
+      const isUuid = (str: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
-        if (eventId && isUuid(eventId)) {
-          const { data: matchedEvt } = await client
-            .from('events')
-            .select('id, organization_id')
-            .eq('id', eventId)
-            .limit(1)
-            .maybeSingle();
-          if (matchedEvt) {
-            validEventId = matchedEvt.id;
-            validOrgId = matchedEvt.organization_id;
-          }
-        } else if (eventId && eventId !== 'default_event' && eventId !== 'all') {
-          const { data: matchedBySlug } = await client
-            .from('events')
-            .select('id, organization_id')
-            .eq('slug', eventId)
-            .limit(1)
-            .maybeSingle();
-          if (matchedBySlug) {
-            validEventId = matchedBySlug.id;
-            validOrgId = matchedBySlug.organization_id;
-          } else {
-            const { data: matchedByName } = await client
-              .from('events')
-              .select('id, organization_id')
-              .ilike('name', eventId)
-              .limit(1)
-              .maybeSingle();
-            if (matchedByName) {
-              validEventId = matchedByName.id;
-              validOrgId = matchedByName.organization_id;
-            }
-          }
-        }
+      let matchedEvt: any = null;
 
-        // Fallback to active event in database if not matched
-        if (!validEventId) {
-          const { data: firstEvt } = await client
+      if (eventId && isUuid(eventId)) {
+        const res = await client
+          .from('events')
+          .select('id, organization_id')
+          .eq('id', eventId)
+          .limit(1)
+          .maybeSingle();
+        matchedEvt = res.data;
+      } else if (eventId && eventId !== 'default_event' && eventId !== 'all') {
+        const resSlug = await client
+          .from('events')
+          .select('id, organization_id')
+          .eq('slug', eventId)
+          .limit(1)
+          .maybeSingle();
+        matchedEvt = resSlug.data;
+
+        if (!matchedEvt) {
+          const resName = await client
             .from('events')
             .select('id, organization_id')
-            .order('created_at', { ascending: false })
+            .ilike('name', eventId)
             .limit(1)
             .maybeSingle();
-          if (firstEvt) {
-            validEventId = firstEvt.id;
-            validOrgId = firstEvt.organization_id;
-          }
+          matchedEvt = resName.data;
         }
-      } catch (evtErr: any) {
-        console.warn('[Supabase Event Resolution Notice]:', evtErr.message);
       }
+
+      if (matchedEvt) {
+        // Cross-tenant guard: ensure caller owns this event
+        if (!isSuperAdmin && matchedEvt.organization_id !== validOrgId) {
+          return NextResponse.json(
+            { error: 'Akses ditolak: Event ini bukan milik organisasi Anda.', code: 'ORG_ACCESS_DENIED' },
+            { status: 403, headers: corsHeaders }
+          );
+        }
+        validEventId = matchedEvt.id;
+      } else {
+        // Scoped Fallback: only pick events from the authenticated organization
+        const { data: orgEvt } = await client
+          .from('events')
+          .select('id, organization_id')
+          .eq('organization_id', validOrgId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (orgEvt) {
+          validEventId = orgEvt.id;
+        } else {
+          return NextResponse.json(
+            { error: 'Event tidak ditemukan untuk organisasi Anda.', code: 'EVENT_NOT_FOUND' },
+            { status: 404, headers: corsHeaders }
+          );
+        }
+      }
+    } catch (evtErr: any) {
+      console.warn('[Supabase Event Resolution Notice]:', evtErr.message);
     }
 
     const targetEventFolder = validEventId || eventId;
@@ -228,7 +333,11 @@ export async function POST(req: NextRequest) {
           });
 
         if (storageErr) {
-          console.warn('[Supabase Storage Upload Warning]:', storageErr.message);
+          console.error('[Supabase Storage Upload Failed]:', storageErr.message);
+          return NextResponse.json(
+            { error: `Storage upload failed: ${storageErr.message}` },
+            { status: 502, headers: corsHeaders }
+          );
         }
 
         // Backward compatibility: upload raw shots array if provided
@@ -261,63 +370,116 @@ export async function POST(req: NextRequest) {
           }
         }
       } catch (stErr: any) {
-        console.warn('[Supabase Storage Exception]:', stErr.message);
+        console.error('[Supabase Storage Exception]:', stErr.message);
+        return NextResponse.json(
+          { error: `Storage connection error: ${stErr.message}` },
+          { status: 502, headers: corsHeaders }
+        );
       }
     }
 
-    // ── Insert Record into Supabase Cloud Database (Only for photo or gif) ──
+    // ── Insert/Update Record into Supabase Cloud Database (Idempotent) ──
     let supabaseRecordId: string | null = null;
     if (client && validEventId && validOrgId && !isRawType) {
       try {
         if (type === 'gif') {
-          const { data: gData, error: gErr } = await client
+          const { data: existingGifs } = await client
             .from('gifs')
-            .insert({
-              event_id: validEventId,
-              organization_id: validOrgId,
-              cloud_storage_path: storagePath,
-              frames_count: 4,
-              duration_ms: 1000,
-              captured_at: syncedAt,
-              expires_at: expiresAt,
-            })
             .select('id')
-            .single();
+            .eq('event_id', validEventId)
+            .ilike('cloud_storage_path', `%${photoId}%`);
 
-          if (gErr) {
-            console.warn('[Supabase GIF Sync Notice]:', gErr.message);
-          } else if (gData) {
-            supabaseRecordId = gData.id;
+          if (existingGifs && existingGifs.length > 0) {
+            const primaryId = existingGifs[0].id;
+            await client
+              .from('gifs')
+              .update({
+                captured_at: syncedAt,
+              })
+              .eq('id', primaryId);
+            supabaseRecordId = primaryId;
+
+            // Self-healing: remove duplicate records if any exist
+            if (existingGifs.length > 1) {
+              const duplicateIds = existingGifs.slice(1).map((g) => g.id);
+              await client.from('gifs').delete().in('id', duplicateIds);
+              console.log(`[Cloud Sync] Pruned ${duplicateIds.length} duplicate GIF rows for ${photoId}`);
+            }
+          } else {
+            const { data: gData, error: gErr } = await client
+              .from('gifs')
+              .insert({
+                event_id: validEventId,
+                organization_id: validOrgId,
+                cloud_storage_path: storagePath,
+                frames_count: 4,
+                duration_ms: 1000,
+                captured_at: syncedAt,
+                expires_at: expiresAt,
+              })
+              .select('id')
+              .single();
+
+            if (gErr) {
+              console.warn('[Supabase GIF Sync Notice]:', gErr.message);
+            } else if (gData) {
+              supabaseRecordId = gData.id;
+            }
           }
         } else {
-          const { data: pData, error: pErr } = await client
+          const { data: existingPhotos } = await client
             .from('photos')
-            .insert({
-              event_id: validEventId,
-              organization_id: validOrgId,
-              cloud_storage_path: storagePath,
-              file_size_bytes: finalBuffer.length,
-              width: 1200,
-              height: 1800,
-              qr_url: cloudUrl,
-              captured_at: syncedAt,
-              expires_at: expiresAt,
-            })
             .select('id')
-            .single();
+            .eq('event_id', validEventId)
+            .ilike('cloud_storage_path', `%${photoId}%`);
 
-          if (pErr) {
-            console.warn('[Supabase Photo Sync Notice]:', pErr.message);
-          } else if (pData) {
-            supabaseRecordId = pData.id;
+          if (existingPhotos && existingPhotos.length > 0) {
+            const primaryId = existingPhotos[0].id;
+            await client
+              .from('photos')
+              .update({
+                file_size_bytes: finalBuffer.length,
+                captured_at: syncedAt,
+              })
+              .eq('id', primaryId);
+            supabaseRecordId = primaryId;
+
+            // Self-healing: remove duplicate records if any exist
+            if (existingPhotos.length > 1) {
+              const duplicateIds = existingPhotos.slice(1).map((p) => p.id);
+              await client.from('photos').delete().in('id', duplicateIds);
+              console.log(`[Cloud Sync] Pruned ${duplicateIds.length} duplicate photo rows for ${photoId}`);
+            }
+          } else {
+            const { data: pData, error: pErr } = await client
+              .from('photos')
+              .insert({
+                event_id: validEventId,
+                organization_id: validOrgId,
+                cloud_storage_path: storagePath,
+                file_size_bytes: finalBuffer.length,
+                width: 1200,
+                height: 1800,
+                qr_url: cloudUrl,
+                captured_at: syncedAt,
+                expires_at: expiresAt,
+              })
+              .select('id')
+              .single();
+
+            if (pErr) {
+              console.warn('[Supabase Photo Sync Notice]:', pErr.message);
+            } else if (pData) {
+              supabaseRecordId = pData.id;
+            }
           }
         }
 
-        // Record sync log
+        // Record sync log with verified entity ID
         await client.from('cloud_sync_logs').insert({
           organization_id: validOrgId,
           event_id: validEventId,
-          entity_id: validEventId,
+          entity_id: supabaseRecordId || photoId,
           entity_type: type,
           synced_at: syncedAt,
         });
@@ -331,7 +493,7 @@ export async function POST(req: NextRequest) {
         success: true,
         photoId,
         eventId: targetEventFolder,
-        organizationId: validOrgId || organizationId,
+        organizationId: validOrgId,
         cloudUrl: isRawType ? null : cloudUrl,
         storagePath,
         supabaseRecordId,

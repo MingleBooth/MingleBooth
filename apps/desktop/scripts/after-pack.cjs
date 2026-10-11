@@ -23,7 +23,41 @@ module.exports = async function afterPack(context) {
   const isMac = platform === 'mac' || platform === 'darwin' || platform === 'macos';
 
   if (isWin) {
+    const batSrc = path.join(__dirname, '..', 'MingleBooth-Camera-QA.bat');
+    const batDst = path.join(appOutDir, 'MingleBooth-Camera-QA.bat');
+    if (fs.existsSync(batSrc)) {
+      try {
+        fs.copyFileSync(batSrc, batDst);
+        console.log(`  ✅ MingleBooth-Camera-QA.bat copied to package: ${batDst}`);
+      } catch (e) {
+        console.warn(`  ⚠️ Could not copy bat to appOutDir: ${e.message}`);
+      }
+    }
+
     const resourcesDir = path.join(appOutDir, 'resources');
+    const unpackedDriverDev = path.join(resourcesDir, 'app.asar.unpacked', 'driver-dev');
+    if (fs.existsSync(unpackedDriverDev)) {
+      console.log(`  ✅ app.asar.unpacked/driver-dev found: ${unpackedDriverDev}`);
+      const expectedScripts = [
+        'enable-test-mode.ps1',
+        'restore-normal-mode.ps1',
+        'install-camera-driver.ps1',
+        'rollback-camera-driver.ps1',
+        'setup-qa-signing.ps1',
+        'preflight-check.ps1',
+        'MingleBoothCamera.inf',
+      ];
+      for (const s of expectedScripts) {
+        if (fs.existsSync(path.join(unpackedDriverDev, s))) {
+          console.log(`  ✅ ${s} verified in app.asar.unpacked/driver-dev`);
+        } else {
+          errors.push(`${s} missing from app.asar.unpacked/driver-dev`);
+        }
+      }
+    } else {
+      errors.push(`driver-dev not found in app.asar.unpacked: ${unpackedDriverDev}`);
+    }
+
     const unpackedBin = path.join(resourcesDir, 'app.asar.unpacked', 'electron', 'bin');
 
     if (!fs.existsSync(unpackedBin)) {
@@ -106,6 +140,29 @@ module.exports = async function afterPack(context) {
       } else {
         errors.push('iolibs directory missing in app.asar.unpacked/electron/bin/win/iolibs');
       }
+
+      // 5. Check Windows Sony Camera Remote SDK native runner
+      const winSonyDir = path.join(resourcesDir, 'app.asar.unpacked', 'electron', 'native', 'windows');
+      const winSonyExe = path.join(winSonyDir, 'sony_camera_runner.exe');
+      const winSonyExeAlt = path.join(winSonyDir, 'sony_camera_runner_win.exe');
+      const winCrCore = path.join(winSonyDir, 'Cr_Core.dll');
+      const winCrAdapter = path.join(winSonyDir, 'CrAdapter');
+
+      if (fs.existsSync(winSonyExe) || fs.existsSync(winSonyExeAlt)) {
+        const exePath = fs.existsSync(winSonyExe) ? winSonyExe : winSonyExeAlt;
+        const stat = fs.statSync(exePath);
+        console.log(`  ✅ Sony native runner bundled: ${path.basename(exePath)} (${(stat.size / 1024).toFixed(0)} KB)`);
+        if (fs.existsSync(winCrCore)) {
+          console.log('  ✅ Cr_Core.dll bundled adjacent to Sony runner');
+        } else {
+          errors.push('Cr_Core.dll missing adjacent to sony_camera_runner.exe in app.asar.unpacked/electron/native/windows');
+        }
+        if (fs.existsSync(winCrAdapter)) {
+          console.log('  ✅ CrAdapter directory bundled adjacent to Sony runner');
+        } else {
+          errors.push('CrAdapter directory missing adjacent to sony_camera_runner.exe in app.asar.unpacked/electron/native/windows');
+        }
+      }
     }
   }
 
@@ -126,6 +183,27 @@ module.exports = async function afterPack(context) {
       }
     } else {
       errors.push(`sony_camera_hub not found at ${hubBinary} — macOS camera engine missing from bundle.`);
+    }
+
+    // Official Sony Camera Remote SDK native runner for macOS
+    const macRunnerBinary = path.join(unpackedBin, 'mac', 'sony_camera_runner');
+    if (fs.existsSync(macRunnerBinary)) {
+      const stat = fs.statSync(macRunnerBinary);
+      if (!stat.isFile()) {
+        errors.push(`sony_camera_runner at ${macRunnerBinary} is not a regular file.`);
+      } else {
+        console.log(`  ✅ sony_camera_runner bundled (${(stat.size / 1024).toFixed(0)} KB)`);
+        try {
+          fs.chmodSync(macRunnerBinary, 0o755);
+          const postStat = fs.statSync(macRunnerBinary);
+          const mode = (postStat.mode & 0o777).toString(8);
+          console.log(`  ✅ sony_camera_runner permissions verified: 0${mode}`);
+        } catch (e) {
+          warnings.push(`Could not chmod sony_camera_runner: ${e.message}`);
+        }
+      }
+    } else {
+      errors.push(`sony_camera_runner not found at ${macRunnerBinary} — macOS Sony SDK runner missing from bundle.`);
     }
   }
 

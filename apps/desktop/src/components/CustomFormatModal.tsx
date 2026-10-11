@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Check, Ratio, LayoutGrid } from 'lucide-react';
+import { X, Check, Ratio, LayoutGrid } from 'lucide-react';
 import { FormatConfig } from '../store/photobooth-store';
 
 interface CustomFormatModalProps {
