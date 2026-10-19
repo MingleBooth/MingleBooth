@@ -111,6 +111,7 @@ class NativeCameraService extends EventEmitter {
     this.tetherProcess = null;
     this.liveViewProcess = null;
     this.isLiveViewActive = false;
+    this.isLiveViewSupported = true;
     this.isTetherActive = false;
     this.isInstalling = false;
     this.state = 'DISCONNECTED';
@@ -121,6 +122,7 @@ class NativeCameraService extends EventEmitter {
       cameras: [],
       error: null,
       isLiveViewActive: false,
+      isLiveViewSupported: true,
       engineReady: true,
       timestamp: Date.now(),
     };
@@ -185,6 +187,7 @@ class NativeCameraService extends EventEmitter {
       cameras: this.detectedCameras,
       error: this.errorMessage,
       isLiveViewActive: this.isLiveViewActive,
+      isLiveViewSupported: this.isLiveViewSupported,
       engineReady: true,
       timestamp: Date.now(),
       ...payload,
@@ -209,6 +212,7 @@ class NativeCameraService extends EventEmitter {
       cameras: this.detectedCameras,
       error: this.errorMessage,
       isLiveViewActive: this.isLiveViewActive,
+      isLiveViewSupported: this.isLiveViewSupported,
       engineReady: true,
       ...this.cameraState,
     };
@@ -1678,6 +1682,7 @@ class NativeCameraService extends EventEmitter {
       });
 
       this.isLiveViewActive = true;
+      this.isLiveViewSupported = true;
       this.isTetherActive = true;
 
       let buffer = Buffer.alloc(0);
@@ -1739,6 +1744,11 @@ class NativeCameraService extends EventEmitter {
             this.ingestPhotoFile(filePath, path.basename(filePath), source);
           } else if (trimmed.startsWith('STATUS:CAPTURING')) {
             this.updateState('CAPTURING');
+          } else if (trimmed.startsWith('STATUS:LIVEVIEW_UNSUPPORTED:')) {
+            console.warn('[CameraManager Hub]', trimmed);
+            this.isLiveViewSupported = false;
+            this.isLiveViewActive = false;
+            this.updateState(this.state, { isLiveViewSupported: false, isLiveViewActive: false });
           } else if (trimmed.startsWith('STATUS:PHYSICAL_SHUTTER:')) {
             console.log('[CameraManager] 🔘 Physical shutter pressed:', trimmed);
           } else if (trimmed.startsWith('STATUS:ERROR:') || trimmed.startsWith('STATUS:FATAL_ERROR:')) {
@@ -1816,6 +1826,11 @@ class NativeCameraService extends EventEmitter {
   // ───────────────────────────────────────────────────────────────────────────
 
   startLiveView() {
+    if (this.isLiveViewSupported === false) {
+      console.log('[CameraManager] Live view not supported by camera firmware, skipping startLiveView');
+      return;
+    }
+
     if (process.platform === 'win32') {
       console.log('[WIN-LV] backend startLiveView called');
     }

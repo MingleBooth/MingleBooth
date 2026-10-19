@@ -112,6 +112,7 @@ int main(int argc, char **argv) {
                 preview_enabled = 0;
             } else if (strstr(stdin_buf, "RESUME_PREVIEW")) {
                 preview_enabled = 1;
+                consecutive_preview_errors = 0;
             } else if (strstr(stdin_buf, "QUIT")) {
                 g_running = 0;
                 break;
@@ -143,6 +144,17 @@ int main(int argc, char **argv) {
                     fflush(stderr);
                 }
                 gp_file_free(photo_file);
+            } else if (ret == GP_ERROR_NOT_SUPPORTED) {
+                // If blocking capture is NOT supported by driver on this camera (e.g. Sony A6000),
+                // no shutter was tripped yet. Fall back to asynchronous trigger capture.
+                int trig_ret = gp_camera_trigger_capture(camera, context);
+                if (trig_ret == GP_OK) {
+                    fprintf(stderr, "STATUS:TRIGGERED\n");
+                    fflush(stderr);
+                } else {
+                    fprintf(stderr, "STATUS:CAPTURE_ERROR:%d\n", trig_ret);
+                    fflush(stderr);
+                }
             } else {
                 fprintf(stderr, "STATUS:CAPTURE_ERROR:%d\n", ret);
                 fflush(stderr);
@@ -173,6 +185,12 @@ int main(int argc, char **argv) {
             } else if (ret == GP_ERROR_CAMERA_BUSY) {
                 // Camera is momentarily busy exposing still photo - normal, skip frame
                 consecutive_preview_errors = 0;
+            } else if (ret == GP_ERROR_NOT_SUPPORTED || ret == -10 /* GP_ERROR_TIMEOUT */) {
+                // Camera preview not supported by camera driver/firmware (e.g. Sony A6000)
+                // Disable preview loop for this session to preserve runner lifecycle and capture capability
+                preview_enabled = 0;
+                fprintf(stderr, "STATUS:LIVEVIEW_UNSUPPORTED:Camera preview not supported by driver (%d)\n", ret);
+                fflush(stderr);
             } else {
                 consecutive_preview_errors++;
                 // If more than 30 consecutive fatal errors, camera was unplugged
@@ -225,8 +243,12 @@ int main(int argc, char **argv) {
             }
         }
 
-        // Pacing delay (~25-30 fps)
-        usleep(10000);
+        // Pacing delay (~25-30 fps when preview enabled, ~40Hz when preview disabled)
+        if (preview_enabled) {
+            usleep(10000);
+        } else {
+            usleep(25000);
+        }
     }
 
     fprintf(stderr, "STATUS:DISCONNECTING\n");

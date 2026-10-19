@@ -328,6 +328,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
   const [tetherLiveFrame, setTetherLiveFrame] = useState<string | null>(null);
   const [nativeCameraModel, setNativeCameraModel] = useState<string | null>(null);
   const [isDetectingNative, setIsDetectingNative] = useState<boolean>(false);
+  const [isLiveViewSupported, setIsLiveViewSupported] = useState<boolean>(true);
   const [cameraSessionState, setCameraSessionState] = useState<
     'DISCONNECTED' | 'DETECTING' | 'CONNECTING' | 'CONNECTED' | 'READY' | 'CAPTURING' | 'TRANSFERRING' | 'PROCESSING' | 'COMPLETED' | 'ERROR' | 'DRIVER_SETUP_REQUIRED'
   >('DISCONNECTED');
@@ -878,11 +879,15 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
         if (import.meta.env.DEV) {
           console.log('[WIN-TRACE] renderer state changed:', payload?.state);
         }
+        if (payload?.isLiveViewSupported !== undefined) {
+          setIsLiveViewSupported(payload.isLiveViewSupported);
+        }
         if (payload?.state) {
           setCameraSessionState(payload.state);
           if (payload.state === 'DISCONNECTED') {
             setTetherLiveFrame(null);
             setNativeCameraModel(null);
+            setIsLiveViewSupported(true);
             setTetherStatus('disconnected');
             setCameraSessionError(payload.error || null);
           } else if (payload.state === 'CONNECTING' || payload.state === 'DETECTING') {
@@ -936,7 +941,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
 
   // ── Auto-start Live View for PC Remote Studio Camera ──
   useEffect(() => {
-    const isNativeReady = cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED';
+    const isNativeReady = (cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED') && isLiveViewSupported;
     if (isNativeReady) {
       if (typeof window !== 'undefined') {
         const api = (window as any).electronAPI;
@@ -945,7 +950,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
           startFn();
         }
       }
-    } else if (cameraMode === 'webcam' || cameraSessionState === 'DISCONNECTED') {
+    } else if (cameraMode === 'webcam' || cameraSessionState === 'DISCONNECTED' || !isLiveViewSupported) {
       if (typeof window !== 'undefined') {
         const api = (window as any).electronAPI;
         const stopFn = api?.stopCameraLiveView || api?.stopLiveView;
@@ -954,7 +959,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
         }
       }
     }
-  }, [cameraMode, cameraSessionState]);
+  }, [cameraMode, cameraSessionState, isLiveViewSupported]);
 
   // Monitor DSLR/Studio Tether server if selected
   useEffect(() => {
@@ -3424,7 +3429,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
 
                   <h3 className="text-lg font-semibold text-white tracking-tight mb-2">
                     {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                      ? 'Menghubungkan Live View...'
+                      ? (isLiveViewSupported ? 'Menghubungkan Live View...' : 'Mode Foto Studio Siap')
                       : cameraSessionState === 'CONNECTING'
                       ? 'Menyiapkan kamera...'
                       : cameraSessionState === 'DETECTING'
@@ -3438,6 +3443,19 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                     <p className="text-xs text-rose-300 max-w-sm mb-6 leading-relaxed bg-rose-500/10 px-3.5 py-2.5 rounded-xl border border-rose-500/20">
                       {cameraSessionError}
                     </p>
+                  ) : !isLiveViewSupported && (cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED') ? (
+                    <div className="text-xs text-amber-200/90 max-w-sm mb-6 leading-relaxed bg-amber-500/10 px-4 py-3 rounded-xl border border-amber-500/20 text-left">
+                      <div className="font-semibold text-amber-300 mb-1 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                        {nativeCameraModel || 'Sony Alpha-A6000'} Terhubung
+                      </div>
+                      <p className="text-neutral-300 text-[11px] leading-normal mb-1.5">
+                        Kamera siap mengambil foto studio melalui tombol <strong>Ambil Foto</strong> di layar atau <strong>tombol shutter fisik</strong> pada kamera.
+                      </p>
+                      <p className="text-[10px] text-neutral-400 font-mono">
+                        (Catatan: Firmware A6000 tidak menyediakan Live View streaming melalui port USB).
+                      </p>
+                    </div>
                   ) : (
                     <p className="text-xs text-neutral-400 max-w-sm mb-6 leading-relaxed">
                       Hubungkan kamera via kabel USB. Pastikan kamera menyala dan diset ke mode <span className="text-neutral-200 font-medium">FOTO ➔ USB: PC Remote / PTP</span>.
