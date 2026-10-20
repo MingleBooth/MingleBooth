@@ -4,18 +4,44 @@ node_modules
 
 # Exclude desktop app entirely — only web app is deployed
 apps/desktop
+apps/desktop/**
+
+# Exclude mobile app entirely
+apps/mobile
+apps/mobile/**
+apps/mobile-expo-preview
+apps/mobile-expo-preview/**
+.expo
+apps/.expo
+
+# Exclude release binaries and backups
+release_assets*
+release_assets*/**
+release_backup*
+release_backup*/**
+apps/desktop/release*
+apps/desktop/release*/**
+*.dmg
+*.exe
+*.zip
+*.apk
+*.tar.gz
 
 # Exclude build artifacts
 apps/web/.next
 apps/desktop/dist
 apps/desktop/release
+dist
 
 # Exclude binary/native modules
 apps/desktop/electron/bin
 apps/desktop/electron/native
 packages/*/build
+electron/**
+*.cjs
 
-# Exclude dev/test files
+# Exclude scratch & temporary files
+scratch
+scratch/**
 **/*.log
 **/.DS_Store
-dist
