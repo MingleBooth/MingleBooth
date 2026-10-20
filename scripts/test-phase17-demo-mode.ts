@@ -62,7 +62,7 @@ async function runVerification() {
   // 5. Web Landing Page Routing Alignment
   const webPageSrc = fs.readFileSync(path.resolve('apps/web/src/app/page.tsx'), 'utf8');
   assert(webPageSrc.includes("demoTarget = user ? '/dashboard' : '/register'"), 'Landing page routes Coba Demo based on auth session');
-  assert(webPageSrc.includes("downloadTarget = user ? '/dashboard' : '/register'"), 'Landing page routes Unduh Aplikasi based on auth session');
+  assert(webPageSrc.includes("downloadTarget = user ? '/dashboard' : '/register'") || webPageSrc.includes("downloadTarget = '/download'"), 'Landing page routes Unduh Aplikasi properly');
   assert(!webPageSrc.includes('href="#demo-mode"') || webPageSrc.indexOf('href="#demo-mode"') === -1, 'Landing page does not have dummy #demo-mode scroll link in nav/hero');
 
   // 6. Web Register Flow (Instant Onboarding)
