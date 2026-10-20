@@ -54,7 +54,7 @@ export default function LandingPage() {
   const userInitial = user?.email?.charAt(0).toUpperCase() ?? '?';
   const userEmail = user?.email ?? '';
   const demoTarget = user ? '/dashboard' : '/register';
-  const downloadTarget = user ? '/dashboard' : '/register';
+  const downloadTarget = '/download';
 
   return (
     <div className="min-h-screen bg-[#090A0C] text-[#EDEDED] flex flex-col font-sans select-none antialiased">
@@ -232,10 +232,10 @@ export default function LandingPage() {
           >
             <span className="flex items-center gap-2.5">
               <Download className="w-4 h-4 text-emerald-400" />
-              <span>Unduh Aplikasi Desktop</span>
+              <span>Unduh MingleBooth Studio</span>
             </span>
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              Mac &amp; Win
+              Android, Mac, Win
             </span>
           </Link>
 
@@ -328,7 +328,7 @@ export default function LandingPage() {
             className="h-11 px-5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
           >
             <Download className="w-4 h-4 text-neutral-300 flex-shrink-0" />
-            <span>Unduh Desktop</span>
+            <span>Unduh Aplikasi Studio</span>
           </Link>
 
           <Link
@@ -487,7 +487,7 @@ export default function LandingPage() {
                 href={downloadTarget}
                 className="text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 pt-4 border-t border-white/[0.04] whitespace-nowrap"
               >
-                <span>{user ? "Unduh di Dashboard Vendor" : "Daftar & Unduh Aplikasi"}</span>
+                <span>Unduh Aplikasi (Android, Mac, Win)</span>
                 <ChevronRight className="w-3.5 h-3.5 text-neutral-500" />
               </Link>
             </div>

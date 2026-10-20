@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Laptop, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Laptop, AlertCircle, Mail, Lock, Loader2, Copy, Check } from 'lucide-react';
 import { LicenseVerifier } from '@minglebooth/license';
 import { API_BASE_URL } from '../config';
 import logoHeader from '../assets/logo-minglebooth-header.png';
@@ -20,6 +20,7 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [gracePeriodNotice, setGracePeriodNotice] = useState<string | null>(null);
+  const [copiedHwid, setCopiedHwid] = useState(false);
 
   // Form fields
   const [email, setEmail] = useState('');
@@ -29,6 +30,13 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
     isWindows ? 'Windows Operator Booth 1' : 'MacBook Operator Booth 1'
   );
   const [hwid, setHwid] = useState('');
+
+  const handleCopyHwid = () => {
+    if (!hwid) return;
+    navigator.clipboard.writeText(hwid);
+    setCopiedHwid(true);
+    setTimeout(() => setCopiedHwid(false), 2000);
+  };
 
   useEffect(() => {
     const initAuth = async () => {
@@ -186,7 +194,7 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
 
   if (loading) {
     return (
-      <div className="h-screen w-screen bg-[#090A0C] flex items-center justify-center text-neutral-500 text-sm font-mono">
+      <div className="h-screen w-screen bg-[#08090C] flex items-center justify-center text-neutral-500 text-sm font-mono">
         Verifikasi Lisensi Hardware...
       </div>
     );
@@ -194,124 +202,167 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
 
   if (!isAuthenticated) {
     return (
-      <div className="h-screen w-screen bg-[#090A0C] text-[#EDEDED] flex items-center justify-center p-6 select-none font-sans antialiased">
-        <div className="max-w-lg w-full bg-[#121316] border border-white/[0.08] rounded-2xl p-8 md:p-10 shadow-2xl flex flex-col gap-6 animate-fadeIn">
-          {/* Header */}
-          <div className="flex flex-col items-center text-center gap-3">
+      <div className="h-screen w-full bg-[#08090C] bg-[radial-gradient(ellipse_80%_80%_at_50%_25%,#161922_0%,#08090C_100%)] text-[#EDEDED] flex items-center justify-center p-4 sm:p-6 lg:p-8 select-none font-sans antialiased overflow-y-auto">
+        <div className="w-full max-w-[620px] bg-[#12141A] border border-white/[0.08] rounded-[24px] sm:rounded-[26px] px-6 py-6 sm:px-9 sm:py-7 md:px-10 md:py-8 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.85)] flex flex-col my-auto animate-fadeIn">
+          {/* 1. Logo & Header */}
+          <div className="flex flex-col items-center text-center">
             <img
               src={logoHeader}
               alt="MingleBooth"
-              className="h-12 md:h-14 w-auto object-contain"
+              style={{ height: '32px', width: 'auto' }}
+              className="h-8 sm:h-9 w-auto object-contain mx-auto"
             />
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white">
+            <div className="mt-3.5 mb-1">
+              <h1 className="text-xl sm:text-[25px] font-bold tracking-tight text-white leading-tight">
                 Aktivasi MingleBooth Studio
               </h1>
-              <p className="text-sm text-neutral-400 max-w-xs mt-1.5 leading-relaxed">
+              <p className="text-xs sm:text-[13px] text-neutral-400 font-normal leading-relaxed max-w-[320px] mx-auto mt-1">
                 Masuk dengan akun vendor terdaftar untuk mengaktivasi laptop booth ini.
               </p>
             </div>
           </div>
 
-          {/* ID Perangkat Laptop */}
-          <div className="p-4 rounded-xl bg-[#181A1F] border border-white/[0.05] flex items-center justify-between text-sm font-mono">
-            <div className="flex items-center gap-2.5 text-neutral-400">
-              <Laptop className="w-4 h-4 text-neutral-400 flex-shrink-0" />
-              <span>ID Perangkat Laptop:</span>
+          {/* 2. ID Perangkat Laptop Panel */}
+          <div className="mt-4 mb-3.5 px-4 py-2.5 sm:px-4.5 sm:py-3 rounded-2xl bg-[#171A22] border border-white/[0.06] flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 shrink-0">
+              <Laptop className="w-4 h-4 text-neutral-400 shrink-0" />
+              <div className="flex flex-col text-left leading-tight">
+                <span className="text-[11px] sm:text-[12px] text-neutral-300 font-medium">ID Perangkat</span>
+                <span className="text-[11px] sm:text-[12px] text-neutral-400">Laptop:</span>
+              </div>
             </div>
-            <span className="text-neutral-200 truncate ml-2 text-xs">{hwid || 'Mendeteksi...'}</span>
+            <div className="flex items-center gap-2 overflow-hidden justify-end">
+              <span
+                className="text-neutral-300 font-mono text-xs sm:text-[13px] truncate text-right select-all"
+                title={hwid || 'Mendeteksi...'}
+              >
+                {hwid || 'Mendeteksi...'}
+              </span>
+              {hwid && (
+                <button
+                  type="button"
+                  onClick={handleCopyHwid}
+                  title={copiedHwid ? 'Tersalin ke clipboard' : 'Salin ID Perangkat'}
+                  className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-white/[0.06] transition-colors shrink-0"
+                >
+                  {copiedHwid ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Error Alert */}
           {errorMsg && (
-            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-sm flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-rose-400" />
+            <div className="mb-3.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs sm:text-sm flex items-start gap-2.5 animate-fadeIn">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-400" />
               <div className="flex-1 leading-relaxed">{errorMsg}</div>
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm text-neutral-300 font-medium">Email Vendor</label>
-              <input
-                type="email"
-                required
-                placeholder="vendor@photobooth.id"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="bg-[#181A1F] border border-white/[0.08] text-sm rounded-xl px-4 py-3.5 text-white outline-none focus:border-white/30 transition-colors w-full"
-              />
+          {/* 3. Form */}
+          <form onSubmit={handleLogin} className="flex flex-col gap-3 sm:gap-3.5">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs sm:text-[13px] text-neutral-300 font-medium">Email Vendor</label>
+              <div className="h-[44px] sm:h-[46px] px-3.5 rounded-xl bg-[#171A22] border border-white/[0.08] focus-within:border-white/30 focus-within:ring-1 focus-within:ring-white/10 transition-all flex items-center gap-2.5">
+                <Mail className="w-4 h-4 text-neutral-400 shrink-0" />
+                <input
+                  type="email"
+                  required
+                  placeholder="vendor@photobooth.id"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="bg-transparent border-none outline-none text-white text-xs sm:text-sm w-full placeholder:text-neutral-500 font-normal"
+                />
+              </div>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm text-neutral-300 font-medium">Password</label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="bg-[#181A1F] border border-white/[0.08] text-sm rounded-xl px-4 py-3.5 text-white outline-none focus:border-white/30 transition-colors w-full"
-              />
+            <div className="flex flex-col gap-1">
+              <label className="text-xs sm:text-[13px] text-neutral-300 font-medium">Password</label>
+              <div className="h-[44px] sm:h-[46px] px-3.5 rounded-xl bg-[#171A22] border border-white/[0.08] focus-within:border-white/30 focus-within:ring-1 focus-within:ring-white/10 transition-all flex items-center gap-2.5">
+                <Lock className="w-4 h-4 text-neutral-400 shrink-0" />
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="bg-transparent border-none outline-none text-white text-xs sm:text-sm w-full placeholder:text-neutral-500 font-normal"
+                />
+              </div>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm text-neutral-300 font-medium">Nama Laptop / Booth</label>
-              <input
-                type="text"
-                value={deviceName}
-                onChange={(e) => setDeviceName(e.target.value)}
-                placeholder="Contoh: Laptop Booth Utama"
-                className="bg-[#181A1F] border border-white/[0.08] text-sm rounded-xl px-4 py-3.5 text-white outline-none focus:border-white/30 transition-colors w-full"
-              />
+            <div className="flex flex-col gap-1">
+              <label className="text-xs sm:text-[13px] text-neutral-300 font-medium">Nama Laptop / Booth</label>
+              <div className="h-[44px] sm:h-[46px] px-3.5 rounded-xl bg-[#171A22] border border-white/[0.08] focus-within:border-white/30 focus-within:ring-1 focus-within:ring-white/10 transition-all flex items-center gap-2.5">
+                <Laptop className="w-4 h-4 text-neutral-400 shrink-0" />
+                <input
+                  type="text"
+                  value={deviceName}
+                  onChange={(e) => setDeviceName(e.target.value)}
+                  placeholder="MacBook Operator Booth 1"
+                  className="bg-transparent border-none outline-none text-white text-xs sm:text-sm w-full placeholder:text-neutral-500 font-normal"
+                />
+              </div>
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="mt-2 w-full py-4 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] shadow-md"
+              className="mt-1.5 w-full h-[46px] rounded-xl bg-white hover:bg-neutral-100 disabled:opacity-75 text-black font-semibold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.99] shadow-sm cursor-pointer disabled:cursor-not-allowed"
             >
-              <ShieldCheck className="w-5 h-5" />
-              <span>{submitting ? 'Memverifikasi Perangkat...' : 'Aktivasi Perangkat Ini'}</span>
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-black" />
+                  <span>Memverifikasi Perangkat...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4.5 h-4.5 text-black" />
+                  <span>Aktivasi Perangkat Ini</span>
+                </>
+              )}
             </button>
           </form>
 
-          {/* Informational Guidance for Unpaid Accounts */}
-          <div className="pt-2 border-t border-white/[0.08] flex flex-col items-center gap-1.5 text-center">
-            <span className="text-[11px] font-semibold text-neutral-300">
+          {/* 4. Pembatas Visual */}
+          <div className="my-4 border-t border-white/[0.07]" />
+
+          {/* 5. Informasi Mode Demo */}
+          <div className="flex flex-col items-center gap-1 text-center px-1">
+            <span className="text-[11px] sm:text-xs font-semibold text-neutral-300">
               Belum Memiliki Langganan Aktif?
             </span>
-            <p className="text-[11px] text-neutral-400 leading-relaxed px-1">
-              Akun vendor terdaftar yang belum memiliki langganan aktif akan otomatis masuk ke <strong className="text-amber-400">Mode Demo</strong> untuk pengujian kamera lokal sebelum aktivasi berbayar.
+            <p className="text-[11px] sm:text-xs text-neutral-400 leading-relaxed max-w-md mx-auto">
+              Akun vendor tidak aktif yang belum memiliki langganan aktif akan otomatis masuk ke{' '}
+              <strong className="text-amber-400 font-medium">Mode Demo</strong>{' '}
+              untuk pengujian kamera lokal sebelum aktivasi berbayar.
             </p>
           </div>
 
-          <div className="flex flex-col items-center gap-2.5 pt-3 border-t border-white/[0.06]">
-            <a
-              href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group block transition-transform hover:scale-105"
-              title="Kunjungi Instagram @sebuah.kenang"
-            >
-              <img
-                src="/logo-footer-sebuahkenang.png"
-                alt="MingleBooth by sebuah.kenang"
-                className="h-9 w-auto object-contain opacity-75 group-hover:opacity-100 transition-opacity"
-              />
-            </a>
-            <div className="text-center text-xs text-neutral-500">
-              © 2026 MingleBooth by{' '}
+          {/* 6. Footer Branding */}
+          <div className="mt-4 flex items-center justify-center gap-2 text-xs">
+            <img
+              src={logoHeader}
+              alt="MingleBooth"
+              style={{ height: '16px', width: 'auto' }}
+              className="h-4 w-auto object-contain opacity-85 hover:opacity-100 transition-opacity"
+            />
+            <span className="text-neutral-400 font-normal text-[11px] sm:text-xs">
+              by{' '}
               <a
                 href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-neutral-400 hover:text-white underline decoration-white/30 hover:decoration-white transition-colors font-medium"
+                className="text-neutral-300 hover:text-white transition-colors font-normal"
+                title="Kunjungi Instagram @sebuah.kenang"
               >
                 sebuah.kenang
               </a>
-              . Setiap Momen Berarti.
-            </div>
+            </span>
           </div>
         </div>
       </div>
@@ -335,3 +386,4 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
     </>
   );
 };
+

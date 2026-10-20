@@ -38,7 +38,8 @@ export async function GET(
           }
         }
 
-        if (!dbEvent) {
+        // Only fallback to latest event if explicitly requested via alias
+        if (!dbEvent && (eventId === 'default_event' || eventId === 'latest' || eventId === 'live')) {
           const resLatest = await client
             .from('events')
             .select('*')
@@ -72,6 +73,8 @@ export async function GET(
       candidateDirs.push('evt_bayu_irma_2026');
       candidateDirs.push('b739dae7-9a16-48e9-bc53-3fa159380a87');
     }
+
+    const requestedType = req.nextUrl.searchParams.get('type') || 'all'; // 'all' | 'framed' | 'gif' | 'raw'
 
     // Collect files
     interface ZipEntry {
@@ -116,6 +119,11 @@ export async function GET(
               } else if (f.includes('_raw_')) {
                 folder = 'Foto_Mentahan';
               }
+
+              // Apply selective filter
+              if (requestedType === 'framed' && folder !== 'Foto_Berbingkai') continue;
+              if (requestedType === 'gif' && folder !== 'Animasi_GIF') continue;
+              if (requestedType === 'raw' && folder !== 'Foto_Mentahan') continue;
 
               const archivePath = `${folder}/${f}`;
               if (!addedArchivePaths.has(archivePath)) {
@@ -181,58 +189,64 @@ Layanan Photobooth Profesional: https://minglebooth.id
 
           if (isUuid(matchedEventId)) {
             // 1. Photos
-            const { data: dbPhotos } = await client
-              .from('photos')
-              .select('cloud_storage_path')
-              .eq('event_id', matchedEventId);
+            if (requestedType === 'all' || requestedType === 'framed') {
+              const { data: dbPhotos } = await client
+                .from('photos')
+                .select('cloud_storage_path')
+                .eq('event_id', matchedEventId);
 
-            if (dbPhotos) {
-              for (const p of dbPhotos) {
-                if (!p.cloud_storage_path) continue;
-                const { data: blob } = await client.storage
-                  .from('minglebooth-storage')
-                  .download(p.cloud_storage_path);
-                if (blob) {
-                  const buf = Buffer.from(await blob.arrayBuffer());
-                  const fName = path.basename(p.cloud_storage_path);
-                  archive.append(buf, { name: `Foto_Berbingkai/${fName}` });
+              if (dbPhotos) {
+                for (const p of dbPhotos) {
+                  if (!p.cloud_storage_path) continue;
+                  const { data: blob } = await client.storage
+                    .from('minglebooth-storage')
+                    .download(p.cloud_storage_path);
+                  if (blob) {
+                    const buf = Buffer.from(await blob.arrayBuffer());
+                    const fName = path.basename(p.cloud_storage_path);
+                    archive.append(buf, { name: `Foto_Berbingkai/${fName}` });
+                  }
                 }
               }
             }
 
             // 2. GIFs
-            const { data: dbGifs } = await client
-              .from('gifs')
-              .select('cloud_storage_path')
-              .eq('event_id', matchedEventId);
+            if (requestedType === 'all' || requestedType === 'gif') {
+              const { data: dbGifs } = await client
+                .from('gifs')
+                .select('cloud_storage_path')
+                .eq('event_id', matchedEventId);
 
-            if (dbGifs) {
-              for (const g of dbGifs) {
-                if (!g.cloud_storage_path) continue;
-                const { data: blob } = await client.storage
-                  .from('minglebooth-storage')
-                  .download(g.cloud_storage_path);
-                if (blob) {
-                  const buf = Buffer.from(await blob.arrayBuffer());
-                  const fName = path.basename(g.cloud_storage_path);
-                  archive.append(buf, { name: `Animasi_GIF/${fName}` });
+              if (dbGifs) {
+                for (const g of dbGifs) {
+                  if (!g.cloud_storage_path) continue;
+                  const { data: blob } = await client.storage
+                    .from('minglebooth-storage')
+                    .download(g.cloud_storage_path);
+                  if (blob) {
+                    const buf = Buffer.from(await blob.arrayBuffer());
+                    const fName = path.basename(g.cloud_storage_path);
+                    archive.append(buf, { name: `Animasi_GIF/${fName}` });
+                  }
                 }
               }
             }
 
             // 3. Raw shots
-            const { data: rawList } = await client.storage
-              .from('minglebooth-storage')
-              .list(`events/${matchedEventId}/raw`);
+            if (requestedType === 'all' || requestedType === 'raw') {
+              const { data: rawList } = await client.storage
+                .from('minglebooth-storage')
+                .list(`events/${matchedEventId}/raw`);
 
-            if (rawList && rawList.length > 0) {
-              for (const rf of rawList) {
-                const { data: blob } = await client.storage
-                  .from('minglebooth-storage')
-                  .download(`events/${matchedEventId}/raw/${rf.name}`);
-                if (blob) {
-                  const buf = Buffer.from(await blob.arrayBuffer());
-                  archive.append(buf, { name: `Foto_Mentahan/${rf.name}` });
+              if (rawList && rawList.length > 0) {
+                for (const rf of rawList) {
+                  const { data: blob } = await client.storage
+                    .from('minglebooth-storage')
+                    .download(`events/${matchedEventId}/raw/${rf.name}`);
+                  if (blob) {
+                    const buf = Buffer.from(await blob.arrayBuffer());
+                    archive.append(buf, { name: `Foto_Mentahan/${rf.name}` });
+                  }
                 }
               }
             }
@@ -246,7 +260,15 @@ Layanan Photobooth Profesional: https://minglebooth.id
       }
     })();
 
-    const cleanFilename = `MingleBooth_${eventName.replace(/[^a-zA-Z0-9_-]/g, '_')}_Arsip_Foto.zip`;
+    const typeSuffix =
+      requestedType === 'framed'
+        ? 'Foto_Berbingkai'
+        : requestedType === 'gif'
+        ? 'Animasi_GIF'
+        : requestedType === 'raw'
+        ? 'Foto_Original'
+        : 'Semua_Media';
+    const cleanFilename = `MingleBooth_${eventName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${typeSuffix}.zip`;
     const webStream = Readable.toWeb(passThrough);
 
     return new Response(webStream as any, {

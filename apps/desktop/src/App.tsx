@@ -60,6 +60,8 @@ import {
 import { VendorAuthGate } from './components/VendorAuthGate';
 import { EventManagerModal } from './components/EventManagerModal';
 import { CameraQAPanel } from './components/CameraQAPanel';
+import { EventGalleryQrModal } from './components/EventGalleryQrModal';
+import { PrintChoiceModal } from './components/PrintChoiceModal';
 import { API_BASE_URL } from './config';
 import logoHeader from './assets/logo-minglebooth-header.png';
 import appIcon from './assets/icon.png';
@@ -381,6 +383,8 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
   const [guestGalleryUrl, setGuestGalleryUrl] = useState<string>('');
   const [reviewCountdown, setReviewCountdown] = useState<number>(30);
   const [printImageUrl, setPrintImageUrl] = useState<string | null>(null);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
+  const [isEventQrModalOpen, setIsEventQrModalOpen] = useState<boolean>(false);
 
   // Gallery View & Lightbox
   const [showEventGalleryModal, setShowEventGalleryModal] = useState<boolean>(false);
@@ -2106,9 +2110,13 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
         : `https://www.minglebooth.id/p/${photoId}`;
       setGuestGalleryUrl(galleryUrl);
 
-      // Generate QR Code
-      const qrData = await QRCode.toDataURL(galleryUrl, { margin: 1, width: 320, color: { dark: '#000000', light: '#ffffff' } });
-      setQrCodeDataUrl(qrData);
+      // Generate QR Code: Strictly only for paid mode, never in demo mode
+      if (!isDemoMode) {
+        const qrData = await QRCode.toDataURL(galleryUrl, { margin: 1, width: 320, color: { dark: '#000000', light: '#ffffff' } });
+        setQrCodeDataUrl(qrData);
+      } else {
+        setQrCodeDataUrl(null);
+      }
 
       // Compose GIF Boomerang in background
       let gifDataUrl: string | null = null;
@@ -3202,38 +3210,20 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
 
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (isDemoMode) {
-                        showNotification('Fitur Cetak Foto tersedia setelah langganan aktif.', 'warning');
-                        return;
-                      }
-                      try {
-                        const targetUrl =
-                          galleryLightboxTab === 'original' &&
-                          selectedGalleryPreviewItem.rawShots &&
-                          selectedGalleryPreviewItem.rawShots.length > 0
-                            ? selectedGalleryPreviewItem.rawShots[lightboxRawIndex]?.dataUrl ||
-                              selectedGalleryPreviewItem.photoDataUrl
-                            : selectedGalleryPreviewItem.photoDataUrl;
-
-                        if (isDemoMode) return;
-                        if (typeof window !== 'undefined' && (window as any).electronAPI?.printPhoto) {
-                          await (window as any).electronAPI?.printPhoto(targetUrl, 1, false);
-                          showNotification('Perintah cetak berhasil dikirim ke printer!', 'success');
-                        } else {
-                          const win = window.open('');
-                          win?.document.write(`<img src="${targetUrl}" style="width:100%"/>`);
-                          win?.print();
-                        }
-                      } catch (e: any) {
-                        console.error('[PRINT-ERROR]', e);
-                        showNotification('Gagal mencetak: periksa koneksi printer.', 'error');
-                      }
-                    }}
+                    onClick={() => setIsPrintModalOpen(true)}
                     className="h-10 px-4 rounded-xl bg-white/[0.12] hover:bg-white/[0.2] border border-white/20 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
                   >
                     <Printer className="w-3.5 h-3.5" />
                     <span>Cetak Foto</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsEventQrModalOpen(true)}
+                    className="h-10 px-3.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <QrCode className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Tampilkan QR Galeri</span>
                   </button>
                 </div>
               </div>
@@ -4837,41 +4827,86 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
           )}
         </div>
 
-        {/* Right Side: QR Code Card & Print Trigger */}
+        {/* Right Side: QR Code Card / Demo Info Panel & Print Trigger */}
         <div className="w-full md:w-[360px] flex flex-col items-center justify-center gap-5 p-6 rounded-3xl bg-[#121316] border border-white/[0.08] shadow-2xl flex-shrink-0">
-          {/* QR Code Container */}
-          <div className="p-3 bg-white rounded-2xl shadow-md">
-            {qrCodeDataUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={qrCodeDataUrl} alt="Scan QR Code" className="w-48 h-48 sm:w-56 sm:h-56 object-contain" />
-            ) : (
-              <div className="w-48 h-48 bg-neutral-200 flex items-center justify-center text-xs text-black">
-                Memuat QR...
+          {isDemoMode ? (
+            /* Panel Informasi Mode Demo (Unduh Tamu Tidak Aktif) */
+            <div className="w-full flex flex-col items-center justify-center text-center p-6 sm:p-7 rounded-2xl bg-amber-500/[0.05] border border-amber-500/25 shadow-inner gap-4">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shadow-lg">
+                <Lock className="w-7 h-7 sm:w-8 sm:h-8 text-amber-400" />
               </div>
-            )}
-          </div>
+              <div className="space-y-1.5 max-w-xs">
+                <h3 className="text-base sm:text-lg font-bold text-white tracking-tight">
+                  Unduh Tamu Tidak Aktif
+                </h3>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  QR unduh dan galeri publik tersedia setelah Anda mengaktifkan langganan MingleBooth. Foto demo hanya untuk pratinjau lokal dan tidak dipublikasikan.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenSubscription}
+                className="w-full h-10 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
+                title="Buka portal langganan untuk mengaktifkan seluruh fitur berbayar"
+              >
+                <ShieldCheck className="w-4 h-4 text-black" />
+                <span>Aktifkan Langganan</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* QR Code Container */}
+              <div className="p-3 bg-white rounded-2xl shadow-md">
+                {qrCodeDataUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={qrCodeDataUrl} alt="Scan QR Code" className="w-48 h-48 sm:w-56 sm:h-56 object-contain" />
+                ) : (
+                  <div className="w-48 h-48 bg-neutral-200 flex items-center justify-center text-xs text-black">
+                    Memuat QR...
+                  </div>
+                )}
+              </div>
 
-          <div className="text-center">
-            <h3 className="text-sm font-semibold text-white">Scan QR untuk Unduh Foto</h3>
-            <p className="text-xs text-neutral-400 mt-1">
-              Arahkan kamera smartphone untuk menyimpan foto &amp; animasi langsung ke HP.
-            </p>
-          </div>
+              <div className="text-center">
+                <h3 className="text-sm font-semibold text-white">Scan QR untuk Unduh Foto</h3>
+                <p className="text-xs text-neutral-400 mt-1">
+                  Arahkan kamera smartphone untuk menyimpan foto &amp; animasi langsung ke HP.
+                </p>
+              </div>
+            </>
+          )}
 
           {/* Action Buttons */}
           <div className="w-full space-y-2 pt-1">
-            <button
-              onClick={handlePrintPhoto}
-              className={`w-full h-11 rounded-xl font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-lg transition-all ${
-                isDemoMode
-                  ? 'bg-neutral-800 text-neutral-400 border border-white/[0.08] hover:bg-neutral-700 active:scale-98'
-                  : 'bg-white hover:bg-neutral-200 text-black active:scale-98'
-              }`}
-              title={isDemoMode ? 'Fitur Cetak Foto tersedia setelah langganan aktif.' : 'Cetak Foto Langsung'}
-            >
-              <Printer className={`w-4 h-4 ${isDemoMode ? 'text-amber-400' : 'text-black'}`} />
-              <span>{isDemoMode ? 'Cetak Terkunci (Demo)' : 'Cetak Foto Langsung'}</span>
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setIsPrintModalOpen(true)}
+                className={`h-11 rounded-xl font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-1.5 shadow-lg transition-all active:scale-98 cursor-pointer ${
+                  isDemoMode
+                    ? 'bg-neutral-800 text-neutral-400 border border-white/[0.08] hover:bg-neutral-700'
+                    : 'bg-white hover:bg-neutral-200 text-black'
+                }`}
+                title={isDemoMode ? 'Fitur Cetak Foto (Demo)' : 'Cetak Foto (Berbingkai / Original)'}
+              >
+                {isDemoMode ? (
+                  <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                ) : (
+                  <Printer className="w-4 h-4 text-black shrink-0" />
+                )}
+                <span className="truncate">{isDemoMode ? 'Cetak (Demo)' : 'Cetak Foto'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsEventQrModalOpen(true)}
+                className="h-11 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-1.5 shadow-lg transition-all active:scale-98 cursor-pointer"
+                title="Tampilkan QR Galeri untuk seluruh album acara"
+              >
+                <QrCode className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span className="truncate">Tampilkan QR Galeri</span>
+              </button>
+            </div>
 
             <button
               onClick={() => {
@@ -4944,6 +4979,27 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
           </div>
         </div>
       )}
+
+      {/* Print Choice Modal (Berbingkai vs Original with Full Status Transitions) */}
+      <PrintChoiceModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        compositePhotoUrl={selectedGalleryPreviewItem ? selectedGalleryPreviewItem.photoDataUrl : (finalPhotoDataUrl || '')}
+        rawShots={selectedGalleryPreviewItem ? selectedGalleryPreviewItem.rawShots : capturedPhotos}
+        isDemoMode={isDemoMode}
+        onOpenSubscription={handleOpenSubscription}
+      />
+
+      {/* Event Gallery QR Modal (Full Album QR Code for Guests & Operators) */}
+      <EventGalleryQrModal
+        isOpen={isEventQrModalOpen}
+        onClose={() => setIsEventQrModalOpen(false)}
+        eventId={currentEvent?.id || ''}
+        eventName={currentEvent?.name || 'Acara Photobooth'}
+        backendUrl={API_BASE_URL}
+        isDemoMode={isDemoMode}
+        onOpenSubscription={handleOpenSubscription}
+      />
     </div>
   );
 };

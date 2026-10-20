@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { usePhotoboothStore } from '../store/photobooth-store';
-import { RotateCcw, Printer, Wifi, WifiOff, Film, ArrowRight, Check, Image as ImageIcon, Lock } from 'lucide-react';
+import { RotateCcw, Printer, Wifi, WifiOff, Film, ArrowRight, Check, Image as ImageIcon, Lock, ShieldCheck, QrCode } from 'lucide-react';
+import { PrintChoiceModal } from './PrintChoiceModal';
+import { EventGalleryQrModal } from './EventGalleryQrModal';
 
 export const InstantResultModal: React.FC = () => {
   const {
@@ -14,6 +16,8 @@ export const InstantResultModal: React.FC = () => {
 
   const [previewTab, setPreviewTab] = useState<'photo' | 'gif'>('photo');
   const [printBlockedNotice, setPrintBlockedNotice] = useState<string | null>(null);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
+  const [isEventQrModalOpen, setIsEventQrModalOpen] = useState<boolean>(false);
 
   // Authoritative demo determination from storage and signed token payload
   const token = typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null;
@@ -85,42 +89,62 @@ export const InstantResultModal: React.FC = () => {
 
       {/* ── Right: Info & Actions Panel ── */}
       <div className="w-full md:w-[380px] lg:w-[420px] flex-shrink-0 flex flex-col p-5 sm:p-8 md:p-10 gap-5 sm:gap-7 overflow-y-auto bg-[#0C0D0F]">
-        {/* Header */}
-        <div>
-          <p className="text-[10px] sm:text-[11px] font-mono tracking-widest text-neutral-400 uppercase mb-1">
-            {hasGif ? 'Foto & Animasi GIF Siap' : 'Photo Capture Complete'}
-          </p>
-          <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight leading-tight">
-            Scan untuk Download
-          </h2>
-          <p className="text-xs sm:text-sm text-neutral-400 mt-1 sm:mt-1.5 leading-relaxed">
-            Arahkan kamera HP ke QR code untuk melihat &amp; mengunduh foto komposit, animasi GIF, dan foto original.
-          </p>
-        </div>
-
-        {/* QR Code Card */}
-        <div className="bg-white rounded-xl p-4 sm:p-5 flex flex-col items-center gap-2.5 shadow-lg">
-          <img
-            src={lastCompositePhoto.qrDataUrl}
-            alt="QR Code"
-            className="w-40 h-40 sm:w-48 sm:h-48 object-contain"
-          />
-          <p className="text-[10px] font-mono text-neutral-500 text-center break-all leading-normal max-w-[220px]">
-            {lastCompositePhoto.qrUrl}
-          </p>
-        </div>
-
-        {/* Demo Mode Cloud Lock Notice */}
-        {isDemoMode && (
-          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col gap-1 shadow-sm">
-            <span className="font-bold flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-amber-400" />
-              <span>Fitur Berbayar: Galeri Cloud Tamu</span>
-            </span>
-            <p className="text-[11px] text-amber-200/80 leading-relaxed">
-              QR di atas adalah simulasi lokal. Unduhan foto tamu ke smartphone via galeri cloud memerlukan paket langganan aktif.
-            </p>
+        {/* QR Code / Demo Information Panel */}
+        {isDemoMode ? (
+          <div className="w-full flex flex-col items-center justify-center text-center p-6 rounded-2xl bg-amber-500/[0.05] border border-amber-500/25 shadow-inner gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shadow-lg">
+              <Lock className="w-7 h-7 text-amber-400" />
+            </div>
+            <div className="space-y-1.5 max-w-xs">
+              <h3 className="text-base sm:text-lg font-bold text-white tracking-tight">
+                Unduh Tamu Tidak Aktif
+              </h3>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                QR unduh dan galeri publik tersedia setelah Anda mengaktifkan langganan MingleBooth. Foto demo hanya untuk pratinjau lokal dan tidak dipublikasikan.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const billingUrl = 'https://www.minglebooth.id/billing';
+                if (typeof window !== 'undefined' && (window as any).electronAPI?.openExternal) {
+                  (window as any).electronAPI.openExternal(billingUrl);
+                } else {
+                  window.open(billingUrl, '_blank');
+                }
+              }}
+              className="w-full h-10 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
+            >
+              <ShieldCheck className="w-4 h-4 text-black" />
+              <span>Aktifkan Langganan</span>
+            </button>
           </div>
+        ) : (
+          <>
+            <div>
+              <p className="text-[10px] sm:text-[11px] font-mono tracking-widest text-neutral-400 uppercase mb-1">
+                {hasGif ? 'Foto & Animasi GIF Siap' : 'Photo Capture Complete'}
+              </p>
+              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight leading-tight">
+                Scan untuk Download
+              </h2>
+              <p className="text-xs sm:text-sm text-neutral-400 mt-1 sm:mt-1.5 leading-relaxed">
+                Arahkan kamera HP ke QR code untuk melihat &amp; mengunduh foto komposit, animasi GIF, dan foto original.
+              </p>
+            </div>
+
+            {/* QR Code Card */}
+            <div className="bg-white rounded-xl p-4 sm:p-5 flex flex-col items-center gap-2.5 shadow-lg">
+              <img
+                src={lastCompositePhoto.qrDataUrl}
+                alt="QR Code"
+                className="w-40 h-40 sm:w-48 sm:h-48 object-contain"
+              />
+              <p className="text-[10px] font-mono text-neutral-500 text-center break-all leading-normal max-w-[220px]">
+                {lastCompositePhoto.qrUrl}
+              </p>
+            </div>
+          </>
         )}
 
         {/* Meta Stats Row */}
@@ -164,11 +188,11 @@ export const InstantResultModal: React.FC = () => {
           </button>
 
           {/* Secondary Buttons */}
-          <div className="flex gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               id="btn-retake"
               onClick={retakeSession}
-              className="flex-1 py-2.5 sm:py-3 px-3 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-neutral-300 hover:text-white font-medium text-xs border border-white/[0.08] flex items-center justify-center gap-1.5 transition-colors"
+              className="py-2.5 sm:py-3 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-neutral-300 hover:text-white font-medium text-xs border border-white/[0.08] flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Retake</span>
@@ -176,62 +200,56 @@ export const InstantResultModal: React.FC = () => {
 
             <button
               id="btn-print"
-              onClick={async () => {
-                if (isDemoMode) {
-                  setPrintBlockedNotice('Fitur Cetak Foto tersedia setelah langganan aktif.');
-                  return;
-                }
-                setPrintBlockedNotice(null);
-                if (typeof window !== 'undefined' && (window as any).electronAPI?.printPhoto) {
-                  const res = await (window as any).electronAPI.printPhoto({
-                    filePath: lastCompositePhoto.localFilePath || lastCompositePhoto.dataUrl,
-                    copies: 1,
-                    silent: false,
-                    licenseToken: typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null,
-                  });
-                  if (res && res.success === false) {
-                    setPrintBlockedNotice(res.error || 'Fitur Cetak Foto tersedia setelah langganan aktif.');
-                  }
-                } else {
-                  // Browser print fallback
-                  const printWin = window.open('', '_blank');
-                  if (printWin) {
-                    printWin.document.write(`
-                      <html>
-                        <head>
-                          <title>Cetak Foto MingleBooth</title>
-                          <style>
-                            @page { margin: 0; size: auto; }
-                            body { margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; background: #000; }
-                            img { max-height: 100%; max-width: 100%; object-fit: contain; }
-                          </style>
-                        </head>
-                        <body>
-                          <img src="${lastCompositePhoto.dataUrl}" onload="window.print(); window.close();" />
-                        </body>
-                      </html>
-                    `);
-                    printWin.document.close();
-                  }
-                }
-              }}
-              className={`flex-1 py-2.5 sm:py-3 px-3 rounded-lg font-medium text-xs border flex items-center justify-center gap-1.5 transition-colors ${
+              onClick={() => setIsPrintModalOpen(true)}
+              className={`py-2.5 sm:py-3 px-2 rounded-lg font-medium text-xs border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
                 isDemoMode
-                  ? 'bg-amber-500/10 hover:bg-amber-500/15 border-amber-500/30 text-amber-300 cursor-not-allowed'
-                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-neutral-300 hover:text-white border-white/[0.08] cursor-pointer'
+                  ? 'bg-amber-500/10 hover:bg-amber-500/15 border-amber-500/30 text-amber-300'
+                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-neutral-300 hover:text-white border-white/[0.08]'
               }`}
-              title={isDemoMode ? 'Fitur Cetak Foto tersedia setelah langganan aktif.' : 'Cetak Foto'}
+              title={isDemoMode ? 'Fitur Cetak Foto (Demo)' : 'Cetak Foto'}
             >
               {isDemoMode ? (
                 <Lock className="w-3.5 h-3.5 text-amber-400" />
               ) : (
                 <Printer className="w-3.5 h-3.5 text-neutral-400" />
               )}
-              <span>{isDemoMode ? 'Cetak Terkunci (Demo)' : 'Cetak Foto'}</span>
+              <span className="truncate">{isDemoMode ? 'Cetak (Demo)' : 'Cetak Foto'}</span>
+            </button>
+
+            <button
+              id="btn-event-qr"
+              onClick={() => setIsEventQrModalOpen(true)}
+              className="py-2.5 sm:py-3 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-neutral-300 hover:text-white font-medium text-xs border border-white/[0.08] flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              title="Tampilkan QR Galeri untuk seluruh album acara"
+            >
+              <QrCode className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="truncate">QR Galeri</span>
             </button>
           </div>
         </div>
       </div>
+
+      {/* Print Choice Modal */}
+      {lastCompositePhoto && (
+        <PrintChoiceModal
+          isOpen={isPrintModalOpen}
+          onClose={() => setIsPrintModalOpen(false)}
+          compositePhotoUrl={lastCompositePhoto.dataUrl}
+          rawShots={lastCompositePhoto.rawPhotos || []}
+          isDemoMode={isDemoMode}
+        />
+      )}
+
+      {/* Event Gallery QR Modal */}
+      {currentEvent && (
+        <EventGalleryQrModal
+          isOpen={isEventQrModalOpen}
+          onClose={() => setIsEventQrModalOpen(false)}
+          eventId={currentEvent.id}
+          eventName={currentEvent.name}
+          isDemoMode={isDemoMode}
+        />
+      )}
     </div>
   );
 };

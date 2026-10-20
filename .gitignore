@@ -40,3 +40,4 @@ release
 .temp/
 **/.temp/
 camera-sdk-poc/
+release_assets*/

@@ -47,8 +47,8 @@ export async function GET(
           }
         }
 
-        // If no event matched by id or slug, or if eventId is 'default_event', fallback to latest active event
-        if (!dbEvent) {
+        // Only fallback to latest active event if explicitly requested via alias
+        if (!dbEvent && (eventId === 'default_event' || eventId === 'latest' || eventId === 'live')) {
           const resLatest = await client
             .from('events')
             .select('*')

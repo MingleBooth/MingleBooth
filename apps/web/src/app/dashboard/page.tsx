@@ -1424,19 +1424,49 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* DIRECT DESKTOP DOWNLOADS: MAC (.DMG) & WINDOWS (.EXE) */}
+            {/* DIRECT DESKTOP & TABLET DOWNLOADS */}
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-3">
-                {/* Option 1: macOS (.dmg) */}
-                <div className="p-4 rounded-xl bg-[#181A1E] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between gap-4">
+                {/* Option 1: Android (.apk) */}
+                <div className="p-3.5 rounded-xl bg-[#181A1E] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5">
-                    <div className="w-9 h-9 rounded-lg bg-white/[0.06] flex items-center justify-center text-white">
-                      <Laptop className="w-5 h-5 text-neutral-200" />
+                    <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-white">Android (Tablet &amp; Phone)</span>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          .apk
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-neutral-400 mt-0.5">
+                        Android 8.0+ (ARM64/v7) • Sony PTP USB OTG
+                      </p>
+                    </div>
+                  </div>
+
+                  <a
+                    href="https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-1.0.0-rc.2.apk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="h-8 px-3 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/10 font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm flex-shrink-0"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh APK</span>
+                  </a>
+                </div>
+
+                {/* Option 2: macOS (.dmg) */}
+                <div className="p-3.5 rounded-xl bg-[#181A1E] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-9 h-9 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                      <Laptop className="w-5 h-5" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-white">macOS (Apple Silicon &amp; Intel)</span>
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
                           .dmg
                         </span>
                       </div>
@@ -1447,31 +1477,26 @@ export default function DashboardPage() {
                   </div>
 
                   <a
-                    href={
-                      process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
-                      !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
-                        ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
-                        : 'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio-1.0.0.dmg'
-                    }
+                    href="https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-1.0.0-rc.2.dmg"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="h-8 px-3.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm flex-shrink-0"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Unduh .dmg (Mac)</span>
+                    <span>Unduh .dmg</span>
                   </a>
                 </div>
 
-                {/* Option 2: Windows (.exe) */}
-                <div className="p-4 rounded-xl bg-[#181A1E] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between gap-4">
+                {/* Option 3: Windows (.exe) */}
+                <div className="p-3.5 rounded-xl bg-[#181A1E] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5">
-                    <div className="w-9 h-9 rounded-lg bg-white/[0.06] flex items-center justify-center text-white">
-                      <Laptop className="w-5 h-5 text-white/80" />
+                    <div className="w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                      <Laptop className="w-5 h-5" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-white">Windows 64-bit</span>
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-white/[0.08] text-neutral-300 border border-white/10">
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                           .exe
                         </span>
                       </div>
@@ -1482,29 +1507,38 @@ export default function DashboardPage() {
                   </div>
 
                   <a
-                    href={
-                      process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
-                      !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
-                        ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
-                        : 'https://github.com/MingleBooth/MingleBooth/releases/latest/download/MingleBooth.Studio.Setup.1.0.0.exe'
-                    }
+                    href="https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-Setup-1.0.0-rc.2.exe"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="h-8 px-3.5 rounded-lg bg-[#22262E] hover:bg-[#2C313C] border border-white/[0.1] text-white font-medium text-xs flex items-center gap-1.5 transition-colors flex-shrink-0"
+                    className="h-8 px-3.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm flex-shrink-0"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Unduh .exe (Windows)</span>
+                    <span>Unduh Setup</span>
                   </a>
                 </div>
               </div>
 
+              {/* Full Download Hub Link */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                <div className="text-xs text-neutral-400">
+                  Butuh versi Portable (.zip / portable .exe) atau Checksum SHA-256?
+                </div>
+                <Link
+                  href="/download"
+                  className="text-xs font-semibold text-white hover:text-neutral-200 flex items-center gap-1 transition-colors"
+                >
+                  <span>Halaman Download Lengkap</span>
+                  <ExternalLink className="w-3 h-3 text-neutral-400" />
+                </Link>
+              </div>
+
               {/* Step-by-Step Instructions */}
-              <div className="p-4 rounded-xl bg-black/40 border border-white/[0.04] flex flex-col gap-2">
-                <span className="text-xs font-semibold text-neutral-200">Cara Memulai Photobooth di Laptop:</span>
+              <div className="p-3.5 rounded-xl bg-black/40 border border-white/[0.04] flex flex-col gap-2">
+                <span className="text-xs font-semibold text-neutral-200">Cara Memulai Photobooth di Laptop/Tablet:</span>
                 <ol className="text-xs text-neutral-400 space-y-1 list-decimal list-inside leading-relaxed">
-                  <li>Unduh file installer sesuai OS laptop booth Anda (.dmg untuk Mac atau .exe untuk Windows).</li>
+                  <li>Unduh file installer sesuai perangkat booth Anda (.dmg, .exe, atau .apk).</li>
                   <li>Buka aplikasi MingleBooth Studio dan login menggunakan email vendor: <strong className="text-white">{currentUser?.email || 'email-anda'}</strong>.</li>
-                  <li>Sambungkan kabel USB kamera &amp; printer. Mode Kiosk Photobooth langsung siap beroperasi 100% offline!</li>
+                  <li>Sambungkan kamera &amp; printer. Mode Kiosk Photobooth langsung siap beroperasi 100% offline!</li>
                 </ol>
               </div>
             </div>

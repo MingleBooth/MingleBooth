@@ -17,6 +17,14 @@ export class QRGenerator {
   }
 
   /**
+   * Generates deterministic whole-event gallery URL
+   */
+  public static buildEventGalleryUrl(baseUrl: string, eventId: string): string {
+    const cleanBase = baseUrl.replace(/\/+$/, '');
+    return `${cleanBase}/gallery/${eventId}`;
+  }
+
+  /**
    * Generates QR Code as a Data URL (base64 PNG) for instant display on UI/HUD
    */
   public static async generateDataUrl(url: string, options?: QROptions): Promise<string> {

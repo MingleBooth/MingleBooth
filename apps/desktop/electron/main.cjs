@@ -870,7 +870,7 @@ ipcMain.handle('printer:print-photo', async (event, rawOptions) => {
       },
     });
 
-    const fileUrl = filePath.startsWith('http') || filePath.startsWith('file://')
+    const fileUrl = filePath.startsWith('http') || filePath.startsWith('file://') || filePath.startsWith('data:')
       ? filePath
       : `file://${path.resolve(filePath)}`;
 

@@ -202,6 +202,8 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      let currentDeviceId = orgDevice?.id;
+
       if (orgDevice) {
         // Reactivate previously deactivated device (prevents unique constraint violation)
         await client
@@ -217,19 +219,69 @@ export async function POST(req: NextRequest) {
           .eq('id', orgDevice.id);
       } else {
         // Insert brand new device
-        const { error: insertDevError } = await client.from('devices').insert({
-          organization_id: org.id,
-          hardware_fingerprint: hardwareFingerprint,
-          device_name: deviceName,
-          os_type: osType,
-          app_version: appVersion,
-          is_active: true,
-          last_seen_at: new Date().toISOString(),
-          activated_at: new Date().toISOString(),
-        });
+        const { data: newDev, error: insertDevError } = await client
+          .from('devices')
+          .insert({
+            organization_id: org.id,
+            hardware_fingerprint: hardwareFingerprint,
+            device_name: deviceName,
+            os_type: osType,
+            app_version: appVersion,
+            is_active: true,
+            last_seen_at: new Date().toISOString(),
+            activated_at: new Date().toISOString(),
+          })
+          .select('id')
+          .maybeSingle();
 
         if (insertDevError) {
           console.error('[Device Activation Insert Error]:', insertDevError);
+        }
+        if (newDev?.id) {
+          currentDeviceId = newDev.id;
+        }
+      }
+
+      // Concurrency race guard: ensure parallel registrations do not exceed max quota
+      if (!currentDeviceId) {
+        const { data: refetchDev } = await client
+          .from('devices')
+          .select('id')
+          .eq('organization_id', org.id)
+          .eq('hardware_fingerprint', hardwareFingerprint)
+          .maybeSingle();
+        currentDeviceId = refetchDev?.id;
+      }
+
+      if (!isSuperAdmin && currentDeviceId) {
+        const { data: allActive } = await client
+          .from('devices')
+          .select('id')
+          .eq('organization_id', org.id)
+          .eq('is_active', true)
+          .order('activated_at', { ascending: true })
+          .order('id', { ascending: true });
+
+        const activeList = allActive || [];
+        if (activeList.length > maxQuota) {
+          const allowedIds = new Set(activeList.slice(0, maxQuota).map((d: any) => d.id));
+          if (!allowedIds.has(currentDeviceId)) {
+            // Lost the concurrency race: roll back this device's activation
+            await client
+              .from('devices')
+              .update({ is_active: false })
+              .eq('id', currentDeviceId);
+
+            return NextResponse.json(
+              {
+                error: `Batas kuota perangkat tercapai (${activeList.length - 1}/${maxQuota}). Perangkat lain baru saja mengaktivasi kuota yang tersisa. Silakan non-aktifkan perangkat lama di Vendor Dashboard.`,
+                code: 'DEVICE_QUOTA_EXCEEDED',
+                currentActiveCount: maxQuota,
+                maxQuota,
+              },
+              { status: 403, headers: corsHeaders }
+            );
+          }
         }
       }
     }
