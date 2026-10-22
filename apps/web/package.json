@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "MingleBooth Web Platform — Vendor Dashboard, Admin Backend & Guest Gallery",
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",

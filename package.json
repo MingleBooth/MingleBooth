@@ -7,6 +7,10 @@
     "packages/*",
     "apps/*"
   ],
+  "engines": {
+    "node": ">=24.22.1 <25",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "concurrently --kill-others-on-fail -n \"web,desktop\" -c \"cyan,magenta\" \"npm --workspace=@minglebooth/web run dev\" \"npm --workspace=@minglebooth/desktop run dev\"",
     "dev:desktop": "npm --workspace=@minglebooth/desktop run dev",

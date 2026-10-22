@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm --workspace=@minglebooth/web run build",
+  "buildCommand": "node -v && npm --workspace=@minglebooth/web run build",
   "installCommand": "npm install",
   "outputDirectory": "apps/web/.next",
   "framework": "nextjs",

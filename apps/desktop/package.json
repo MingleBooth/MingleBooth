@@ -4,6 +4,9 @@
   "type": "module",
   "description": "MingleBooth Studio — Professional Operator Desktop Application",
   "author": "MingleBooth Team",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
