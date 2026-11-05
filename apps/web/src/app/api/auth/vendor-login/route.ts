@@ -63,10 +63,10 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     const isAdmin =
-      cleanEmail.includes('admin') ||
-      cleanEmail.endsWith('@minglebooth.com') ||
-      userProfile?.role === 'superadmin' ||
-      userProfile?.role === 'admin';
+      cleanEmail === 'admin@minglebooth.com' ||
+      cleanEmail === 'superadmin@minglebooth.com' ||
+      userProfile?.role === 'SUPER_ADMIN' ||
+      userProfile?.role === 'superadmin';
 
     let orgId = userProfile?.organization_id;
 
