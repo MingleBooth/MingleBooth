@@ -131,12 +131,7 @@ export interface FrameOverlayItem {
   customCutouts?: { x: number; y: number; width: number; height: number }[];
 }
 
-export const DEFAULT_WEDDING_FRAME: FrameOverlayItem = {
-  id: 'frame_wedding_bayu_irma',
-  name: 'Wedding Bayu & Irma Floral',
-  base64: '',
-  path: '/frames/wedding_bayu_irma.png',
-};
+export const DEFAULT_WEDDING_FRAME: FrameOverlayItem | null = null;
 
 interface PhotoboothState {
   currentEvent: EventConfig;
@@ -438,10 +433,10 @@ function buildDynamicTemplate(
 }
 
 const defaultEvent: EventConfig = {
-  id: 'evt_bayu_irma_2026',
+  id: 'evt_celebration_2026',
   organizationId: 'org_test_vendor',
-  name: 'Wedding Bayu & Irma',
-  slug: 'bayu-irma-wedding',
+  name: 'Acara Photobooth',
+  slug: 'acara-photobooth',
   date: '2026-08-29',
   status: 'active',
   outputType: 'both',
@@ -450,11 +445,11 @@ const defaultEvent: EventConfig = {
   templates: [DEFAULT_PORTRAIT_TEMPLATE, DEFAULT_STRIP_TEMPLATE],
   selectedTemplateId: DEFAULT_PORTRAIT_TEMPLATE.id,
   branding: {
-    eventName: 'Wedding Bayu & Irma',
-    hostNames: 'Bayu & Irma',
+    eventName: 'Acara Photobooth',
+    hostNames: 'Penyelenggara Acara',
     dateFormatted: '29 August 2026',
     primaryColor: '#38bdf8',
-    hashtag: '#BayuIrmaForever',
+    hashtag: '#MingleBoothParty',
   },
   qrBaseUrl: API_BASE_URL,
   createdAt: new Date().toISOString(),
@@ -871,7 +866,7 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
       await cameraManager.connect();
       const devices = await cameraManager.getAvailableDevices();
 
-      syncManager.setUploadHandler(async (item, onProgress) => {
+      syncManager.setUploadHandler(async (item: any, onProgress: any) => {
         onProgress(25);
         try {
           const token = typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null;

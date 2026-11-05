@@ -74,7 +74,7 @@ export const PRESET_TEMPLATE_LIBRARY: PresetTemplateItem[] = [
     <path d="M 160 -10 C 120 -30, 70 -20, 40 0 C 70 20, 120 30, 160 10 Z" fill="url(#goldGrad)" opacity="0.8"/>
     <circle cx="0" cy="0" r="6" fill="url(#goldGrad)"/>
     <text y="-25" font-family="'Playfair Display', Georgia, serif" font-size="34" font-weight="bold" fill="url(#goldGrad)" letter-spacing="4">THE WEDDING OF</text>
-    <text y="22" font-family="'Great Vibes', 'Brush Script MT', cursive" font-size="48" fill="#FFFFFF" letter-spacing="2">Bayu &amp; Irma</text>
+    <text y="22" font-family="'Great Vibes', 'Brush Script MT', cursive" font-size="48" fill="#FFFFFF" letter-spacing="2">Sarah &amp; Michael</text>
     <text y="58" font-family="'Inter', sans-serif" font-size="18" font-weight="600" fill="url(#goldGrad)" letter-spacing="6">SETIAP MOMEN BERARTI</text>
   </g>
 </svg>`,

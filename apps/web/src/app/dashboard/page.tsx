@@ -1419,7 +1419,7 @@ export default function DashboardPage() {
                 <label className="text-xs text-mb-muted font-semibold">Nama Desain Template</label>
                 <input
                   type="text"
-                  placeholder="Contoh: Wedding Bayu &amp; Irma"
+                  placeholder="Contoh: Floral Elegant Strip / Gala Dinner"
                   value={newTemplateName}
                   onChange={(e) => setNewTemplateName(e.target.value)}
                   className="bg-black/[0.03] dark:bg-white/[0.05] border border-mb-line text-xs rounded-xl px-3.5 py-2.5 text-mb-ink outline-none focus:border-mb-ink placeholder:text-mb-muted"

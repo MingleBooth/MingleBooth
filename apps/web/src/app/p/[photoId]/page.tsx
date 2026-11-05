@@ -77,7 +77,7 @@ export default function GuestGalleryPage({ params }: { params: { photoId: string
   useEffect(() => {
     // If photoId is an event ID, redirect to full event album gallery
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(photoId);
-    if (isUuid || photoId.startsWith('evt_') || photoId === 'bayu-irma-wedding') {
+    if (isUuid || photoId.startsWith('evt_') || photoId === 'celebration-2026' || photoId === 'bayu-irma-wedding') {
       router.replace(`/gallery/${photoId}`);
       return;
     }

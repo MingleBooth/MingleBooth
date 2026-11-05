@@ -7,6 +7,17 @@ export default {
   theme: {
     extend: {
       colors: {
+        mb: {
+          bg: '#0E0E10',
+          surface: '#19191C',
+          ink: '#F5F5F3',
+          muted: '#A5A5AB',
+          line: '#2C2C31',
+          accent: '#FFD21F',
+          'accent-ink': '#0B0B0D',
+          btn: '#FFFFFF',
+          'btn-text': '#0B0B0D',
+        },
         brand: {
           50: '#f0f9ff',
           100: '#e0f2fe',
@@ -21,19 +32,21 @@ export default {
           950: '#082f49',
         },
         dark: {
-          900: '#0B0F17',
-          800: '#111827',
-          700: '#1F2937',
-          600: '#374151',
+          900: '#0E0E10',
+          800: '#19191C',
+          700: '#2C2C31',
+          600: '#3A3A40',
         },
         gold: {
-          400: '#FBBF24',
-          500: '#F59E0B',
-          600: '#D97706',
+          400: '#FFD21F',
+          500: '#FFD21F',
+          600: '#E6BC19',
         }
       },
       fontFamily: {
-        sans: ['Inter', 'Outfit', 'system-ui', 'sans-serif'],
+        heading: ['"Bricolage Grotesque"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+        sans: ['Figtree', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       animation: {
         'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',

@@ -87,14 +87,7 @@ interface TemplateItem {
   ratio: string;
 }
 
-const DEFAULT_TEMPLATES: TemplateItem[] = [
-  {
-    id: 'tmpl_wedding_bayu_irma',
-    name: 'Wedding Bayu & Irma (Floral Strip)',
-    path: 'frames/wedding_bayu_irma.png',
-    ratio: '2:3',
-  },
-];
+const DEFAULT_TEMPLATES: TemplateItem[] = [];
 
 export interface WallpaperPresetItem {
   id: string;
@@ -345,8 +338,8 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
   const [setupTab, setSetupTab] = useState<'event' | 'frame' | 'camera' | 'photo' | 'standby'>('event');
 
   const [templates, setTemplates] = useState<TemplateItem[]>(DEFAULT_TEMPLATES);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(DEFAULT_TEMPLATES[0].id);
-  const currentTemplate = templates.find((t) => t.id === selectedTemplateId) || templates[0];
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const currentTemplate = templates.find((t) => t.id === selectedTemplateId) || templates[0] || null;
 
   // Capture Settings
   const [countdownSeconds, setCountdownSeconds] = useState<number>(3); // 0, 3, 5, 10
@@ -1055,13 +1048,13 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
       const demoEvt: EventItem = {
         id: 'demo_event_local',
         name: 'Sesi Demo MingleBooth',
-        hostNames: 'Pengujian Demo',
+        hostNames: 'Penyelenggara Acara',
         date: new Date().toISOString().split('T')[0],
       };
       setEvents([demoEvt]);
       setSelectedEventId('demo_event_local');
-      setTemplates(DEFAULT_TEMPLATES);
-      setSelectedTemplateId(DEFAULT_TEMPLATES[0].id);
+      setTemplates([]);
+      setSelectedTemplateId('');
       setIsLoadingVendorData(false);
       return;
     }
@@ -1117,18 +1110,17 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
           const mappedTemplates: TemplateItem[] = tmplData.templates.map((t: any, idx: number) => ({
             id: t.id || `tmpl_db_${idx}`,
             name: t.name || `Template ${idx + 1}`,
-            path: t.overlay_base64 || t.preview_url || 'frames/wedding_bayu_irma.png',
+            path: t.overlay_base64 || t.preview_url || '',
             base64: t.overlay_base64,
             ratio: t.aspect_ratio || '2:3',
           }));
-          setTemplates((prev) => {
-            const ids = new Set(prev.map((p) => p.id));
-            const fresh = mappedTemplates.filter((m) => !ids.has(m.id));
-            return [...fresh, ...prev];
-          });
+          setTemplates(mappedTemplates);
           if (mappedTemplates[0]?.id) {
             setSelectedTemplateId(mappedTemplates[0].id);
           }
+        } else {
+          setTemplates([]);
+          setSelectedTemplateId('');
         }
       }
     } catch (e) {
@@ -1997,19 +1989,29 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
   // ── 5. COMPOSE FINAL PHOTO & GIF BOOMERANG ──
   const composeFinalPhoto = async (photos: string[], overridePhotoId?: string, targetReviewIndex?: number) => {
     try {
-      const frameImg = new Image();
-      frameImg.crossOrigin = 'anonymous';
-      frameImg.src = currentTemplate.path;
-      await new Promise((res, rej) => {
-        frameImg.onload = res;
-        frameImg.onerror = rej;
-      });
+      let frameImg: HTMLImageElement | null = null;
+      if (currentTemplate?.path) {
+        frameImg = new Image();
+        frameImg.crossOrigin = 'anonymous';
+        frameImg.src = currentTemplate.path;
+        await new Promise((res) => {
+          frameImg!.onload = res;
+          frameImg!.onerror = () => {
+            frameImg = null;
+            res(null);
+          };
+        });
+      }
 
       const canvas = document.createElement('canvas');
-      canvas.width = frameImg.naturalWidth || 682;
-      canvas.height = frameImg.naturalHeight || 1024;
+      canvas.width = frameImg?.naturalWidth || 1200;
+      canvas.height = frameImg?.naturalHeight || 1800;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Cannot init canvas');
+
+      // Fill background with clean white for un-framed captures
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Draw user photos into cutout holes (Supports arbitrary flexible photos count dynamically)
       let cutouts = frameCutouts;
@@ -2095,8 +2097,10 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
         ctx.drawImage(img, sx, sy, sWidth, sHeight, cutout.x, cutout.y, cutout.width, cutout.height);
       }
 
-      // Draw transparent frame on top
-      ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+      // Draw transparent frame on top if available
+      if (frameImg) {
+        ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+      }
 
       const compositeDataUrl = canvas.toDataURL('image/jpeg', 0.95);
       setFinalPhotoDataUrl(compositeDataUrl);
@@ -3352,7 +3356,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                   <span>{showFrameOverlayInPreview ? 'Tutup Bingkai' : 'Intip Bingkai'}</span>
                 </button>
                 <span className="h-9 px-3.5 rounded-full text-xs font-mono bg-black/60 backdrop-blur-md border border-white/10 text-neutral-300 flex items-center shadow-xl">
-                  Rasio: {currentTemplate.ratio} ({frameDimensions.width}x{frameDimensions.height})
+                  Rasio: {currentTemplate?.ratio || '2:3'} ({frameDimensions.width}x{frameDimensions.height})
                 </span>
               </div>
               {cameraMode === 'webcam' ? (
@@ -3466,8 +3470,8 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                 </div>
               )}
 
-              {/* Template Frame Overlay (Only shown when operator toggles Intip Bingkai) */}
-              {showFrameOverlayInPreview && (
+              {/* Template Frame Overlay (Only shown when operator toggles Intip Bingkai and template has path) */}
+              {showFrameOverlayInPreview && currentTemplate?.path && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={currentTemplate.path}
@@ -3632,12 +3636,33 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                       Desain Bingkai Cetak
                     </span>
                     <span className="text-[11px] text-neutral-500 font-mono">
-                      {templates.length} Pilihan
+                      {selectedTemplateId ? `${templates.length} Pilihan` : 'Tanpa Bingkai'}
                     </span>
                   </div>
 
                   {/* Thumbnail Selector Grid */}
                   <div className="grid grid-cols-2 gap-2.5 max-h-[46vh] overflow-y-auto pr-0.5">
+                    {/* Tanpa Bingkai (Polos) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedTemplateId('');
+                        setShowFrameOverlayInPreview(false);
+                      }}
+                      className={`p-2.5 rounded-xl border text-left flex flex-col items-center justify-center gap-2 transition-all cursor-pointer min-h-[140px] ${
+                        !selectedTemplateId
+                          ? 'bg-[#14161C] border-white shadow-sm ring-1 ring-white'
+                          : 'bg-[#14161C] border-white/[0.06] hover:border-white/20'
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center text-neutral-300">
+                        <Layers className="w-4 h-4 text-neutral-400" />
+                      </div>
+                      <span className="text-[11px] font-semibold text-white truncate w-full text-center">
+                        Tanpa Bingkai (Polos)
+                      </span>
+                    </button>
+
                     {templates.map((tmpl) => {
                       const isSelected = tmpl.id === selectedTemplateId;
                       return (

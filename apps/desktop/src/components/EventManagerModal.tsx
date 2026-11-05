@@ -658,7 +658,7 @@ export const EventManagerModal: React.FC<EventManagerModalProps> = ({
                   autoFocus
                   value={createName}
                   onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="Contoh: Wedding Bayu & Irma / Sweet 17th Jessica"
+                  placeholder="Contoh: The Annual Celebration / Sweet 17th Jessica"
                   className="w-full h-11 px-3.5 rounded-xl bg-[#171920] border border-white/[0.1] text-xs font-medium text-white placeholder:text-neutral-500 outline-none focus:border-white/40 transition-colors"
                 />
               </div>
@@ -685,7 +685,7 @@ export const EventManagerModal: React.FC<EventManagerModalProps> = ({
                     type="text"
                     value={createHost}
                     onChange={(e) => setCreateHost(e.target.value)}
-                    placeholder="Contoh: Bayu & Irma"
+                    placeholder="Contoh: Sarah & Michael / Perusahaan ABC"
                     className="w-full h-11 px-3.5 rounded-xl bg-[#171920] border border-white/[0.1] text-xs font-medium text-white placeholder:text-neutral-500 outline-none focus:border-white/40 transition-colors"
                   />
                 </div>

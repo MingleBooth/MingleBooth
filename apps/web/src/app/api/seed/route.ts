@@ -45,15 +45,15 @@ export async function POST(req: NextRequest) {
       .upsert(
         {
           organization_id: org.id,
-          name: 'Wedding Bayu & Irma',
-          slug: 'bayu-irma-wedding',
+          name: 'The Celebration 2026',
+          slug: 'celebration-2026',
           status: 'active',
           date: '2026-08-29',
           branding_json: {
-            eventName: 'Wedding Bayu & Irma',
-            hostNames: 'Bayu & Irma',
+            eventName: 'The Celebration 2026',
+            hostNames: 'Sarah & Michael',
             dateFormatted: '29 August 2026',
-            hashtag: '#BayuIrmaForever',
+            hashtag: '#Celebration2026',
           },
         },
         { onConflict: 'organization_id,slug' }

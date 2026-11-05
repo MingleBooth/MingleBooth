@@ -6,7 +6,7 @@ export type OutputType = 'photo' | 'gif' | 'both';
 
 export interface EventBranding {
   eventName: string;
-  hostNames?: string; // e.g. "Bayu & Irma"
+  hostNames?: string; // e.g. "Sarah & Michael"
   dateFormatted?: string; // e.g. "29 August 2026"
   primaryColor?: string;
   logoUrl?: string;

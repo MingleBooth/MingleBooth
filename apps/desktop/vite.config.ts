@@ -4,25 +4,25 @@ import path from 'path';
 import { exec } from 'child_process';
 import fs from 'fs';
 import os from 'os';
+import { createRequire } from 'node:module';
 
 function localDevStoragePlugin(): Plugin {
   return {
     name: 'local-dev-storage-plugin',
     configureServer(server) {
       // Start Local Tether Hub for Remote PC / Tablet Booth mode
-      import('./electron/tether-server.cjs').then((mod) => {
-        try {
-          const fn = mod.getTetherServer || (mod as any).default?.getTetherServer;
-          if (typeof fn === 'function') {
-            const tether = fn(4848);
-            tether.start();
-          }
-        } catch (e) {
-          console.warn('[Vite Dev Tether Server]:', e);
+      try {
+        const nodeRequire = createRequire(import.meta.url);
+        const tetherPath = path.resolve(__dirname, 'electron/tether-server.cjs');
+        const mod = nodeRequire(tetherPath);
+        const fn = mod.getTetherServer || (mod as any).default?.getTetherServer;
+        if (typeof fn === 'function') {
+          const tether = fn(4848);
+          tether.start();
         }
-      }).catch((err) => {
-        console.warn('[Vite Dev Tether Server Import Error]:', err);
-      });
+      } catch (e) {
+        console.warn('[Vite Dev Tether Server Error]:', e);
+      }
 
       // 1. Open Folder Endpoint
       server.middlewares.use('/api/storage/open-folder', (req, res) => {
@@ -247,7 +247,7 @@ function localDevStoragePlugin(): Plugin {
               JSON.stringify(
                 {
                   photoId,
-                  eventId: eventId || 'evt_bayu_irma_2026',
+                  eventId: eventId || 'evt_celebration_2026',
                   createdAt: new Date().toISOString(),
                   hasGif,
                   rawCount: rawFileCount,
