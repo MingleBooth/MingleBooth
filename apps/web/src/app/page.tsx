@@ -2,656 +2,498 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import type { User } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
-import {
-  Camera,
-  Layers,
-  QrCode,
-  HardDrive,
-  ShieldCheck,
-  ArrowRight,
-  CreditCard,
-  WifiOff,
-  ChevronRight,
-  LogIn,
-  UserPlus,
-  Menu,
-  X,
-  Download,
-  LayoutDashboard,
-  LogOut,
-  Play,
-  Laptop,
-} from 'lucide-react';
+import { Camera, Play, Pause, Sparkles } from 'lucide-react';
+import { Navbar } from '@/components/Navbar';
+import { Footer } from '@/components/Footer';
+
+const PHOTO_POSES = [
+  {
+    id: 1,
+    url: '/demo/pose_1.jpg',
+    label: 'Pose 1: Senyum Hangat',
+    caption: 'Smile 📸',
+  },
+  {
+    id: 2,
+    url: '/demo/pose_2.jpg',
+    label: 'Pose 2: Peace & Finger Heart',
+    caption: 'Peace ✌️',
+  },
+  {
+    id: 3,
+    url: '/demo/pose_3.jpg',
+    label: 'Pose 3: Kacamata Pesta',
+    caption: 'Party 🕶️',
+  },
+  {
+    id: 4,
+    url: '/demo/pose_4.jpg',
+    label: 'Pose 4: Jempol & Rayakan',
+    caption: 'Cheers! 👍',
+  },
+];
+
+// Strip photo uses 2 grids only for a compact, well-proportioned layout
+const STRIP_POSES = PHOTO_POSES.slice(0, 2);
 
 export default function LandingPage() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [activeSlide, setActiveSlide] = useState<'photo' | 'gif'>('photo');
+  const [isShooting, setIsShooting] = useState(false);
+  const [activeShootingIndex, setActiveShootingIndex] = useState<number | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [flash, setFlash] = useState(false);
+  const [gifPaused, setGifPaused] = useState(false);
+  const [gifFrameIndex, setGifFrameIndex] = useState(0);
 
+  // 2-Pose Boomerang Loop Animation (alternating between Pose 1 and Pose 2)
   useEffect(() => {
-    // Cek session saat ini
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setAuthLoading(false);
-    });
+    if (gifPaused) return;
+    const interval = setInterval(() => {
+      setGifFrameIndex((prev) => (prev === 0 ? 1 : 0));
+    }, 450);
 
-    // Subscribe ke perubahan auth (login/logout real-time)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
+    return () => clearInterval(interval);
+  }, [gifPaused]);
 
-    return () => subscription.unsubscribe();
-  }, []);
+  // Demo Shutter Simulation (2 Grids)
+  const handleDemoShutter = () => {
+    if (isShooting) return;
+    setIsShooting(true);
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setMobileMenuOpen(false);
+    let currentSlot = 0;
+    const shootSlot = () => {
+      if (currentSlot >= 2) {
+        setIsShooting(false);
+        setActiveShootingIndex(null);
+        setCountdown(null);
+        return;
+      }
+
+      setActiveShootingIndex(currentSlot);
+      let count = 3;
+      setCountdown(count);
+
+      const countInterval = setInterval(() => {
+        count--;
+        if (count > 0) {
+          setCountdown(count);
+        } else {
+          clearInterval(countInterval);
+          setCountdown(null);
+
+          // Camera flash effect
+          setFlash(true);
+          setTimeout(() => setFlash(false), 180);
+
+          currentSlot++;
+          setTimeout(shootSlot, 500);
+        }
+      }, 450);
+    };
+
+    shootSlot();
   };
 
-  // Ambil inisial dari email untuk avatar
-  const userInitial = user?.email?.charAt(0).toUpperCase() ?? '?';
-  const userEmail = user?.email ?? '';
-  const demoTarget = user ? '/dashboard' : '/register';
-  const downloadTarget = '/download';
-
   return (
-    <div className="min-h-screen bg-[#090A0C] text-[#EDEDED] flex flex-col font-sans select-none antialiased">
-      {/* Top Navbar */}
-      <header className="h-16 px-4 sm:px-12 border-b border-white/[0.07] bg-[#090A0C]/90 backdrop-blur-md sticky top-0 z-50 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2.5 sm:gap-3 flex-shrink-0">
-          <img
-            src="/logo-minglebooth-header.png"
-            alt="MingleBooth"
-            className="h-8 sm:h-10 w-auto object-contain"
-          />
-          <span className="hidden sm:inline-block px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-white/[0.06] text-neutral-300 border border-white/[0.08]">
-            v1.0 Professional
-          </span>
-        </Link>
+    <div className="min-h-screen bg-mb-bg text-mb-ink flex flex-col font-sans antialiased selection:bg-[#FFD21F] selection:text-[#0B0B0D]">
+      <Navbar activePage="home" />
 
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-3 lg:gap-4 text-xs">
-          <Link
-            href={demoTarget}
-            className="px-3 py-1.5 rounded-lg text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 transition-colors flex items-center gap-1.5 whitespace-nowrap"
-          >
-            <Play className="w-3.5 h-3.5 text-amber-400" />
-            <span>Coba Demo</span>
-          </Link>
-          <Link
-            href="/billing"
-            className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors whitespace-nowrap"
-          >
-            Paket &amp; Lisensi
-          </Link>
-          <Link
-            href={downloadTarget}
-            className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors flex items-center gap-1.5 whitespace-nowrap"
-          >
-            <Download className="w-3.5 h-3.5 text-neutral-400" />
-            <span>Unduh Aplikasi</span>
-          </Link>
-
-          {/* Conditional Auth Buttons */}
-          {!authLoading && (
-            user ? (
-              /* === SUDAH LOGIN === */
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/dashboard"
-                  className="px-3.5 py-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap"
-                >
-                  <LayoutDashboard className="w-3.5 h-3.5" />
-                  <span>Dashboard</span>
-                </Link>
-                {/* Avatar dengan tooltip email */}
-                <div className="relative group">
-                  <button
-                    onClick={handleLogout}
-                    title={`Logout (${userEmail})`}
-                    className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold hover:ring-2 hover:ring-violet-400 transition-all"
-                  >
-                    {userInitial}
-                  </button>
-                  {/* Tooltip */}
-                  <div className="absolute right-0 top-full mt-2 px-2.5 py-1.5 rounded-lg bg-[#1C1F24] border border-white/[0.1] text-[11px] text-neutral-300 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-xl z-50">
-                    <span className="block text-neutral-400 mb-0.5">{userEmail}</span>
-                    <span className="flex items-center gap-1 text-red-400"><LogOut className="w-3 h-3" /> Klik untuk logout</span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* === BELUM LOGIN === */
-              <>
-                <Link
-                  href="/login"
-                  className="px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white hover:bg-white/[0.05] transition-colors flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  <LogIn className="w-3.5 h-3.5" />
-                  <span>Masuk</span>
-                </Link>
-                <Link
-                  href="/register"
-                  className="px-3.5 py-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold flex items-center gap-1.5 transition-colors shadow-sm whitespace-nowrap"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Daftar Vendor</span>
-                </Link>
-              </>
-            )
-          )}
-        </nav>
-
-        {/* Mobile Header Actions */}
-        <div className="flex md:hidden items-center gap-2">
-          {!authLoading && (
-            user ? (
-              /* === SUDAH LOGIN (mobile) === */
-              <>
-                <Link
-                  href="/dashboard"
-                  className="px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-transform"
-                >
-                  <LayoutDashboard className="w-3.5 h-3.5" />
-                  <span>Dashboard</span>
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  title={userEmail}
-                  className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold active:scale-95 transition-transform"
-                >
-                  {userInitial}
-                </button>
-              </>
-            ) : (
-              /* === BELUM LOGIN (mobile) === */
-              <>
-                <Link
-                  href="/login"
-                  className="px-2.5 py-1.5 rounded-lg text-neutral-300 hover:text-white text-xs font-medium flex items-center gap-1"
-                >
-                  <LogIn className="w-3.5 h-3.5" />
-                  <span>Masuk</span>
-                </Link>
-                <Link
-                  href="/register"
-                  className="px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs flex items-center gap-1 shadow-sm active:scale-95 transition-transform"
-                >
-                  <span>Daftar</span>
-                </Link>
-              </>
-            )
-          )}
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle navigation menu"
-            className="w-9 h-9 rounded-lg flex items-center justify-center text-neutral-300 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-colors"
-          >
-            {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-          </button>
-        </div>
-      </header>
-
-      {/* Mobile Drawer / Slide-Down Menu */}
-      {mobileMenuOpen && (
-        <div className="md:hidden fixed inset-x-0 top-16 bg-[#0E1014]/95 backdrop-blur-xl border-b border-white/[0.08] z-40 p-4 flex flex-col gap-3 shadow-2xl animate-fadeIn">
-          <Link
-            href={demoTarget}
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center justify-between px-3.5 py-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-300 text-sm font-medium transition-colors"
-          >
-            <span className="flex items-center gap-2.5">
-              <Play className="w-4 h-4 text-amber-400" />
-              <span>Coba Demo Kamera</span>
-            </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 uppercase">
-              Gratis
-            </span>
-          </Link>
-
-          <Link
-            href="/billing"
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center justify-between px-3.5 py-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] text-neutral-200 text-sm font-medium transition-colors"
-          >
-            <span className="flex items-center gap-2.5">
-              <CreditCard className="w-4 h-4 text-amber-400" />
-              <span>Paket &amp; Lisensi</span>
-            </span>
-            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-white/[0.08] text-neutral-300">
-              Lihat Harga
-            </span>
-          </Link>
-
-          <Link
-            href={downloadTarget}
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center justify-between px-3.5 py-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] text-neutral-200 text-sm font-medium transition-colors"
-          >
-            <span className="flex items-center gap-2.5">
-              <Download className="w-4 h-4 text-emerald-400" />
-              <span>Unduh MingleBooth Studio</span>
-            </span>
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              Android, Mac, Win
-            </span>
-          </Link>
-
-          {/* Conditional auth buttons di mobile drawer */}
-          {user ? (
-            /* === SUDAH LOGIN (drawer) === */
-            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/[0.06]">
-              <Link
-                href="/dashboard"
-                onClick={() => setMobileMenuOpen(false)}
-                className="h-10 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm col-span-2"
-              >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                <span>Masuk ke Dashboard</span>
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="h-10 rounded-xl bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] hover:border-red-500/20 text-neutral-300 hover:text-red-400 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors col-span-2"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Keluar ({userEmail})</span>
-              </button>
-            </div>
-          ) : (
-            /* === BELUM LOGIN (drawer) === */
-            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/[0.06]">
-              <Link
-                href="/login"
-                onClick={() => setMobileMenuOpen(false)}
-                className="h-10 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-neutral-200 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>Masuk</span>
-              </Link>
-              <Link
-                href="/register"
-                onClick={() => setMobileMenuOpen(false)}
-                className="h-10 rounded-xl bg-white hover:bg-neutral-200 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>Daftar Vendor</span>
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Hero Section */}
-      <section className="relative px-4 sm:px-6 py-14 sm:py-28 max-w-5xl mx-auto flex flex-col items-center text-center">
-        {/* Subtle Badge */}
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-[11px] sm:text-xs text-neutral-300 mb-6 sm:mb-8 text-center max-w-[95vw] leading-snug">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
-          <span>Sistem Operasi Photobooth Modern untuk Vendor Indonesia</span>
-        </div>
-
-        {/* Hero Title */}
-        <h1 className="text-2xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-white max-w-3xl leading-[1.2] sm:leading-[1.15]">
-          Ekosistem Photobooth Profesional.{' '}
-          <span className="text-neutral-400 font-normal block sm:inline mt-1 sm:mt-0">
-            Cepat, Tangguh, & <span className="whitespace-nowrap">100% Offline-First.</span>
-          </span>
-        </h1>
-
-        {/* Hero Subtitle */}
-        <p className="mt-4 sm:mt-6 text-xs sm:text-base text-neutral-400 max-w-2xl leading-relaxed px-2 sm:px-0">
-          Dirancang khusus untuk vendor wedding, corporate event, dan fotografer profesional.
-          Jepret instan tanpa jeda, simpan otomatis ke harddisk lokal, galeri QR digital kilat, serta sinkronisasi cloud cerdas.
-        </p>
-
-        {/* CTA Buttons */}
-        <div className="mt-8 sm:mt-10 flex flex-col sm:flex-row items-center justify-center gap-3 w-full max-w-md sm:max-w-none">
-          <Link
-            href={user ? "/dashboard" : "/register"}
-            className="h-11 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 shadow-md w-full sm:w-auto"
-          >
-            <span>{user ? "Buka Dashboard Vendor" : "Buat Akun Gratis"}</span>
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-
-          <Link
-            href={demoTarget}
-            className="h-11 px-5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto shadow-sm"
-          >
-            <Play className="w-4 h-4 text-amber-400 flex-shrink-0" />
-            <span>Coba Demo Gratis</span>
-          </Link>
-
-          <Link
-            href={downloadTarget}
-            className="h-11 px-5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
-          >
-            <Download className="w-4 h-4 text-neutral-300 flex-shrink-0" />
-            <span>Unduh Aplikasi Studio</span>
-          </Link>
-
-          <Link
-            href="/billing"
-            className="h-11 px-5 rounded-xl bg-[#14161A] hover:bg-[#1C1F24] border border-white/[0.08] text-neutral-300 hover:text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 text-center w-full sm:w-auto"
-          >
-            <CreditCard className="w-4 h-4 text-neutral-400 flex-shrink-0" />
-            <span>Paket &amp; Lisensi</span>
-          </Link>
-        </div>
-
-        {/* Key Feature Stats Cards */}
-        <div className="mt-12 sm:mt-16 pt-8 border-t border-white/[0.06] grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4 w-full max-w-4xl text-left">
-          <div className="p-3.5 sm:p-4 rounded-xl bg-white/[0.02] sm:bg-transparent border border-white/[0.05] sm:border-0">
-            <span className="text-lg sm:text-xl font-bold text-white block">0 Detik</span>
-            <span className="text-[11px] sm:text-xs text-neutral-400 leading-tight block mt-0.5">
-              Shutter Instan Tanpa Lag
-            </span>
-          </div>
-          <div className="p-3.5 sm:p-4 rounded-xl bg-white/[0.02] sm:bg-transparent border border-white/[0.05] sm:border-0">
-            <span className="text-lg sm:text-xl font-bold text-white block">Offline First</span>
-            <span className="text-[11px] sm:text-xs text-neutral-400 leading-tight block mt-0.5">
-              Penyimpanan Harddisk Aman
-            </span>
-          </div>
-          <div className="p-3.5 sm:p-4 rounded-xl bg-white/[0.02] sm:bg-transparent border border-white/[0.05] sm:border-0">
-            <span className="text-lg sm:text-xl font-bold text-white block">QR Instant</span>
-            <span className="text-[11px] sm:text-xs text-neutral-400 leading-tight block mt-0.5">
-              Download Kilat via HP
-            </span>
-          </div>
-          <div className="p-3.5 sm:p-4 rounded-xl bg-white/[0.02] sm:bg-transparent border border-white/[0.05] sm:border-0">
-            <span className="text-lg sm:text-xl font-bold text-white block">Lynk.id Ready</span>
-            <span className="text-[11px] sm:text-xs text-neutral-400 leading-tight block mt-0.5">
-              Pembayaran &amp; Lisensi Auto
-            </span>
-          </div>
-        </div>
-      </section>
-
-      {/* Demo Mode Showcase Section */}
-      <section id="demo-mode" className="px-4 sm:px-6 py-14 sm:py-20 bg-gradient-to-b from-[#090A0C] via-[#101217] to-[#0E1013] border-t border-amber-500/20 relative overflow-hidden">
-        <div className="absolute top-0 right-1/4 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="max-w-5xl mx-auto flex flex-col gap-10 relative z-10">
-          <div className="flex flex-col gap-3 text-center sm:text-left max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-semibold w-fit mx-auto sm:mx-0">
-              <Play className="w-3.5 h-3.5 text-amber-400" />
-              <span>COBA DEMO GRATIS • 100% OFFLINE</span>
-            </div>
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-white leading-tight">
-              Uji Coba MingleBooth Studio di Laptop Anda Sebelum Berlangganan
-            </h2>
-            <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed">
-              Daftar akun gratis di MingleBooth, unduh MingleBooth Studio, dan masuk dengan akun Anda. Akun tanpa langganan aktif otomatis disajikan dalam Mode Demo untuk menguji coba koneksi kamera fisik Sony atau webcam secara lokal sebelum berlangganan.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {/* Card 1: Real Camera Support */}
-            <div className="p-6 rounded-2xl bg-[#14161B] border border-white/[0.08] hover:border-amber-500/30 transition-colors flex flex-col gap-4">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                <Camera className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-white">1. Uji Kamera Sony &amp; Webcam</h3>
-                <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
-                  Dukungan penuh untuk kamera mirrorless Sony (Sony Remote SDK via USB), tethering Sony Alpha, atau webcam bawaan laptop. Uji live view 30fps dan shutter tanpa lag secara langsung di venue Anda.
-                </p>
-              </div>
-            </div>
-
-            {/* Card 2: Isolated Local Storage */}
-            <div className="p-6 rounded-2xl bg-[#14161B] border border-white/[0.08] hover:border-amber-500/30 transition-colors flex flex-col gap-4">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                <HardDrive className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-white">2. Data Lokal Terisolasi &amp; Bersih</h3>
-                <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
-                  Semua jepretan demo disimpan sementara di folder lokal khusus (<code className="text-neutral-300 font-mono text-[11px]">data/demo</code>) dan <strong>TIDAK PERNAH diunggah ke Supabase atau galeri cloud</strong>. Data demo dibersihkan saat sesi berakhir.
-                </p>
-              </div>
-            </div>
-
-            {/* Card 3: Paid Subscription Unlock */}
-            <div className="p-6 rounded-2xl bg-[#14161B] border border-white/[0.08] hover:border-amber-500/30 transition-colors flex flex-col gap-4">
-              <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-white">3. Buka Fitur Penuh saat Siap</h3>
-                <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
-                  Setelah Anda puas dengan hasil pengujian, aktifkan paket langganan untuk membuka Galeri Cloud Tamu, Live QR Code instan via smartphone, sinkronisasi cloud multi-perangkat, dan cetak komersial.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Bottom Action Bar */}
-          <div className="p-6 sm:p-7 rounded-2xl bg-[#12141A] border border-amber-500/20 flex flex-col sm:flex-row items-center justify-between gap-5">
-            <div className="flex flex-col gap-1 text-center sm:text-left">
-              <h4 className="text-sm font-semibold text-white">Siap Menguji Coba di Laptop Anda?</h4>
-              <p className="text-xs text-neutral-400">
-                Buat akun gratis sekarang untuk mengunduh MingleBooth Studio dan menguji coba photobooth secara lokal.
+      {/* Hero Section (Deep Black Header) */}
+      <section className="bg-[#0B0B0D] text-white border-b border-white/10 pt-10 sm:pt-14 pb-16 sm:pb-20">
+        <div className="max-w-[1080px] mx-auto px-5">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+            {/* Left Copy */}
+            <div className="lg:col-span-7 flex flex-col items-start">
+              <div className="eyebrow">EKOSISTEM PHOTOBOOTH PROFESIONAL</div>
+              <h1 className="text-[34px] sm:text-[46px] lg:text-[54px] font-extrabold font-heading tracking-heading leading-heading text-white">
+                Cepat, Tangguh, &amp; 100% Offline-First.
+              </h1>
+              <p className="mt-4 mb-8 text-[#C9C9CE] text-base sm:text-[18px] leading-relaxed max-w-[50ch]">
+                Sistem operasi photobooth modern offline-first untuk vendor wedding, corporate event, dan fotografer di Indonesia. Jepret, simpan, dan bagikan foto tamu lewat QR, semua dari satu aplikasi. Tetap jalan walau internet mati.
               </p>
+
+              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                <Link
+                  href="/register"
+                  className="px-6 py-3.5 rounded-full bg-white text-[#0B0B0D] font-heading font-bold text-base hover:bg-neutral-100 transition-all shadow-md active:scale-98"
+                >
+                  Buat Akun Gratis
+                </Link>
+                <a
+                  href="#demo"
+                  className="px-6 py-3.5 rounded-full bg-transparent text-white border-2 border-white/80 font-heading font-bold text-base hover:bg-white/10 transition-all active:scale-98"
+                >
+                  Coba Demo Gratis
+                </a>
+              </div>
+
+              {/* Supported Platforms */}
+              <div className="flex flex-wrap items-center gap-2 mt-8">
+                {['Mac', 'Windows', 'Android', 'iOS Companion'].map((plat) => (
+                  <span
+                    key={plat}
+                    className="px-3 py-1 rounded-full text-[12px] font-medium border border-white/20 text-[#E2E2E6]"
+                  >
+                    {plat}
+                  </span>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-center">
-              <Link
-                href={user ? "/dashboard" : "/register"}
-                className="h-10 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md"
-              >
-                <span>{user ? "Ke Dashboard & Unduh" : "Buat Akun Gratis"}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-              <Link
-                href="/billing"
-                className="h-10 px-5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white font-medium text-xs flex items-center justify-center gap-2 transition-all active:scale-95"
-              >
-                <span>Lihat Paket Lisensi</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
+
+            {/* Right Product Visual Interactive Showcase */}
+            <div className="lg:col-span-5 flex flex-col items-center justify-center">
+              <div className="w-full flex flex-col items-center">
+                {activeSlide === 'photo' ? (
+                  /* Compact 2-Grid Photo Strip (Spacious, Well-Proportioned & Non-overflowing) */
+                  <div className="flex flex-col items-center">
+                    <div className="relative w-[215px] sm:w-[225px] bg-white text-[#0B0B0D] p-3 pb-3.5 rounded-xl shadow-2xl rotate-1 hover:rotate-0 transition-transform duration-300">
+                      {/* White Camera Flash Overlay */}
+                      {flash && (
+                        <div className="absolute inset-0 bg-white z-40 rounded-xl animate-flash pointer-events-none" />
+                      )}
+
+                      {/* 2 Strip Photo Grids (Compact 2-Pose Photostrip) */}
+                      <div className="space-y-2.5">
+                        {STRIP_POSES.map((pose, idx) => {
+                          const isCurrentActive = activeShootingIndex === idx;
+
+                          return (
+                            <div
+                              key={pose.id}
+                              className="h-[148px] sm:h-[156px] w-full rounded-lg bg-[#ECECE8] overflow-hidden relative border border-black/[0.06] flex items-center justify-center shadow-inner"
+                            >
+                              {/* Proportional studio portrait framing: balanced headroom, body visible, perfectly centered */}
+                              <img
+                                src={pose.url}
+                                alt={pose.label}
+                                className="w-full h-full object-cover animate-fadeIn"
+                                style={{ objectPosition: 'center 26%' }}
+                              />
+
+                              {/* Countdown Overlay for Active Slot */}
+                              {countdown !== null && isCurrentActive && (
+                                <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-30 backdrop-blur-[1px]">
+                                  <span className="text-3xl font-extrabold font-heading text-[#FFD21F] animate-ping">
+                                    {countdown}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Strip Footer Brand Label */}
+                      <div className="mt-2.5 pt-2 border-t border-neutral-200 text-center flex flex-col items-center">
+                        <span className="font-heading font-extrabold text-[11px] tracking-wider text-[#0B0B0D] uppercase leading-none">
+                          MingleBooth
+                        </span>
+                        <span className="text-[8px] font-mono text-neutral-500 tracking-widest mt-1">
+                          2026 &middot; SETIAP MOMEN BERARTI
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Interactive Shutter Trigger Button */}
+                    <button
+                      onClick={handleDemoShutter}
+                      disabled={isShooting}
+                      className="mt-3.5 w-[215px] sm:w-[225px] py-2.5 px-4 rounded-xl bg-white hover:bg-neutral-200 text-[#0B0B0D] text-xs font-heading font-bold shadow-lg disabled:opacity-60 transition-all flex items-center justify-center gap-2 active:scale-95"
+                    >
+                      {isShooting ? (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                          <span>Menjepret Foto {((activeShootingIndex ?? 0) + 1)}/2...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="w-3.5 h-3.5 text-[#0B0B0D]" />
+                          <span>Klik Tes Shutter 📸</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  /* Dynamic Boomerang GIF Showcase (Landscape Orientation) */
+                  <div className="flex flex-col items-center w-full max-w-[380px] sm:max-w-[420px]">
+                    <div
+                      onClick={() => setGifPaused(!gifPaused)}
+                      className="relative w-full bg-white text-[#0B0B0D] p-3 rounded-2xl shadow-2xl cursor-pointer -rotate-1 hover:rotate-0 transition-transform duration-300 group select-none"
+                    >
+                      {/* Active GIF Frame Display in Widescreen Landscape (16:10 aspect ratio) - Completely Clean without Text Overlays */}
+                      <div className="relative aspect-[16/10] w-full rounded-xl overflow-hidden bg-neutral-900 border border-black/10 shadow-inner">
+                        <img
+                          src={STRIP_POSES[gifFrameIndex].url}
+                          alt={STRIP_POSES[gifFrameIndex].label}
+                          className="w-full h-full object-cover transition-opacity duration-150"
+                          style={{ objectPosition: 'center 26%' }}
+                        />
+
+                        {/* Center Pause Overlay Icon on Hover */}
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="w-12 h-12 rounded-full bg-black/70 backdrop-blur-sm text-white flex items-center justify-center shadow-lg">
+                            {gifPaused ? (
+                              <Play className="w-5 h-5 ml-0.5 fill-white" />
+                            ) : (
+                              <Pause className="w-5 h-5 fill-white" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Footer Brand Label (Clean & Minimal matching photostrip) */}
+                      <div className="mt-2.5 pt-2 border-t border-neutral-200 text-center flex flex-col items-center">
+                        <span className="font-heading font-extrabold text-[11px] tracking-wider text-[#0B0B0D] uppercase leading-none">
+                          MingleBooth
+                        </span>
+                        <span className="text-[8px] font-mono text-neutral-500 tracking-widest mt-1">
+                          2026 &middot; LIVE BOOMERANG
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-neutral-400 mt-2 text-center">
+                      GIF photobooth format landscape menggabungkan multi-pose jepretan menjadi animasi stop-motion looping otomatis.
+                    </p>
+                  </div>
+                )}
+
+                {/* Showcase Switcher Pills */}
+                <div className="flex items-center gap-2 mt-5">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSlide('photo')}
+                    className={`px-4 py-1.5 rounded-full text-xs font-heading font-bold transition-all ${
+                      activeSlide === 'photo'
+                        ? 'bg-white text-[#0B0B0D] shadow-md'
+                        : 'bg-white/10 text-white hover:bg-white/20'
+                    }`}
+                  >
+                    Strip Foto (2 Grid)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSlide('gif')}
+                    className={`px-4 py-1.5 rounded-full text-xs font-heading font-bold transition-all ${
+                      activeSlide === 'gif'
+                        ? 'bg-white text-[#0B0B0D] shadow-md'
+                        : 'bg-white/10 text-white hover:bg-white/20'
+                    }`}
+                  >
+                    Boomerang GIF
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 4 Stats Value Proposition Bar */}
+        <div className="max-w-[1080px] mx-auto px-5 mt-14 pt-8 border-t border-white/15">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-left">
+            <div className="pr-4 md:border-r border-white/15">
+              <span className="block font-heading font-extrabold text-[26px] text-[#FFD21F] tracking-tight">
+                0 Detik
+              </span>
+              <span className="text-sm text-[#B8B8BE]">Shutter instan tanpa lag</span>
+            </div>
+            <div className="pr-4 md:border-r border-white/15">
+              <span className="block font-heading font-extrabold text-[26px] text-[#FFD21F] tracking-tight">
+                Offline First
+              </span>
+              <span className="text-sm text-[#B8B8BE]">Berjalan 100% tanpa internet</span>
+            </div>
+            <div className="pr-4 md:border-r border-white/15">
+              <span className="block font-heading font-extrabold text-[26px] text-[#FFD21F] tracking-tight">
+                1 Detik QR
+              </span>
+              <span className="text-sm text-[#B8B8BE]">Tamu scan &amp; unduh seketika</span>
+            </div>
+            <div>
+              <span className="block font-heading font-extrabold text-[26px] text-[#FFD21F] tracking-tight">
+                Sony Native
+              </span>
+              <span className="text-sm text-[#B8B8BE]">Direct USB PTP tethering</span>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Core Ecosystem Section */}
-      <section className="px-4 sm:px-6 py-12 sm:py-16 bg-[#0E1013] border-y border-white/[0.06]">
-        <div className="max-w-5xl mx-auto flex flex-col gap-8 sm:gap-10">
-          <div className="flex flex-col gap-1.5 sm:gap-2 text-left sm:text-left">
-            <span className="text-[11px] sm:text-xs font-mono text-neutral-400 uppercase tracking-wider">
-              Arsitektur Lengkap
-            </span>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-              Tiga Pilar Utama MingleBooth
-            </h2>
-            <p className="text-xs sm:text-sm text-neutral-400 max-w-xl">
-              Solusi all-in-one dari pendaftaran vendor di web hingga pengoperasian booth di venue.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Card 1: Studio App */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-[#14161A] border border-white/[0.07] flex flex-col justify-between gap-5 sm:gap-6 hover:border-white/20 transition-colors">
-              <div className="flex flex-col gap-3">
-                <div className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white">
-                  <Camera className="w-4 h-4 text-emerald-400" />
-                </div>
-                <h3 className="text-sm sm:text-base font-semibold text-white">1. Unduh Software Studio</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Setelah berlangganan di web, unduh aplikasi Studio untuk laptop Mac atau Windows Anda. Masuk sekali untuk menghubungkan perangkat laptop booth Anda.
-                </p>
-              </div>
-
-              <Link
-                href={downloadTarget}
-                className="text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 pt-4 border-t border-white/[0.04] whitespace-nowrap"
-              >
-                <span>Unduh Aplikasi (Android, Mac, Win)</span>
-                <ChevronRight className="w-3.5 h-3.5 text-neutral-500" />
-              </Link>
-            </div>
-
-            {/* Card 2: Vendor Console */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-[#14161A] border border-white/[0.07] flex flex-col justify-between gap-5 sm:gap-6 hover:border-white/20 transition-colors">
-              <div className="flex flex-col gap-3">
-                <div className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white">
-                  <Layers className="w-4 h-4 text-sky-400" />
-                </div>
-                <h3 className="text-sm sm:text-base font-semibold text-white">2. Vendor Cloud Console</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Pusat kendali vendor. Buat event pernikahan & corporate, upload frame PNG transparan kustom, atur tata letak slot, dan kelola kuota perangkat booth Anda.
-                </p>
-              </div>
-
-              <Link
-                href={user ? "/dashboard" : "/login"}
-                className="text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 pt-4 border-t border-white/[0.04]"
-              >
-                <span>{user ? "Buka Dashboard Vendor" : "Masuk ke Console"}</span>
-                <ChevronRight className="w-3.5 h-3.5 text-neutral-500" />
-              </Link>
-            </div>
-
-            {/* Card 3: Guest Mobile Gallery */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-[#14161A] border border-white/[0.07] flex flex-col justify-between gap-5 sm:gap-6 hover:border-white/20 transition-colors">
-              <div className="flex flex-col gap-3">
-                <div className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white">
-                  <QrCode className="w-4 h-4 text-purple-400" />
-                </div>
-                <h3 className="text-sm sm:text-base font-semibold text-white">3. Galeri Digital Tamu</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Tamu cukup scan QR Code di layar booth untuk membuka galeri mobile kilat dan mengunduh foto JPG resolusi tinggi atau animasi GIF langsung ke smartphone.
-                </p>
-              </div>
-
-              <Link
-                href="/p/sample_guest_gallery"
-                className="text-xs font-medium text-neutral-300 hover:text-white flex items-center gap-1.5 pt-4 border-t border-white/[0.04]"
-              >
-                <span>Lihat Preview Galeri Tamu</span>
-                <ChevronRight className="w-3.5 h-3.5 text-neutral-500" />
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Why Choose MingleBooth Section */}
-      <section className="px-4 sm:px-6 py-12 sm:py-16 max-w-5xl mx-auto w-full flex flex-col gap-8">
-        <div className="flex flex-col gap-1 text-center max-w-lg mx-auto">
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-            Dibangun untuk Keandalan di Lapangan
+      {/* Demo Workflow Section */}
+      <section id="demo" className="py-20 max-w-[1080px] mx-auto px-5 w-full">
+        <div className="text-center max-w-[640px] mx-auto mb-16">
+          <div className="eyebrow">ALUR KERJA OPERATOR</div>
+          <h2 className="text-[32px] sm:text-[42px] font-extrabold font-heading tracking-heading leading-heading text-mb-ink">
+            Tiga Langkah Sederhana dari Jepretan ke Galeri Tamu.
           </h2>
-          <p className="text-xs sm:text-sm text-neutral-400">
-            Setiap fitur dirancang untuk menghilangkan resiko gagal foto di pesta pernikahan dan event besar.
+          <p className="mt-4 text-mb-muted text-lg">
+            Didesain khusus untuk operator photobooth di lapangan: cepat, tanpa friksi, dan siap menangani antrean tamu panjang.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4">
-          <div className="p-5 rounded-2xl bg-[#121316] border border-white/[0.06] flex items-start gap-3.5 sm:gap-4">
-            <HardDrive className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-sm font-semibold text-white">Folder Fisik Lokal Terisolasi</h4>
-              <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                Seluruh foto mentah (<code className="text-[11px] text-neutral-300 font-mono">raw/</code>) dan foto jadi berbingkai (<code className="text-[11px] text-neutral-300 font-mono">processed/</code>) tersimpan otomatis di harddisk laptop Anda. Aman tanpa takut internet mati.
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {[
+            {
+              num: 1,
+              title: 'Pilih Template & Mulai',
+              desc: 'Pilih format cetak 4R, 2×6 photo strip, atau square. Atur judul acara, bingkai transparan, dan branding vendor.',
+            },
+            {
+              num: 2,
+              title: 'Jepret dengan Sony Mirrorless',
+              desc: 'Live view tajam 30fps pada layar laptop booth. Hitung mundur otomatis dan shutter instan lewat kabel USB tethering.',
+            },
+            {
+              num: 3,
+              title: 'Cetak Cepat & Scan QR',
+              desc: 'Foto langsung diproses oleh compositor lokal. Cetak ke printer dye-sublimation dan tampilkan QR instan untuk tamu.',
+            },
+          ].map((step) => (
+            <div
+              key={step.num}
+              className="p-8 rounded-2xl bg-mb-surface border border-mb-line flex flex-col items-start gap-4 shadow-sm hover:shadow-md transition-shadow"
+            >
+              <div className="step-number-circle">{step.num}</div>
+              <h3 className="text-xl font-extrabold font-heading text-mb-ink mt-2">
+                {step.title}
+              </h3>
+              <p className="text-mb-muted text-base leading-relaxed">
+                {step.desc}
               </p>
             </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 3 Ecosystem Pillars (Dark Editorial Style) */}
+      <section className="bg-[#0B0B0D] text-white py-20 border-y border-white/10">
+        <div className="max-w-[1080px] mx-auto px-5">
+          <div className="text-center max-w-[640px] mx-auto mb-16">
+            <div className="eyebrow">ARSITEKTUR MINGLEBOOTH</div>
+            <h2 className="text-[32px] sm:text-[42px] font-extrabold font-heading tracking-heading leading-heading text-white">
+              Tiga Pilar yang Memastikan Acara Anda Berjalan Sempurna.
+            </h2>
+            <p className="mt-4 text-[#C9C9CE] text-lg">
+              Solusi end-to-end yang menggabungkan aplikasi kiosk laptop, galeri awan tamu, dan konsol manajemen vendor.
+            </p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-[#121316] border border-white/[0.06] flex items-start gap-3.5 sm:gap-4">
-            <WifiOff className="w-5 h-5 text-sky-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-sm font-semibold text-white">Auto-Resume Background Sync</h4>
-              <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                Jika koneksi WiFi venue terputus, antrean upload disimpan di database lokal SQLite dan otomatis melanjutkan sinkronisasi ke cloud saat internet terhubung kembali.
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="pillar-card">
+              <span className="text-[12px] font-mono uppercase tracking-widest text-[#FFD21F] mb-3 block">
+                01 / KIOSK DESKTOP
+              </span>
+              <h3 className="text-2xl font-extrabold font-heading text-white mb-3">
+                MingleBooth Studio
+              </h3>
+              <p className="text-[#C9C9CE] text-base leading-relaxed">
+                Aplikasi native untuk Windows dan macOS. Mengendalikan kamera Sony secara langsung via USB SDK, live preview mulus tanpa jeda, komposit foto offline, dan antrean cetak otomatis.
               </p>
             </div>
-          </div>
 
-          <div className="p-5 rounded-2xl bg-[#121316] border border-white/[0.06] flex items-start gap-3.5 sm:gap-4">
-            <CreditCard className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-sm font-semibold text-white">Langganan Otomatis via Lynk.id</h4>
-              <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                Dukungan pembayaran QRIS, Virtual Account BCA, Mandiri, BRI, dan E-Wallet dengan perpanjangan lisensi otomatis (+365 hari) melalui sistem webhook terenkripsi SHA-256.
+            <div className="pillar-card">
+              <span className="text-[12px] font-mono uppercase tracking-widest text-[#FFD21F] mb-3 block">
+                02 / GUEST CLOUD
+              </span>
+              <h3 className="text-2xl font-extrabold font-heading text-white mb-3">
+                Live QR &amp; Guest Gallery
+              </h3>
+              <p className="text-[#C9C9CE] text-base leading-relaxed">
+                Tamu cukup memindai QR code di layar booth untuk membuka galeri pribadi di smartphone mereka. Unduh foto asli resolusi penuh, boomerang GIF animasi, atau unduh paket ZIP lengkap.
               </p>
             </div>
-          </div>
 
-          <div className="p-5 rounded-2xl bg-[#121316] border border-white/[0.06] flex items-start gap-3.5 sm:gap-4">
-            <ShieldCheck className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-sm font-semibold text-white">Keamanan & Privasi Data Vendor</h4>
-              <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                Sistem cloud terenkripsi menjaga seluruh galeri foto tamu, desain template, dan lisensi armada booth Anda tetap aman, cepat, dan terlindungi.
+            <div className="pillar-card">
+              <span className="text-[12px] font-mono uppercase tracking-widest text-[#FFD21F] mb-3 block">
+                03 / VENDOR PORTAL
+              </span>
+              <h3 className="text-2xl font-extrabold font-heading text-white mb-3">
+                Vendor Console
+              </h3>
+              <p className="text-[#C9C9CE] text-base leading-relaxed">
+                Pusat kendali berbasis web untuk pemilik vendor photobooth. Buat jadwal event baru, unggah desain bingkai PNG kustom, kelola armada laptop operator, dan pantau langganan lisensi.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="mt-auto border-t border-white/[0.06] px-4 sm:px-12 py-10 sm:py-12 bg-[#060709] text-xs text-neutral-500 flex flex-col items-center gap-6 sm:gap-8">
-        {/* Footer Brand Lockup */}
-        <div className="flex flex-col items-center gap-3 text-center">
-          <a
-            href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group block transition-transform hover:scale-105"
-            title="Kunjungi Instagram @sebuah.kenang"
-          >
-            <img
-              src="/logo-footer-sebuahkenang.png"
-              alt="MingleBooth by sebuah.kenang"
-              className="h-14 sm:h-20 w-auto object-contain transition-opacity group-hover:opacity-90"
-            />
-          </a>
+      {/* Field Reliability / Features Section */}
+      <section className="py-20 max-w-[1080px] mx-auto px-5 w-full">
+        <div className="text-center max-w-[640px] mx-auto mb-16">
+          <div className="eyebrow">KETANGGUHAN LAPANGAN</div>
+          <h2 className="text-[32px] sm:text-[42px] font-extrabold font-heading tracking-heading leading-heading text-mb-ink">
+            Dibangun untuk Situasi Nyata di Lapangan Event.
+          </h2>
+          <p className="mt-4 text-mb-muted text-lg">
+            Karena di tengah acara pernikahan atau gala dinner 1.000 tamu, Anda tidak boleh bergantung pada sinyal internet yang tidak stabil.
+          </p>
         </div>
 
-        {/* Navigation Links */}
-        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 sm:gap-8 text-neutral-400 font-medium text-center">
-          {/* Footer: conditional login/dashboard */}
-          {user ? (
-            <Link href="/dashboard" className="hover:text-white transition-colors">
-              Dashboard Vendor
-            </Link>
-          ) : (
-            <>
-              <Link href="/login" className="hover:text-white transition-colors">
-                Masuk Vendor
-              </Link>
-              <Link href="/register" className="hover:text-white transition-colors">
-                Daftar Akun
-              </Link>
-            </>
-          )}
-          <Link href="/billing" className="hover:text-white transition-colors">
-            Paket Lisensi
-          </Link>
-          <Link href="/admin" className="hover:text-white transition-colors text-neutral-500 hover:text-neutral-300">
-            Admin Backend
-          </Link>
-        </div>
-
-        {/* Copyright & Tagline */}
-        <div className="pt-6 border-t border-white/[0.06] w-full max-w-4xl flex flex-col sm:flex-row items-center justify-between gap-3 text-neutral-500 text-[11px] text-center sm:text-left">
-          <span>
-            © 2026 MingleBooth by{' '}
-            <a
-              href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-neutral-300 hover:text-white underline decoration-white/30 hover:decoration-white transition-colors font-medium"
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[
+            {
+              title: 'Kamera Sony & Webcam',
+              desc: 'Mendukung Sony Alpha A6000–A7 IV lewat koneksi USB PTP langsung, serta webcam USB untuk booth kompak.',
+            },
+            {
+              title: 'Penyimpanan Offline Lokal',
+              desc: 'Foto dan GIF tersimpan aman di SSD lokal operator terlebih dahulu, siap disinkronkan ke cloud saat koneksi tersedia.',
+            },
+            {
+              title: 'Dukungan Printer Dye-Sub',
+              desc: 'Kompatibel dengan printer foto komersial seperti DNP RX1HS, DS620, Citizen, dan HiTi untuk cetak dalam 10 detik.',
+            },
+            {
+              title: 'Multi-Device Fleet',
+              desc: 'Gunakan satu akun vendor untuk mengoperasikan beberapa booth sekaligus di berbagai lokasi acara berbeda.',
+            },
+          ].map((f, idx) => (
+            <div
+              key={idx}
+              className="p-6 rounded-2xl bg-mb-surface border border-mb-line flex flex-col gap-2 shadow-sm"
             >
-              sebuah.kenang
-            </a>
-            . Setiap Momen Berarti. Hak Cipta Dilindungi.
-          </span>
-          <span className="text-neutral-600">Professional Photobooth Operating System</span>
+              <h3 className="text-lg font-extrabold font-heading text-mb-ink">
+                {f.title}
+              </h3>
+              <p className="text-sm text-mb-muted leading-relaxed">
+                {f.desc}
+              </p>
+            </div>
+          ))}
         </div>
-      </footer>
+      </section>
+
+      {/* Final Conversion CTA Section */}
+      <section className="bg-[#0B0B0D] text-white py-20 border-t border-white/10">
+        <div className="max-w-[760px] mx-auto px-5 text-center flex flex-col items-center">
+          <h2 className="text-[34px] sm:text-[44px] font-extrabold font-heading tracking-heading leading-heading text-white">
+            Siap Mengupgrade Standar Photobooth Anda?
+          </h2>
+          <p className="mt-4 mb-8 text-[#C9C9CE] text-lg max-w-[48ch]">
+            Daftar akun vendor gratis sekarang. Uji coba Studio langsung di laptop Anda, sambungkan kamera fisik Anda, dan rasakan keandalannya.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href="/register"
+              className="px-8 py-4 rounded-full bg-white text-[#0B0B0D] font-heading font-bold text-lg hover:bg-neutral-100 transition-all shadow-lg active:scale-98"
+            >
+              Buat Akun Vendor Gratis
+            </Link>
+            <Link
+              href="/billing"
+              className="px-8 py-4 rounded-full bg-transparent text-white border-2 border-white/80 font-heading font-bold text-lg hover:bg-white/10 transition-all active:scale-98"
+            >
+              Lihat Paket Lisensi
+            </Link>
+          </div>
+          <span className="text-xs text-[#B8B8BE] mt-4 font-mono">
+            Tanpa komitmen kartu kredit &middot; Mode demo offline selalu gratis
+          </span>
+        </div>
+      </section>
+
+      <Footer />
     </div>
   );
 }

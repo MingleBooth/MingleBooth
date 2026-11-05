@@ -1,20 +1,44 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, Mail, Key, ArrowRight, Camera, AlertCircle } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { Footer } from '@/components/Footer';
 
 export default function VendorLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('mb_web_user');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed && (parsed.id || parsed.email)) {
+            router.replace('/dashboard');
+            return;
+          }
+        } catch {}
+      }
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        router.replace('/dashboard');
+      }
+    });
+  }, [router]);
+
   const executeLogin = async (targetEmail: string, targetPass: string) => {
-    if (!targetEmail || !targetPass) {
-      setErrorMsg('Masukkan email dan password Anda.');
+    const cleanEmail = targetEmail.trim().toLowerCase();
+    if (!cleanEmail || !targetPass) {
+      setErrorMsg('Masukkan email dan password akun Anda.');
       return;
     }
 
@@ -25,7 +49,7 @@ export default function VendorLoginPage() {
       const res = await fetch('/api/auth/web-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: targetEmail, password: targetPass }),
+        body: JSON.stringify({ email: cleanEmail, password: targetPass }),
       });
 
       const data = await res.json();
@@ -52,119 +76,125 @@ export default function VendorLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#090A0C] text-[#EDEDED] flex flex-col justify-between p-6 select-none font-sans antialiased">
+    <div className="min-h-screen bg-mb-bg text-mb-ink flex flex-col justify-between font-sans antialiased selection:bg-[#FFD21F] selection:text-[#0B0B0D]">
       {/* Top Navbar */}
-      <header className="max-w-5xl w-full mx-auto flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2.5">
-          <img
-            src="/logo-minglebooth-header.png"
-            alt="MingleBooth"
-            className="h-8 sm:h-9 w-auto object-contain"
-          />
-        </Link>
-
-        <Link
-          href="/register"
-          className="text-xs text-neutral-400 hover:text-white transition-colors"
-        >
-          Belum punya akun? <span className="text-white font-medium underline ml-1">Daftar Vendor</span>
-        </Link>
-      </header>
-
-      {/* Center Login Box */}
-      <main className="max-w-sm w-full mx-auto flex flex-col gap-6 animate-fadeIn my-10">
-        <div className="flex flex-col items-center text-center gap-2">
-          <div className="w-12 h-12 rounded-2xl bg-[#14161A] border border-white/[0.08] flex items-center justify-center text-white shadow-md">
-            <Camera className="w-6 h-6 text-white" />
+      <div className="bg-[#0B0B0D] text-white border-b border-white/10">
+        <div className="max-w-[1080px] mx-auto px-5 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD21F] rounded-lg">
+            <img
+              src="/logo-minglebooth-header.png"
+              alt="MingleBooth"
+              className="h-9 w-auto object-contain block"
+            />
+          </Link>
+          <div>
+            <Link
+              href="/register"
+              className="text-[#B8B8BE] hover:text-white font-medium text-[15px] sm:text-[17px] transition-colors"
+            >
+              Belum punya akun? Daftar Vendor
+            </Link>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white mt-1">
+        </div>
+      </div>
+
+      {/* Center Auth Card */}
+      <main className="flex-1 flex items-center justify-center py-12 px-5">
+        <div className="w-full max-w-[440px] bg-mb-surface border-2 border-mb-ink rounded-[20px] p-8 sm:p-9 shadow-sm">
+          <h1 className="text-[32px] font-extrabold font-heading tracking-heading leading-heading text-mb-ink">
             Masuk ke Portal
           </h1>
-          <p className="text-xs text-neutral-400">
+          <p className="text-mb-muted text-[15px] mt-2 mb-6">
             Satu pintu masuk akun vendor dan manajemen MingleBooth.
           </p>
-        </div>
 
-        {errorMsg && (
-          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
+          {errorMsg && (
+            <div
+              role="alert"
+              className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[#D92D20] dark:text-[#FF8A80] text-sm font-medium"
+            >
+              {errorMsg}
+            </div>
+          )}
 
-        <form onSubmit={handleLogin} className="flex flex-col gap-3.5 bg-[#121316] border border-white/[0.08] p-6 rounded-2xl shadow-xl">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs text-neutral-400 font-medium">Email Akun</label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-neutral-500 absolute left-3.5 top-3" />
+          <form onSubmit={handleLogin} noValidate className="space-y-4">
+            <div>
+              <label
+                htmlFor="em"
+                className="block font-semibold text-[15px] mb-1.5 text-mb-ink"
+              >
+                Email Akun
+              </label>
               <input
+                id="em"
                 type="email"
                 required
-                placeholder="email@studioanda.com"
+                autoComplete="email"
+                placeholder="nama@studio.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-[#181A1F] border border-white/[0.08] text-xs rounded-xl pl-10 pr-3.5 py-2.5 text-white outline-none focus:border-white/30 transition-colors"
+                className="w-full px-3.5 py-3 rounded-xl border-[1.5px] border-mb-line bg-mb-bg text-mb-ink font-sans text-base outline-none focus:border-mb-ink transition-colors"
               />
             </div>
-          </div>
 
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs text-neutral-400 font-medium">Password</label>
-              <a href="#" className="text-[11px] text-neutral-500 hover:text-neutral-300">Lupa password?</a>
-            </div>
             <div className="relative">
-              <Key className="w-4 h-4 text-neutral-500 absolute left-3.5 top-3" />
-              <input
-                type="password"
-                required
-                placeholder="••••••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-[#181A1F] border border-white/[0.08] text-xs rounded-xl pl-10 pr-3.5 py-2.5 text-white outline-none focus:border-white/30 transition-colors"
-              />
+              <label
+                htmlFor="pw"
+                className="block font-semibold text-[15px] mb-1.5 text-mb-ink"
+              >
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  id="pw"
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  placeholder="••••••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3.5 pr-24 py-3 rounded-xl border-[1.5px] border-mb-line bg-mb-bg text-mb-ink font-sans text-base outline-none focus:border-mb-ink transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3 text-sm font-semibold text-mb-muted hover:text-mb-ink px-2 py-0.5 rounded transition-colors"
+                >
+                  {showPassword ? 'Sembunyikan' : 'Tampilkan'}
+                </button>
+              </div>
             </div>
-          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-2 w-full py-3 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 shadow-md"
-          >
-            <span>{loading ? 'Memverifikasi...' : 'Masuk ke Portal'}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </form>
+            <div className="flex justify-end pt-0.5 pb-2">
+              <a
+                href="mailto:support@minglebooth.id?subject=Reset%20Password%20Akun%20Vendor"
+                className="text-sm text-mb-muted hover:text-mb-ink transition-colors"
+              >
+                Lupa password?
+              </a>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-primary w-full py-3.5 text-[17px] font-semibold"
+            >
+              {loading ? 'Memverifikasi...' : 'Masuk ke Portal'}
+            </button>
+
+            <div className="pt-3 text-center">
+              <Link
+                href="/admin"
+                className="text-xs text-mb-muted hover:text-mb-ink transition-colors underline decoration-mb-line/60"
+              >
+                Masuk ke Superadmin Master Console &rarr;
+              </Link>
+            </div>
+          </form>
+        </div>
       </main>
 
-      {/* Footer */}
-      <footer className="text-center text-xs text-neutral-500 flex flex-col items-center gap-2.5 pt-6">
-        <a
-          href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group block transition-transform hover:scale-105"
-          title="Kunjungi Instagram @sebuah.kenang"
-        >
-          <img
-            src="/logo-footer-sebuahkenang.png"
-            alt="MingleBooth by sebuah.kenang"
-            className="h-10 w-auto object-contain opacity-80 hover:opacity-100 transition-opacity"
-          />
-        </a>
-        <span>
-          © 2026 MingleBooth by{' '}
-          <a
-            href="https://www.instagram.com/sebuah.kenang?igsi=MW11ZXo2N3puOWM3eA%3D%3D&utm_source=qr"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-neutral-300 hover:text-white underline decoration-white/30 hover:decoration-white transition-colors font-medium"
-          >
-            sebuah.kenang
-          </a>
-          . Setiap Momen Berarti.
-        </span>
-      </footer>
+      <Footer />
     </div>
   );
 }

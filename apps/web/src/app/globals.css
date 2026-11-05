@@ -1,23 +1,202 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;700;800&family=Figtree:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-html, body {
-  background-color: #090A0C !important;
-  color: #EDEDED !important;
-  min-height: 100vh;
+:root {
+  --bg: #F5F5F3;
+  --surface: #FFFFFF;
+  --ink: #0B0B0D;
+  --muted: #5A5A60;
+  --line: #DDDDDA;
+  --btn: #0B0B0D;
+  --btn-ink: #FFFFFF;
+  --accent: #FFD21F;
+  --deep: #0B0B0D;
+  --deep-ink: #FFFFFF;
+  --err: #D92D20;
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E0E10;
+    --surface: #19191C;
+    --ink: #F5F5F3;
+    --muted: #A5A5AB;
+    --line: #2C2C31;
+    --btn: #FFFFFF;
+    --btn-ink: #0B0B0D;
+    --deep: #000000;
+    --deep-ink: #FFFFFF;
+    --err: #FF8A80;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0E0E10;
+  --surface: #19191C;
+  --ink: #F5F5F3;
+  --muted: #A5A5AB;
+  --line: #2C2C31;
+  --btn: #FFFFFF;
+  --btn-ink: #0B0B0D;
+  --deep: #000000;
+  --deep-ink: #FFFFFF;
+  --err: #FF8A80;
+}
+
+:root[data-theme="light"] {
+  --bg: #F5F5F3;
+  --surface: #FFFFFF;
+  --ink: #0B0B0D;
+  --muted: #5A5A60;
+  --line: #DDDDDA;
+  --btn: #0B0B0D;
+  --btn-ink: #FFFFFF;
+  --accent: #FFD21F;
+  --deep: #0B0B0D;
+  --deep-ink: #FFFFFF;
+  --err: #D92D20;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: env(safe-area-inset-top, 0px);
+}
+
+body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: 'Figtree', system-ui, -apple-system, sans-serif;
+  font-size: 17px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Glassmorphic Cards & Utilities */
-.glass-card {
-  background-color: #121316;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 16px;
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+/* Button Standards */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 24px;
+  border-radius: 9999px;
+  background-color: var(--btn);
+  color: var(--btn-ink);
+  font-family: 'Figtree', system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+.btn-primary:hover {
+  opacity: 0.92;
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 24px;
+  border-radius: 9999px;
+  background-color: transparent;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--ink);
+  font-family: 'Figtree', system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+.btn-secondary:hover {
+  background-color: rgba(128, 128, 128, 0.08);
+}
+
+.btn-secondary:active {
+  transform: scale(0.98);
+}
+
+.deep .btn-primary, .top-section .btn-primary {
+  background-color: #FFFFFF;
+  color: #0B0B0D;
+}
+
+.deep .btn-secondary, .top-section .btn-secondary {
+  background-color: transparent;
+  color: #FFFFFF;
+  box-shadow: inset 0 0 0 2px #FFFFFF;
+}
+
+.deep .btn-secondary:hover, .top-section .btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+a:focus-visible,
+input:focus-visible,
+button:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Surfaces */
+.mb-card {
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+
+.mb-card-bordered {
+  background-color: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 20px;
+}
+
+.deep {
+  background-color: var(--deep);
+  color: var(--deep-ink);
+}
+
+/* Eyebrow */
+.eyebrow {
+  font-family: 'Figtree', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
 }
 
 /* Custom Scrollbars */
@@ -26,12 +205,21 @@ html, body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #090A0C;
+  background: var(--bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--line);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.24);
+  background: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

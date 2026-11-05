@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyServerAuth, corsHeaders } from '@/lib/auth-server';
 import { createCheckoutOrder, PlanTier, BillingInterval } from '@/lib/pricing';
+import { createDokuCheckoutSession } from '@/lib/doku';
 import { getServiceSupabase } from '@/lib/supabase';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
@@ -87,10 +88,22 @@ export async function POST(req: NextRequest) {
       paymentLinkUrl,
     });
 
+    // Generate DOKU Checkout Session URL
+    const dokuSession = await createDokuCheckoutSession({
+      orderId: snapshot.orderId,
+      amountIdr: snapshot.amountIdr,
+      planName: `${planTier.toUpperCase()} (${billingInterval === 'yearly' ? 'Tahunan' : 'Bulanan'})`,
+      customerEmail: customerEmail || auth.email || 'vendor@minglebooth.com',
+      customerName: auth.email?.split('@')[0] || 'Studio Vendor',
+      organizationId: targetOrgId,
+    });
+
     return NextResponse.json(
       {
         success: true,
         order: snapshot,
+        paymentUrl: dokuSession.paymentUrl,
+        isMock: dokuSession.isMock,
         message: 'Order created with immutable commercial terms snapshot',
       },
       { status: 201, headers: corsHeaders }

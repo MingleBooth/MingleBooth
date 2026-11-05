@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  optimizeFonts: false,
   transpilePackages: [
     '@minglebooth/shared',
     '@minglebooth/camera',
