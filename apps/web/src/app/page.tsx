@@ -104,12 +104,12 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
             {/* Left Copy */}
             <div className="lg:col-span-7 flex flex-col items-start">
-              <div className="eyebrow">EKOSISTEM PHOTOBOOTH PROFESIONAL</div>
+              <div className="eyebrow">SOFTWARE PHOTOBOOTH INDONESIA #1</div>
               <h1 className="text-[34px] sm:text-[46px] lg:text-[54px] font-extrabold font-heading tracking-heading leading-heading text-white">
-                Cepat, Tangguh, &amp; 100% Offline-First.
+                Software Photobooth Terbaik &amp; 100% Offline-First.
               </h1>
               <p className="mt-4 mb-8 text-[#C9C9CE] text-base sm:text-[18px] leading-relaxed max-w-[50ch]">
-                Sistem operasi photobooth modern offline-first untuk vendor wedding, corporate event, dan fotografer di Indonesia. Jepret, simpan, dan bagikan foto tamu lewat QR, semua dari satu aplikasi. Tetap jalan walau internet mati.
+                Aplikasi dan software photobooth modern untuk vendor wedding, corporate event, dan fotografer di Indonesia. Mendukung kamera Sony Mirrorless (USB PC Remote), webcam, cetak foto otomatis, dan download foto tamu via QR code instan. Tetap jalan walau tanpa internet.
               </p>
 
               <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
@@ -461,6 +461,60 @@ export default function LandingPage() {
               </p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* SEO FAQ Section */}
+      <section className="py-20 border-t border-mb-line bg-mb-surface/50">
+        <div className="max-w-[860px] mx-auto px-5">
+          <div className="text-center mb-12">
+            <span className="text-xs font-bold text-amber-500 uppercase tracking-widest font-mono">
+              FAQ &amp; KNOWLEDGE BASE
+            </span>
+            <h2 className="text-[28px] sm:text-[38px] font-extrabold font-heading text-mb-ink mt-2">
+              Pertanyaan Umum Seputar Software Photobooth
+            </h2>
+            <p className="text-sm sm:text-base text-mb-muted mt-2 max-w-[55ch] mx-auto">
+              Segala hal yang perlu Anda ketahui tentang software photobooth MingleBooth Studio untuk operasional event Anda.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {[
+              {
+                q: 'Apa itu software photobooth MingleBooth?',
+                a: 'MingleBooth adalah software photobooth modern buatan Indonesia yang dirancang khusus untuk laptop (macOS & Windows) serta tablet Android. Software ini memungkinkan operator photobooth mengelola live view kamera, komposisi bingkai foto, cetak otomatis, hingga pembagian foto tamu via QR code instan.',
+              },
+              {
+                q: 'Kamera apa saja yang didukung oleh MingleBooth Studio?',
+                a: 'MingleBooth mendukung kamera Sony Mirrorless dengan mode USB PC Remote (seperti Sony Alpha A6000, A6300, A6400, A6500, A6700, A7 II, A7 III, A7 IV, ZV-E10), USB webcam eksternal, dan webcam bawaan laptop.',
+              },
+              {
+                q: 'Apakah software photobooth ini bisa berjalan tanpa koneksi internet (offline)?',
+                a: 'Ya! MingleBooth 100% offline-first. Sesi pemotretan, cetak foto otomatis, dan penyimpanan file foto tetap berjalan lancar meski di lokasi acara tidak ada koneksi internet sama sekali. Foto akan otomatis tersinkronisasi ke cloud saat internet kembali terhubung.',
+              },
+              {
+                q: 'Bagaimana cara tamu mengunduh foto dari photobooth?',
+                a: 'Setelah sesi foto selesai, layar photobooth akan otomatis menampilkan QR code unik. Tamu cukup memindai QR code tersebut menggunakan kamera HP apa pun untuk langsung mengunduh foto berbingkai, foto asli, maupun animasi GIF Boomerang.',
+              },
+              {
+                q: 'Bagaimana cara mencoba dan mendownload software MingleBooth?',
+                a: 'Anda dapat mendaftar akun vendor gratis di website MingleBooth, lalu mengunduh aplikasi MingleBooth Studio untuk macOS (.dmg) atau Windows (.exe) melalui halaman Download. Tersedia Mode Demo gratis tanpa batas waktu untuk menguji kamera dan fitur.',
+              },
+            ].map((faq, idx) => (
+              <div
+                key={idx}
+                className="p-6 rounded-2xl bg-mb-surface border border-mb-line shadow-sm"
+              >
+                <h3 className="text-base sm:text-lg font-bold font-heading text-mb-ink mb-2">
+                  {faq.q}
+                </h3>
+                <p className="text-xs sm:text-sm text-mb-muted leading-relaxed">
+                  {faq.a}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
