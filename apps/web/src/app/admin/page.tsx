@@ -68,8 +68,8 @@ export default function SuperAdminPortalPage() {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
   // In-Page Admin Login (jika belum login)
-  const [loginEmail, setLoginEmail] = useState('admin@minglebooth.com');
-  const [loginPassword, setLoginPassword] = useState('admin123456');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -427,6 +427,8 @@ export default function SuperAdminPortalPage() {
                 <input
                   type="email"
                   required
+                  placeholder="admin@studio.com"
+                  autoComplete="username"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl border border-white/15 bg-[#0C0E12] text-white text-sm outline-none focus:border-[#FFD21F]"
@@ -438,6 +440,8 @@ export default function SuperAdminPortalPage() {
                 <input
                   type="password"
                   required
+                  placeholder="••••••••••••"
+                  autoComplete="current-password"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl border border-white/15 bg-[#0C0E12] text-white text-sm outline-none focus:border-[#FFD21F]"
@@ -453,16 +457,6 @@ export default function SuperAdminPortalPage() {
                 <span>{loginLoading ? 'Memverifikasi...' : 'Masuk ke Panel Admin'}</span>
               </button>
             </form>
-
-            <div className="mt-6 pt-5 border-t border-white/10 text-center">
-              <button
-                type="button"
-                onClick={() => executeAdminLogin('admin@minglebooth.com', 'admin123456')}
-                className="text-xs text-[#FFD21F] hover:underline font-semibold"
-              >
-                ⚡ 1-Klik Langsung Masuk (Mode Uji Coba)
-              </button>
-            </div>
           </div>
         </main>
 

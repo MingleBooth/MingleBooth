@@ -181,15 +181,6 @@ export default function VendorLoginPage() {
             >
               {loading ? 'Memverifikasi...' : 'Masuk ke Portal'}
             </button>
-
-            <div className="pt-3 text-center">
-              <Link
-                href="/admin"
-                className="text-xs text-mb-muted hover:text-mb-ink transition-colors underline decoration-mb-line/60"
-              >
-                Masuk ke Superadmin Master Console &rarr;
-              </Link>
-            </div>
           </form>
         </div>
       </main>
