@@ -113,54 +113,7 @@ export async function POST(req: NextRequest) {
       (org.subscription_status === 'active' || isSuperAdmin) &&
       (expiresAt >= now || isSuperAdmin);
 
-    // If unpaid account (pending_payment, expired, etc.):
-    // Allow login into limited Demo Presentation WITHOUT registering a device or consuming device quota
-    if (!hasActiveSubscription) {
-      const demoTokenPayload = {
-        orgId: org.id,
-        orgName: org.name,
-        planTier: org.plan_tier,
-        maxDevices: 0,
-        hwid: hardwareFingerprint,
-        expiresAt: org.subscription_expires_at || new Date(0).toISOString(),
-        issuedAt: new Date().toISOString(),
-        isDemo: true,
-        subscriptionStatus: org.subscription_status,
-      };
-
-      const demoLicenseToken = createSignedToken(demoTokenPayload);
-
-      return NextResponse.json(
-        {
-          success: true,
-          isDemo: true,
-          isLicensed: false,
-          subscriptionStatus: org.subscription_status,
-          message:
-            org.subscription_status === 'expired'
-              ? 'Masa aktif langganan telah berakhir. Aplikasi berjalan dalam Mode Demo.'
-              : 'Akun Anda belum memiliki langganan aktif. Aplikasi berjalan dalam Mode Demo untuk pengujian kamera.',
-          licenseToken: demoLicenseToken,
-          organization: {
-            id: org.id,
-            name: org.name,
-            planTier: org.plan_tier,
-            subscriptionStatus: org.subscription_status,
-            expiresAt: org.subscription_expires_at,
-            maxDevicesQuota: org.max_devices_quota,
-            activeDevicesCount: 0,
-          },
-          device: {
-            hwid: hardwareFingerprint,
-            name: deviceName,
-            is_demo: true,
-          },
-        },
-        { status: 200, headers: corsHeaders }
-      );
-    }
-
-    // 3. Check registered devices and quota for this organization (PAID ACCOUNTS ONLY)
+    // 3. Check registered devices and quota for this organization (ALWAYS REGISTER DEVICE FOR ALL ACCOUNTS)
     const { data: orgDevice } = await client
       .from('devices')
       .select('*')
@@ -174,8 +127,10 @@ export async function POST(req: NextRequest) {
       .eq('organization_id', org.id)
       .eq('is_active', true);
 
-    const maxQuota = isSuperAdmin ? 9999 : (org.max_devices_quota || 99);
+    const maxQuota = isSuperAdmin ? 9999 : (org.max_devices_quota || 1);
     const currentActiveCount = activeCount || 0;
+
+    let currentDeviceId = orgDevice?.id;
 
     if (orgDevice && orgDevice.is_active) {
       // Existing active device: update last seen & metadata
@@ -190,7 +145,7 @@ export async function POST(req: NextRequest) {
         .eq('id', orgDevice.id);
     } else {
       // New device OR reactivating a deactivated device
-      if (!isSuperAdmin && currentActiveCount >= maxQuota) {
+      if (hasActiveSubscription && !isSuperAdmin && currentActiveCount >= maxQuota) {
         return NextResponse.json(
           {
             error: `Batas kuota perangkat tercapai (${currentActiveCount}/${maxQuota}). Silakan non-aktifkan salah satu laptop lama di Vendor Dashboard atau hubungi admin.`,
@@ -201,8 +156,6 @@ export async function POST(req: NextRequest) {
           { status: 403, headers: corsHeaders }
         );
       }
-
-      let currentDeviceId = orgDevice?.id;
 
       if (orgDevice) {
         // Reactivate previously deactivated device (prevents unique constraint violation)
@@ -253,7 +206,7 @@ export async function POST(req: NextRequest) {
         currentDeviceId = refetchDev?.id;
       }
 
-      if (!isSuperAdmin && currentDeviceId) {
+      if (hasActiveSubscription && !isSuperAdmin && currentDeviceId) {
         const { data: allActive } = await client
           .from('devices')
           .select('id')
@@ -284,6 +237,57 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+    }
+
+    const calculatedActiveCount = (orgDevice && orgDevice.is_active) ? currentActiveCount : Math.min(currentActiveCount + 1, maxQuota);
+
+    // If unpaid account (pending_payment, expired, etc.):
+    // Allow login into limited Demo Presentation with the device registered and tracked in Supabase
+    if (!hasActiveSubscription) {
+      const demoTokenPayload = {
+        orgId: org.id,
+        orgName: org.name,
+        planTier: org.plan_tier,
+        maxDevices: maxQuota,
+        hwid: hardwareFingerprint,
+        expiresAt: org.subscription_expires_at || new Date(0).toISOString(),
+        issuedAt: new Date().toISOString(),
+        isDemo: true,
+        subscriptionStatus: org.subscription_status,
+      };
+
+      const demoLicenseToken = createSignedToken(demoTokenPayload);
+
+      return NextResponse.json(
+        {
+          success: true,
+          isDemo: true,
+          isLicensed: false,
+          subscriptionStatus: org.subscription_status,
+          message:
+            org.subscription_status === 'expired'
+              ? 'Masa aktif langganan telah berakhir. Aplikasi berjalan dalam Mode Demo.'
+              : 'Akun Anda belum memiliki langganan aktif. Aplikasi berjalan dalam Mode Demo untuk pengujian kamera.',
+          licenseToken: demoLicenseToken,
+          organization: {
+            id: org.id,
+            name: org.name,
+            planTier: org.plan_tier,
+            subscriptionStatus: org.subscription_status,
+            expiresAt: org.subscription_expires_at,
+            maxDevicesQuota: maxQuota,
+            activeDevicesCount: calculatedActiveCount,
+          },
+          device: {
+            id: currentDeviceId,
+            hwid: hardwareFingerprint,
+            name: deviceName,
+            is_demo: true,
+            is_active: true,
+          },
+        },
+        { status: 200, headers: corsHeaders }
+      );
     }
 
     // 4. Generate signed license token for offline use
