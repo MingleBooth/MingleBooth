@@ -1,5 +1,6 @@
 import { getServiceSupabase } from '@/lib/supabase';
 import { validateOrderAgainstSnapshot } from '@/lib/pricing';
+import { getDokuConfig, HISTORICAL_SANDBOX_ORDERS } from '@/lib/doku';
 
 export interface PaymentSettlementInput {
   orderId: string;
@@ -10,6 +11,8 @@ export interface PaymentSettlementInput {
   durationDays: number;
   providerTransactionId?: string | null;
   paymentLinkUrl?: string;
+  environment?: 'sandbox' | 'production';
+  allowHistoricalSandbox?: boolean;
 }
 
 export interface PaymentSettlementResult {
@@ -48,6 +51,51 @@ export async function executePaymentSettlement(
 
   if (!input.durationDays || ![30, 365].includes(Number(input.durationDays))) {
     throw new Error(`INVALID_DURATION: Duration ${input.durationDays} days is not permitted (must be 30 or 365)`);
+  }
+
+  // 0. Shared Settlement Cross-Environment Guard (Phase 3 Fail-Closed)
+  let currentEnv = input.environment;
+
+  if (!currentEnv) {
+    // Authoritatively derive from server-side DOKU configuration.
+    // Propagates immediately if in production with missing or invalid DOKU_ENVIRONMENT.
+    // NEVER silently defaults to sandbox.
+    const config = getDokuConfig();
+    currentEnv = config.environment;
+  }
+
+  // Strict validation: must be exactly 'sandbox' or 'production'
+  if (currentEnv !== 'sandbox' && currentEnv !== 'production') {
+    throw new Error(
+      `SECURITY_CONFIGURATION_ERROR: Valid payment environment ('sandbox' or 'production') is required. Received: ${currentEnv}`
+    );
+  }
+
+  const cleanOrderId = input.orderId.trim();
+  const orderUpper = cleanOrderId.toUpperCase();
+  const isSbx = orderUpper.startsWith('MB-SBX-');
+  const isHistoricalSbx = HISTORICAL_SANDBOX_ORDERS.has(orderUpper);
+
+  if (currentEnv === 'production') {
+    if (isSbx || isHistoricalSbx) {
+      console.error(
+        `[SECURITY ALERT] Cross-environment settlement attempt blocked. Order: ${cleanOrderId}, Env: ${currentEnv}`
+      );
+      throw new Error(
+        `SECURITY_ENVIRONMENT_MISMATCH: Cross-environment settlement attempt blocked. Order: ${cleanOrderId}, Env: ${currentEnv}`
+      );
+    }
+  } else if (currentEnv === 'sandbox') {
+    if (orderUpper.startsWith('MB-') && !isSbx) {
+      if (!isHistoricalSbx && !input.allowHistoricalSandbox) {
+        console.error(
+          `[SECURITY ALERT] Cross-environment settlement attempt blocked. Order: ${cleanOrderId}, Env: ${currentEnv}`
+        );
+        throw new Error(
+          `SECURITY_ENVIRONMENT_MISMATCH: Cross-environment settlement attempt blocked. Order: ${cleanOrderId}, Env: ${currentEnv}`
+        );
+      }
+    }
   }
 
   const client = getServiceSupabase();

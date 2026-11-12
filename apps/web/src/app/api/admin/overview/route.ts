@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
 import { verifyServerAuth } from '@/lib/auth-server';
+import { INTERNAL_QA_ORG_ID } from '@/lib/doku';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,8 +44,31 @@ export async function GET(req: NextRequest) {
       .from('user_profiles')
       .select('*, organizations(name)');
 
-    // Calculate metrics
-    const totalRevenueIdr = (payments || []).reduce(
+    // Calculate metrics: Separate commercial revenue from internal testing/sandbox revenue (Phase 4)
+    const isTestingPayment = (p: any) => {
+      if (p.organization_id === INTERNAL_QA_ORG_ID) return true;
+      if (p.order_id && typeof p.order_id === 'string') {
+        const upper = p.order_id.trim().toUpperCase();
+        if (
+          upper.startsWith('MB-SBX-') ||
+          upper === 'MB-MWARY392-F84E78' ||
+          upper === 'MB-MWASYKYT-7B46A7'
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const commercialPayments = (payments || []).filter((p: any) => !isTestingPayment(p));
+    const testingPayments = (payments || []).filter((p: any) => isTestingPayment(p));
+
+    const totalRevenueIdr = commercialPayments.reduce(
+      (sum: number, p: any) => sum + (p.payment_status === 'PAID' ? Number(p.amount_idr || 0) : 0),
+      0
+    );
+
+    const testingRevenueIdr = testingPayments.reduce(
       (sum: number, p: any) => sum + (p.payment_status === 'PAID' ? Number(p.amount_idr || 0) : 0),
       0
     );
@@ -68,7 +92,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       metrics: {
-        totalRevenueIdr: totalRevenueIdr || 4498000, // Seed initial baseline if empty
+        totalRevenueIdr,
+        testingRevenueIdr,
         totalActiveVendors,
         totalActiveDevices,
         totalEvents,

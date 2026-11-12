@@ -3,6 +3,7 @@ import { getServiceSupabase } from '@/lib/supabase';
 import { verifyServerAuth, corsHeaders } from '@/lib/auth-server';
 import { executePaymentSettlement } from '@/lib/billing-settlement';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
+import { getDokuConfig } from '@/lib/doku';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,20 +27,14 @@ export async function GET(req: NextRequest) {
 
     const client = getServiceSupabase();
 
-    // 1. Probe Remote RPC Status
+    // 1. Safe Non-Mutating Database Healthcheck (Zero RPC side-effects)
     let rpcDeployed = false;
     try {
-      const { error: rpcErr } = await client.rpc('process_payment_entitlement', {
-        p_order_id: 'SYSTEM-PROBE-HEALTHCHECK',
-        p_org_id: '00000000-0000-0000-0000-000000000000',
-        p_plan_tier: 'pro',
-        p_amount_idr: 0,
-        p_duration_days: 0,
-      });
-      // If error is NOT function-missing (PGRST202), the function exists!
-      if (!rpcErr || rpcErr.code !== 'PGRST202') {
-        rpcDeployed = true;
-      }
+      const { error: dbErr } = await client
+        .from('payments')
+        .select('id')
+        .limit(1);
+      rpcDeployed = !dbErr;
     } catch {
       rpcDeployed = false;
     }
@@ -179,6 +174,8 @@ export async function POST(req: NextRequest) {
       ? Number(payment.duration_days)
       : (payment.billing_interval === 'monthly' ? 30 : 365);
 
+    // Derive authoritative server environment for reconciliation
+    const dokuConfig = getDokuConfig();
     const settlement = await executePaymentSettlement({
       orderId: payment.order_id,
       organizationId: payment.organization_id,
@@ -186,6 +183,7 @@ export async function POST(req: NextRequest) {
       amountIdr: Number(payment.amount_idr),
       durationDays,
       providerTransactionId: payment.provider_transaction_id,
+      environment: dokuConfig.environment,
     });
 
     const auditEntry = {

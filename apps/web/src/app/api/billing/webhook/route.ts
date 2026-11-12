@@ -190,6 +190,10 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Execute Exactly-Once Settlement via Unified Billing Engine
+    const currentEnvironment = (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production')
+      ? 'production'
+      : 'sandbox';
+
     const settlement = await executePaymentSettlement({
       orderId: orderRef,
       organizationId: targetOrgId,
@@ -199,6 +203,7 @@ export async function POST(req: NextRequest) {
       durationDays,
       providerTransactionId: message_id,
       paymentLinkUrl: 'https://lynk.id',
+      environment: currentEnvironment,
     });
 
     return NextResponse.json({

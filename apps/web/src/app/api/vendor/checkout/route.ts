@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyServerAuth, corsHeaders } from '@/lib/auth-server';
 import { createCheckoutOrder, PlanTier, BillingInterval } from '@/lib/pricing';
-import { createDokuCheckoutSession } from '@/lib/doku';
+import { createDokuCheckoutSession, generateDokuOrderId, getDokuConfig } from '@/lib/doku';
 import { getServiceSupabase } from '@/lib/supabase';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
@@ -79,6 +79,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Resolve environment-namespaced Order ID:
+    // Sandbox: MB-SBX-[timestamp]-[random]
+    // Production: MB-[timestamp]-[random]
+    const dokuConfig = getDokuConfig();
+    const namespacedOrderId = generateDokuOrderId(dokuConfig.environment);
+
     // Server-authoritative order snapshot creation
     const snapshot = await createCheckoutOrder({
       organizationId: targetOrgId,
@@ -86,6 +92,7 @@ export async function POST(req: NextRequest) {
       billingInterval: billingInterval as BillingInterval,
       customerEmail: customerEmail || auth.email || undefined,
       paymentLinkUrl,
+      customOrderId: namespacedOrderId,
     });
 
     // Generate DOKU Checkout Session URL

@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { executePaymentSettlement } from '@/lib/billing-settlement';
 import { getServiceSupabase } from '@/lib/supabase';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
+import { getDokuConfig } from '@/lib/doku';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (paymentStatus === 'PAID' || paymentStatus === 'SUCCESS') {
+      const dokuConfig = getDokuConfig();
       const settlement = await executePaymentSettlement({
         orderId,
         organizationId,
@@ -111,6 +113,7 @@ export async function POST(req: NextRequest) {
         durationDays: effectiveDuration,
         providerTransactionId: providerTransactionId || `TX-${orderId}`,
         paymentLinkUrl: 'https://minglebooth.com',
+        environment: dokuConfig.environment,
       });
 
       return NextResponse.json({
