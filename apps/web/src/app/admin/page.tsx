@@ -24,6 +24,8 @@ import {
   Mail,
   UserCheck,
   Smartphone,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -70,6 +72,7 @@ export default function SuperAdminPortalPage() {
   // In-Page Admin Login (jika belum login)
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -437,15 +440,25 @@ export default function SuperAdminPortalPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-neutral-300 mb-1.5">Password</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••••••"
-                  autoComplete="current-password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-white/15 bg-[#0C0E12] text-white text-sm outline-none focus:border-[#FFD21F]"
-                />
+                <div className="relative flex items-center">
+                  <input
+                    type={showLoginPassword ? 'text' : 'password'}
+                    required
+                    placeholder="••••••••••••"
+                    autoComplete="current-password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    className="w-full px-4 py-3 pr-11 rounded-xl border border-white/15 bg-[#0C0E12] text-white text-sm outline-none focus:border-[#FFD21F]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    className="absolute right-3.5 text-neutral-400 hover:text-white transition-colors p-1"
+                    title={showLoginPassword ? 'Sembunyikan password' : 'Lihat password'}
+                  >
+                    {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <button

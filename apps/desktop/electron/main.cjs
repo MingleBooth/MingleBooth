@@ -480,6 +480,9 @@ ipcMain.handle('camera:get-live-view-state', () => {
   if (nativeCamera.sonyBackend && typeof nativeCamera.sonyBackend.getLiveViewState === 'function') {
     return { state: nativeCamera.sonyBackend.getLiveViewState() };
   }
+  if (nativeCamera.canonBackend && typeof nativeCamera.canonBackend.getLiveViewState === 'function') {
+    return { state: nativeCamera.canonBackend.getLiveViewState() };
+  }
   return { state: nativeCamera.isLiveViewActive ? 'running' : 'stopped' };
 });
 

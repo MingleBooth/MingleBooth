@@ -122,7 +122,7 @@ export const CameraDriverSetupModal: React.FC<CameraDriverSetupModalProps> = ({
     }
   };
 
-  const cameraName = cameraInfo?.model || 'Sony ILCE-7CM2 (α7C II)';
+  const cameraName = cameraInfo?.model || 'Kamera Studio';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
@@ -237,7 +237,7 @@ export const CameraDriverSetupModal: React.FC<CameraDriverSetupModalProps> = ({
               <div className="space-y-1">
                 <p className="text-sm font-bold text-white">Kamera Siap Digunakan!</p>
                 <p className="text-xs text-neutral-400 max-w-xs">
-                  Port USB Sony ILCE-7CM2 telah terkonfigurasi. Anda dapat mulai memotret.
+                  Port USB {cameraName} telah terkonfigurasi. Anda dapat mulai memotret.
                 </p>
               </div>
               <button

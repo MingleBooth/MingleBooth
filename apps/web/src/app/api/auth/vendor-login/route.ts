@@ -66,7 +66,18 @@ export async function POST(req: NextRequest) {
       cleanEmail === 'admin@minglebooth.com' ||
       cleanEmail === 'superadmin@minglebooth.com' ||
       userProfile?.role === 'SUPER_ADMIN' ||
-      userProfile?.role === 'superadmin';
+      userProfile?.role === 'ADMIN' ||
+      userProfile?.role === 'superadmin' ||
+      userProfile?.role === 'admin';
+
+    const isOwner =
+      userProfile?.role === 'VENDOR_OWNER' ||
+      userProfile?.role === 'vendor_owner' ||
+      userProfile?.role === 'OWNER' ||
+      userProfile?.role === 'owner';
+
+    // Privileged users (Owner and Admin) receive authoritative Full Feature Access
+    const isPrivilegedUser = Boolean(isAdmin || isOwner);
 
     let orgId = userProfile?.organization_id;
 
@@ -109,9 +120,10 @@ export async function POST(req: NextRequest) {
       userProfile?.role === 'admin' ||
       org.slug === 'minglebooth-hq';
 
+    // Owner and Admin are always granted active subscription status
     const hasActiveSubscription =
-      (org.subscription_status === 'active' || isSuperAdmin) &&
-      (expiresAt >= now || isSuperAdmin);
+      isPrivilegedUser ||
+      (org.subscription_status === 'active' && expiresAt >= now);
 
     // 3. Check registered devices and quota for this organization (ALWAYS REGISTER DEVICE FOR ALL ACCOUNTS)
     const { data: orgDevice } = await client
@@ -127,7 +139,7 @@ export async function POST(req: NextRequest) {
       .eq('organization_id', org.id)
       .eq('is_active', true);
 
-    const maxQuota = isSuperAdmin ? 9999 : (org.max_devices_quota || 1);
+    const maxQuota = isPrivilegedUser ? 9999 : (org.max_devices_quota || 1);
     const currentActiveCount = activeCount || 0;
 
     let currentDeviceId = orgDevice?.id;
@@ -145,7 +157,7 @@ export async function POST(req: NextRequest) {
         .eq('id', orgDevice.id);
     } else {
       // New device OR reactivating a deactivated device
-      if (hasActiveSubscription && !isSuperAdmin && currentActiveCount >= maxQuota) {
+      if (hasActiveSubscription && !isPrivilegedUser && currentActiveCount >= maxQuota) {
         return NextResponse.json(
           {
             error: `Batas kuota perangkat tercapai (${currentActiveCount}/${maxQuota}). Silakan non-aktifkan salah satu laptop lama di Vendor Dashboard atau hubungi admin.`,
@@ -206,7 +218,7 @@ export async function POST(req: NextRequest) {
         currentDeviceId = refetchDev?.id;
       }
 
-      if (hasActiveSubscription && !isSuperAdmin && currentDeviceId) {
+      if (hasActiveSubscription && !isPrivilegedUser && currentDeviceId) {
         const { data: allActive } = await client
           .from('devices')
           .select('id')
@@ -290,15 +302,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. Generate signed license token for offline use
+    // Ensure database organization reflects active status for privileged user (Owner or Admin)
+    if (isPrivilegedUser && org.subscription_status !== 'active') {
+      try {
+        await client
+          .from('organizations')
+          .update({
+            subscription_status: 'active',
+            plan_tier: 'enterprise',
+            max_devices_quota: 9999,
+            subscription_expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          })
+          .eq('id', org.id);
+      } catch {}
+    }
+
+    // 4. Generate signed license token with Full Features for Owner/Admin
+    const effectiveTier = isPrivilegedUser ? 'enterprise' : org.plan_tier;
+    const effectiveExpiresAt = isPrivilegedUser
+      ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
+      : org.subscription_expires_at;
+
     const tokenPayload = {
       orgId: org.id,
       orgName: org.name,
-      planTier: org.plan_tier,
+      planTier: effectiveTier,
       maxDevices: maxQuota,
       hwid: hardwareFingerprint,
-      expiresAt: org.subscription_expires_at,
+      expiresAt: effectiveExpiresAt,
       issuedAt: new Date().toISOString(),
+      role: userProfile?.role,
+      isOwner: Boolean(isOwner),
+      isAdmin: Boolean(isAdmin),
     };
 
     const licenseToken = createSignedToken(tokenPayload);
@@ -306,20 +341,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        message: `Aktivasi perangkat berhasil! Selamat datang, ${org.name}.`,
+        isDemo: false,
+        isLicensed: true,
+        message: isPrivilegedUser
+          ? `Aktivasi perangkat berhasil! Selamat datang, ${userProfile?.full_name || org.name}. Akses Full Fitur (${isOwner ? 'Owner Studio' : 'Admin'}) Aktif.`
+          : `Aktivasi perangkat berhasil! Selamat datang, ${org.name}.`,
         licenseToken,
         organization: {
           id: org.id,
           name: org.name,
-          planTier: org.plan_tier,
-          subscriptionStatus: org.subscription_status,
-          expiresAt: org.subscription_expires_at,
+          planTier: effectiveTier,
+          subscriptionStatus: isPrivilegedUser ? 'active' : org.subscription_status,
+          expiresAt: effectiveExpiresAt,
           maxDevicesQuota: maxQuota,
           activeDevicesCount: (orgDevice && orgDevice.is_active) ? currentActiveCount : Math.min(currentActiveCount + 1, maxQuota),
         },
         device: {
           hwid: hardwareFingerprint,
           name: deviceName,
+          is_demo: false,
+          is_active: true,
         },
       },
       { status: 200, headers: corsHeaders }

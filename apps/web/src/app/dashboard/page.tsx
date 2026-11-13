@@ -228,19 +228,19 @@ export default function DashboardPage() {
     process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
     !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
       ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-Setup-1.0.0-rc.2.exe';
+      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-Setup-1.0.0-rc.3.exe';
 
   const macUrl =
     process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
     !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
       ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-1.0.0-rc.2.dmg';
+      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-1.0.0-rc.3.dmg';
 
   const apkUrl =
     process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL &&
     !process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL.includes('drive.google.com')
       ? process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-1.0.0-rc.2.apk';
+      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-1.0.0-rc.3.apk';
 
   return (
     <div className="min-h-screen bg-mb-bg text-mb-ink flex flex-col font-sans select-none antialiased transition-colors">
@@ -415,7 +415,7 @@ export default function DashboardPage() {
                     Software &amp; Aplikasi MingleBooth Studio
                   </h2>
                   <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-neutral-200 dark:bg-neutral-800 text-mb-muted border border-mb-line uppercase tracking-wider">
-                    Versi v1.0.0-rc.2
+                    Versi v1.0.0-rc.3
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-mb-muted mt-1 leading-relaxed">
@@ -893,7 +893,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <a
-                  href="https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-1.0.0-rc.2.apk"
+                  href={apkUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="h-9 px-4 rounded-xl border border-mb-line bg-mb-surface hover:bg-black/5 dark:hover:bg-white/10 text-mb-ink font-heading font-bold text-xs flex items-center gap-1.5 transition-all flex-shrink-0"

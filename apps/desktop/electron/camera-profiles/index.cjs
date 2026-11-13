@@ -17,12 +17,12 @@ const canonRegistry = require('./canon/index.cjs');
 const nikonRegistry = require('./nikon/index.cjs');
 const fujifilmRegistry = require('./fujifilm/index.cjs');
 
-// All physically verified and approved camera profiles
+// All physically verified and approved camera profiles (VERIFIED / SUPPORTED)
 const VERIFIED_PROFILES = [
-  ...sonyRegistry.models.filter((m) => m.status === VERIFICATION_STATUS.SUPPORTED),
-  ...canonRegistry.models.filter((m) => m.status === VERIFICATION_STATUS.SUPPORTED),
-  ...nikonRegistry.models.filter((m) => m.status === VERIFICATION_STATUS.SUPPORTED),
-  ...fujifilmRegistry.models.filter((m) => m.status === VERIFICATION_STATUS.SUPPORTED),
+  ...sonyRegistry.models.filter((m) => m.status === VERIFICATION_STATUS.VERIFIED || m.status === 'SUPPORTED'),
+  ...canonRegistry.models.filter((m) => m.status === VERIFICATION_STATUS.VERIFIED),
+  ...nikonRegistry.models.filter((m) => m.status === VERIFICATION_STATUS.VERIFIED),
+  ...fujifilmRegistry.models.filter((m) => m.status === VERIFICATION_STATUS.VERIFIED),
 ];
 
 // Helper to normalize hex VID/PID
@@ -68,8 +68,12 @@ function identifyCamera(vid, pid, friendlyName = '') {
     matchedBrandRegistry = fujifilmRegistry;
   }
 
-  // 3. Known brand, but model not yet physically verified
+  // 3. Known brand: check for specific model in brand registry, or create fallback profile
   if (matchedBrandRegistry) {
+    if (typeof matchedBrandRegistry.findModel === 'function') {
+      const specificModel = matchedBrandRegistry.findModel(pidHex, friendlyName);
+      if (specificModel) return specificModel;
+    }
     return matchedBrandRegistry.createUnverifiedProfile(pidHex, friendlyName);
   }
 

@@ -1,39 +1,546 @@
 /**
  * camera-profiles/canon/index.cjs
- * Canon Camera Brand Registry
+ * Canon Camera Brand Registry & Model Profiles
  *
- * Architecture-ready slot for Canon camera profiles.
- * IMPORTANT: No model profiles are marked SUPPORTED until physical USB identity
- * and capture behavior are verified on hardware.
+ * Implements compatibility registry adhering to strict verification taxonomy:
+ *   - VERIFIED: Physically tested on hardware (none yet for Canon).
+ *   - COMPATIBLE_UNTESTED: Technically supported via standard PTP, pending physical hardware test.
+ *   - PARTIAL: Only subset of features supported (e.g. capture only, no remote Live View).
+ *   - UNSUPPORTED: Incompatible compacts / unsupported firmware.
+ *   - UNKNOWN: Unrecognized model / insufficient USB info.
  */
 
 const { KNOWN_BRANDS, VERIFICATION_STATUS, DRIVER_STRATEGY } = require('../types.cjs');
 
-// Verified concrete models (empty until physically tested)
-const MODELS = [];
+const CANON_VID_HEX = KNOWN_BRANDS.CANON.vidHex; // '04A9'
+const CANON_VID_DEC = KNOWN_BRANDS.CANON.vidDec; // 1193
 
-function findModel(pidHex) {
+/**
+ * Registry of Canon models with technical specifications, driver strategies,
+ * and capability matrix.
+ */
+const MODELS = [
+  // ── Canon EOS R Series (Mirrorless) ──
+  {
+    id: 'canon-eos-r6',
+    brand: 'Canon',
+    model: 'EOS R6',
+    displayName: 'Canon EOS R6',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3293'],
+    matchRegex: /EOS\s+R6(\s|$)/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-r6-mk2',
+    brand: 'Canon',
+    model: 'EOS R6 Mark II',
+    displayName: 'Canon EOS R6 Mark II',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['32B6'],
+    matchRegex: /EOS\s+R6\s*Mark\s*II/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-r5',
+    brand: 'Canon',
+    model: 'EOS R5',
+    displayName: 'Canon EOS R5',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3292'],
+    matchRegex: /EOS\s+R5(\s|$)/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-r',
+    brand: 'Canon',
+    model: 'EOS R',
+    displayName: 'Canon EOS R',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3284'],
+    matchRegex: /EOS\s+R(\s|$)/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-rp',
+    brand: 'Canon',
+    model: 'EOS RP',
+    displayName: 'Canon EOS RP',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3285'],
+    matchRegex: /EOS\s+RP/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-r8',
+    brand: 'Canon',
+    model: 'EOS R8',
+    displayName: 'Canon EOS R8',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['32B8'],
+    matchRegex: /EOS\s+R8/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-r10',
+    brand: 'Canon',
+    model: 'EOS R10',
+    displayName: 'Canon EOS R10',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['32B0'],
+    matchRegex: /EOS\s+R10(\s|$)/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-r50',
+    brand: 'Canon',
+    model: 'EOS R50',
+    displayName: 'Canon EOS R50',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['32B7'],
+    matchRegex: /EOS\s+R50/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-r100',
+    brand: 'Canon',
+    model: 'EOS R100',
+    displayName: 'Canon EOS R100',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['32BA'],
+    matchRegex: /EOS\s+R100/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+
+  // ── Canon EOS DSLR (Pro & Semi-Pro) ──
+  {
+    id: 'canon-eos-5d-mk4',
+    brand: 'Canon',
+    model: 'EOS 5D Mark IV',
+    displayName: 'Canon EOS 5D Mark IV',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3272'],
+    matchRegex: /EOS\s+5D\s*Mark\s*IV/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-5d-mk3',
+    brand: 'Canon',
+    model: 'EOS 5D Mark III',
+    displayName: 'Canon EOS 5D Mark III',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3218'],
+    matchRegex: /EOS\s+5D\s*Mark\s*III/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-6d-mk2',
+    brand: 'Canon',
+    model: 'EOS 6D Mark II',
+    displayName: 'Canon EOS 6D Mark II',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3278'],
+    matchRegex: /EOS\s+6D\s*Mark\s*II/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-6d',
+    brand: 'Canon',
+    model: 'EOS 6D',
+    displayName: 'Canon EOS 6D',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3219'],
+    matchRegex: /EOS\s+6D(\s|$)/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-90d',
+    brand: 'Canon',
+    model: 'EOS 90D',
+    displayName: 'Canon EOS 90D',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3289'],
+    matchRegex: /EOS\s+90D/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-80d',
+    brand: 'Canon',
+    model: 'EOS 80D',
+    displayName: 'Canon EOS 80D',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3257'],
+    matchRegex: /EOS\s+80D/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+
+  // ── Canon EOS Rebel / Entry DSLR ──
+  {
+    id: 'canon-eos-200d',
+    brand: 'Canon',
+    model: 'EOS 200D',
+    displayName: 'Canon EOS 200D (Rebel SL2)',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3279'],
+    matchRegex: /EOS\s+200D|Rebel\s+SL2/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-250d',
+    brand: 'Canon',
+    model: 'EOS 250D',
+    displayName: 'Canon EOS 250D (Rebel SL3)',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3287'],
+    matchRegex: /EOS\s+250D|Rebel\s+SL3|Kiss\s+X10/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-1500d',
+    brand: 'Canon',
+    model: 'EOS 1500D',
+    displayName: 'Canon EOS 1500D / 2000D (Rebel T7)',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3281'],
+    matchRegex: /EOS\s+(1500D|2000D)|Rebel\s+T7/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+  {
+    id: 'canon-eos-1300d',
+    brand: 'Canon',
+    model: 'EOS 1300D',
+    displayName: 'Canon EOS 1300D (Rebel T6)',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3258'],
+    matchRegex: /EOS\s+1300D|Rebel\s+T6/i,
+    status: VERIFICATION_STATUS.COMPATIBLE_UNTESTED,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: true,
+      batteryStatus: true,
+    },
+    verificationNotes: 'Didukung secara protokol PTP. Belum diuji fisik pada unit hardware.',
+  },
+
+  // ── Canon EOS Budget DSLR (Partial Live View Support) ──
+  {
+    id: 'canon-eos-3000d',
+    brand: 'Canon',
+    model: 'EOS 3000D',
+    displayName: 'Canon EOS 3000D / 4000D',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    supportedPidsHex: ['3282'],
+    matchRegex: /EOS\s+(3000D|4000D)/i,
+    status: VERIFICATION_STATUS.PARTIAL,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    capabilities: {
+      detection: true,
+      identification: true,
+      handshake: true,
+      remoteCapture: true,
+      imageDownload: true,
+      liveView: false, // Terbatas/tidak stabil via PTP preview pada model entry ini
+      batteryStatus: true,
+    },
+    verificationNotes: 'Remote capture didukung. Live View streaming dibatasi oleh firmware kamera.',
+  },
+];
+
+/**
+ * Find model by PID (hex string, e.g. '3293') or friendly name
+ */
+function findModel(pidHex, friendlyName = '') {
   const norm = String(pidHex || '').toUpperCase().padStart(4, '0');
-  return MODELS.find((m) => m.supportedPidsHex.includes(norm)) || null;
+  const nameStr = String(friendlyName || '');
+
+  // 1. Direct PID match
+  const byPid = MODELS.find((m) => m.supportedPidsHex.includes(norm));
+  if (byPid) return byPid;
+
+  // 2. Name-based regex match
+  if (nameStr) {
+    const byName = MODELS.find((m) => m.matchRegex && m.matchRegex.test(nameStr));
+    if (byName) return byName;
+  }
+
+  return null;
 }
 
-function createUnverifiedProfile(pidHex, friendlyName) {
+/**
+ * Create dynamic fallback profile for an unverified/unknown Canon camera
+ */
+function createUnverifiedProfile(pidHex, friendlyName = '') {
+  const matched = findModel(pidHex, friendlyName);
+  if (matched) return matched;
+
+  const isEos = /EOS/i.test(friendlyName);
+
   return {
     id: `canon-unverified-${pidHex || 'unknown'}`,
     brand: KNOWN_BRANDS.CANON.name,
-    vendorIdHex: KNOWN_BRANDS.CANON.vidHex,
-    vendorIdDec: KNOWN_BRANDS.CANON.vidDec,
-    model: friendlyName || 'Canon Camera',
+    vendorIdHex: CANON_VID_HEX,
+    vendorIdDec: CANON_VID_DEC,
+    model: friendlyName || 'Canon EOS Digital Camera',
     displayName: friendlyName || 'Canon Camera',
-    status: VERIFICATION_STATUS.NOT_YET_VERIFIED,
-    driverStrategy: DRIVER_STRATEGY.UNSUPPORTED,
-    vendorMessage: 'Model kamera Canon ini belum didukung MingleBooth.',
+    status: isEos ? VERIFICATION_STATUS.COMPATIBLE_UNTESTED : VERIFICATION_STATUS.UNKNOWN,
+    driverStrategy: DRIVER_STRATEGY.NATIVE_WINDOWS,
+    backendType: 'canon-ptp',
+    vendorMessage: isEos
+      ? 'Kamera Canon EOS terdeteksi melalui PTP standar (Belum diverifikasi fisik).'
+      : 'Perangkat Canon terdeteksi, namun kompatibilitas model ini belum diverifikasi.',
     capabilities: {
-      capture: false,
-      download: false,
+      detection: true,
+      identification: false,
+      handshake: isEos,
+      remoteCapture: isEos,
+      imageDownload: isEos,
       liveView: false,
       batteryStatus: false,
     },
+    verificationNotes: 'Profil dinamis otomatis untuk model Canon tak dikenal.',
   };
 }
 

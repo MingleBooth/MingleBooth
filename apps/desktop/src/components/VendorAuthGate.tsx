@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Laptop, AlertCircle, Mail, Lock, Loader2, Copy, Check } from 'lucide-react';
+import { ShieldCheck, Laptop, AlertCircle, Mail, Lock, Loader2, Copy, Check, Eye, EyeOff } from 'lucide-react';
 import { LicenseVerifier } from '@minglebooth/license';
 import { API_BASE_URL } from '../config';
 import logoHeader from '../assets/logo-minglebooth-header.png';
@@ -25,6 +25,7 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
   // Form fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const isWindows = typeof navigator !== 'undefined' && /win/i.test(navigator.userAgent || (navigator as any).platform || '');
   const [deviceName, setDeviceName] = useState(() =>
     isWindows ? 'Windows Operator Booth 1' : 'MacBook Operator Booth 1'
@@ -146,7 +147,7 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
           hardwareFingerprint: hwid,
           deviceName,
           osType: isWindows ? 'windows' : 'mac',
-          appVersion: '1.0.0-rc.1',
+          appVersion: '1.0.0-rc.3',
         }),
       });
 
@@ -285,13 +286,21 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
               <div className="h-[44px] sm:h-[46px] px-3.5 rounded-xl bg-[#171A22] border border-white/[0.08] focus-within:border-white/30 focus-within:ring-1 focus-within:ring-white/10 transition-all flex items-center gap-2.5">
                 <Lock className="w-4 h-4 text-neutral-400 shrink-0" />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="bg-transparent border-none outline-none text-white text-xs sm:text-sm w-full placeholder:text-neutral-500 font-normal"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-neutral-400 hover:text-white transition-colors p-1 shrink-0"
+                  title={showPassword ? 'Sembunyikan password' : 'Lihat password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 

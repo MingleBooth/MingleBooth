@@ -14,7 +14,7 @@ function getDefaultTetherDir() {
 }
 
 class TetherServer extends EventEmitter {
-  constructor(port = 4848) {
+  constructor(port = 4848, customTetherDir = null) {
     super();
     this.port = port;
     this.server = null;
@@ -24,11 +24,13 @@ class TetherServer extends EventEmitter {
     this.latestPhotoTimestamp = null;
     this.pendingTriggers = [];
     this.processedFiles = new Set();
+    this.activePollers = new Map();
+    this.sweepInterval = null;
     this.sseClients = new Set();
     this.fsWatcher = null;
 
     // Default tether inbox directory: native user Pictures folder
-    this.tetherDir = getDefaultTetherDir();
+    this.tetherDir = customTetherDir || getDefaultTetherDir();
     this.ensureDirectory();
     this.initWatcher();
   }
@@ -38,10 +40,15 @@ class TetherServer extends EventEmitter {
       if (!fs.existsSync(this.tetherDir)) {
         fs.mkdirSync(this.tetherDir, { recursive: true });
       }
-      // Populate existing files to avoid re-triggering old photos
+      // Populate existing files to avoid re-triggering old historical photos
       const files = fs.readdirSync(this.tetherDir);
       for (const file of files) {
         this.processedFiles.add(file);
+        try {
+          const s = fs.statSync(path.join(this.tetherDir, file));
+          this.processedFiles.add(`${file}_${s.size}`);
+          this.processedFiles.add(`${file}_${s.size}_${s.mtimeMs}`);
+        } catch {}
       }
     } catch (err) {
       console.error('[TetherServer] Failed to prepare tether folder:', err);
@@ -52,9 +59,18 @@ class TetherServer extends EventEmitter {
     if (!newPath || typeof newPath !== 'string') return;
     try {
       if (this.fsWatcher) {
-        this.fsWatcher.close();
+        try { this.fsWatcher.close(); } catch {}
         this.fsWatcher = null;
       }
+      if (this.sweepInterval) {
+        clearInterval(this.sweepInterval);
+        this.sweepInterval = null;
+      }
+      for (const [_, poller] of this.activePollers) {
+        if (poller.timer) clearTimeout(poller.timer);
+      }
+      this.activePollers.clear();
+
       this.tetherDir = path.resolve(newPath);
       this.ensureDirectory();
       this.initWatcher();
@@ -81,78 +97,223 @@ class TetherServer extends EventEmitter {
   initWatcher() {
     try {
       if (this.fsWatcher) {
-        this.fsWatcher.close();
+        try { this.fsWatcher.close(); } catch {}
+        this.fsWatcher = null;
       }
+      if (this.sweepInterval) {
+        clearInterval(this.sweepInterval);
+        this.sweepInterval = null;
+      }
+
       this.fsWatcher = fs.watch(this.tetherDir, (eventType, filename) => {
         if (!filename) return;
-        const lower = filename.toLowerCase();
-        if (lower.endsWith('.arw') || lower.endsWith('.cr2') || lower.endsWith('.cr3') || lower.endsWith('.nef') || lower.endsWith('.dng') || lower.endsWith('.raw')) {
-          console.warn(`[TetherServer] ⚠️ File RAW terdeteksi (${filename}). Format kamera wajib diset ke JPEG!`);
-          this.emit('raw-detected', { filename });
-          return;
-        }
-
-        if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg') && !lower.endsWith('.png')) {
-          return;
-        }
-
-        const filePath = path.join(this.tetherDir, filename);
-
-        // Debounce read to let camera finish writing file to disk
-        setTimeout(() => {
-          this.handleNewTetherFile(filePath, filename);
-        }, 250);
+        this.handleWatcherEvent(filename);
       });
       console.log('[TetherServer] Watching hot folder:', this.tetherDir);
     } catch (err) {
       console.warn('[TetherServer] Error starting hot folder watch:', err);
     }
+
+    // Periodic directory sweep every 2 seconds to catch files missed by fs.watch
+    this.sweepInterval = setInterval(() => {
+      this.sweepDirectory();
+    }, 2000);
   }
 
-  markProcessed(filename, size, mtimeMs) {
+  handleWatcherEvent(filename) {
     if (!filename) return;
-    this.processedFiles.add(filename);
-    if (size) {
-      this.processedFiles.add(`${filename}_${size}`);
-      if (mtimeMs) this.processedFiles.add(`${filename}_${size}_${mtimeMs}`);
+    const lower = filename.toLowerCase();
+    if (lower.endsWith('.arw') || lower.endsWith('.cr2') || lower.endsWith('.cr3') || lower.endsWith('.nef') || lower.endsWith('.dng') || lower.endsWith('.raw')) {
+      console.warn(`[TetherServer] ⚠️ File RAW terdeteksi (${filename}). Format kamera wajib diset ke JPEG!`);
+      this.emit('raw-detected', { filename });
+      return;
+    }
+
+    if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg') && !lower.endsWith('.png')) {
+      return;
+    }
+
+    const filePath = path.join(this.tetherDir, filename);
+    this.scheduleFileVerification(filePath, filename);
+  }
+
+  sweepDirectory() {
+    try {
+      if (!fs.existsSync(this.tetherDir)) return;
+      const entries = fs.readdirSync(this.tetherDir);
+      for (const filename of entries) {
+        if (!filename || filename.startsWith('.')) continue;
+        const lower = filename.toLowerCase();
+        if (lower.endsWith('.arw') || lower.endsWith('.cr2') || lower.endsWith('.cr3') || lower.endsWith('.nef') || lower.endsWith('.dng') || lower.endsWith('.raw')) {
+          continue;
+        }
+        if (!lower.endsWith('.jpg') && !lower.endsWith('.jpeg') && !lower.endsWith('.png')) {
+          continue;
+        }
+
+        const filePath = path.join(this.tetherDir, filename);
+        if (this.isAlreadyProcessed(filename, filePath) || this.activePollers.has(filePath)) {
+          continue;
+        }
+        this.scheduleFileVerification(filePath, filename);
+      }
+    } catch (err) {
+      // Ignore background sweep read errors (e.g. folder busy)
     }
   }
 
-  handleNewTetherFile(filePath, filename) {
+  isAlreadyProcessed(filename, filePath) {
+    if (this.processedFiles.has(filename)) return true;
+    try {
+      if (fs.existsSync(filePath)) {
+        const stat = fs.statSync(filePath);
+        if (
+          this.processedFiles.has(`${filename}_${stat.size}`) ||
+          this.processedFiles.has(`${filename}_${stat.size}_${stat.mtimeMs}`)
+        ) {
+          return true;
+        }
+      }
+    } catch {}
+    return false;
+  }
+
+  scheduleFileVerification(filePath, filename) {
+    if (this.isAlreadyProcessed(filename, filePath)) return;
+    if (this.activePollers.has(filePath)) return; // Prevents parallel pollers on rename/change
+
+    const pollerState = {
+      filePath,
+      filename,
+      startTime: Date.now(),
+      lastSize: -1,
+      consecutiveMatches: 0,
+      timer: null,
+    };
+    this.activePollers.set(filePath, pollerState);
+    this._pollFileStep(pollerState);
+  }
+
+  _pollFileStep(pollerState) {
+    // Retry limited to max 30 seconds
+    const elapsed = Date.now() - pollerState.startTime;
+    if (elapsed > 30000) {
+      this.activePollers.delete(pollerState.filePath);
+      console.error(`[TetherServer] ❌ File write timeout (>30s) for ${pollerState.filename}. Abandoning incomplete file.`);
+      this.emit('file-failed', { filename: pollerState.filename, reason: 'TIMEOUT_UNSTABLE', elapsedMs: elapsed });
+      return;
+    }
+
+    if (!fs.existsSync(pollerState.filePath)) {
+      pollerState.timer = setTimeout(() => this._pollFileStep(pollerState), 150);
+      return;
+    }
+
+    let currentSize = 0;
+    try {
+      const s = fs.statSync(pollerState.filePath);
+      currentSize = s.size;
+    } catch (statErr) {
+      pollerState.timer = setTimeout(() => this._pollFileStep(pollerState), 150);
+      return;
+    }
+
+    // Require >= 3 consecutive identical size checks
+    if (currentSize > 0 && currentSize === pollerState.lastSize) {
+      pollerState.consecutiveMatches += 1;
+    } else {
+      pollerState.consecutiveMatches = 0;
+      pollerState.lastSize = currentSize;
+    }
+
+    if (pollerState.consecutiveMatches < 3) {
+      pollerState.timer = setTimeout(() => this._pollFileStep(pollerState), 150);
+      return;
+    }
+
+    // Size is stable across 3 consecutive checks!
+    // Minimum file size: 10 KB (10240 bytes)
+    if (currentSize < 10240) {
+      this.activePollers.delete(pollerState.filePath);
+      console.warn(`[TetherServer] ⚠️ File size too small (${currentSize} bytes < 10KB) for ${pollerState.filename}. Rejected.`);
+      this.emit('file-failed', { filename: pollerState.filename, reason: 'SIZE_TOO_SMALL', size: currentSize });
+      return;
+    }
+
+    // Verify magic bytes (header & completion trailer) before reading full file
+    let isJpeg = false;
+    let isPng = false;
+    let isComplete = false;
+    let fd = null;
+    try {
+      fd = fs.openSync(pollerState.filePath, 'r');
+      const headerBuf = Buffer.alloc(4);
+      fs.readSync(fd, headerBuf, 0, 4, 0);
+
+      isJpeg = headerBuf[0] === 0xff && headerBuf[1] === 0xd8;
+      isPng = headerBuf[0] === 0x89 && headerBuf[1] === 0x50 && headerBuf[2] === 0x4e && headerBuf[3] === 0x47;
+
+      if (isJpeg) {
+        // JPEG completion check: must contain EOI marker 0xFF 0xD9 in the last 128 bytes
+        const tailLen = Math.min(currentSize, 128);
+        const tailBuf = Buffer.alloc(tailLen);
+        fs.readSync(fd, tailBuf, 0, tailLen, currentSize - tailLen);
+        for (let i = 0; i < tailLen - 1; i++) {
+          if (tailBuf[i] === 0xff && tailBuf[i + 1] === 0xd9) {
+            isComplete = true;
+            break;
+          }
+        }
+      } else if (isPng) {
+        // PNG completion check: must contain IEND chunk near the end
+        const tailLen = Math.min(currentSize, 64);
+        const tailBuf = Buffer.alloc(tailLen);
+        fs.readSync(fd, tailBuf, 0, tailLen, currentSize - tailLen);
+        if (tailBuf.includes(Buffer.from([0x49, 0x45, 0x4e, 0x44]))) {
+          isComplete = true;
+        }
+      }
+    } catch (readErr) {
+      // File still locked exclusively by writing process (Windows sharing violation) or I/O busy
+      pollerState.consecutiveMatches = 0;
+      pollerState.timer = setTimeout(() => this._pollFileStep(pollerState), 150);
+      return;
+    } finally {
+      if (fd !== null) {
+        try { fs.closeSync(fd); } catch {}
+      }
+    }
+
+    if (!isJpeg && !isPng) {
+      this.activePollers.delete(pollerState.filePath);
+      console.warn(`[TetherServer] ⚠️ Invalid magic bytes for ${pollerState.filename}. Expected JPEG/PNG.`);
+      this.emit('file-failed', { filename: pollerState.filename, reason: 'INVALID_MAGIC_BYTES' });
+      return;
+    }
+
+    if (!isComplete) {
+      // File header is valid JPEG/PNG, but end-of-file trailer is not yet written.
+      // Writer is still flushing or in pause. Keep polling!
+      pollerState.consecutiveMatches = 0;
+      pollerState.timer = setTimeout(() => this._pollFileStep(pollerState), 150);
+      return;
+    }
+
+    // All verifications passed! Finalize file ingestion
+    this.finalizeTetherFile(pollerState.filePath, pollerState.filename, currentSize);
+  }
+
+  finalizeTetherFile(filePath, filename, finalSize) {
+    this.activePollers.delete(filePath);
     try {
       if (!fs.existsSync(filePath)) return;
-
       const stat = fs.statSync(filePath);
-      if (stat.size < 10240) return; // File still being written or empty (<10KB)
+      const fileKey = `${filename}_${finalSize}_${stat.mtimeMs}`;
+      if (this.isAlreadyProcessed(filename, filePath)) return;
 
-      // Validate header magic bytes: JPEG (0xFF 0xD8), PNG (0x89 0x50), RAW/TIFF (0x49 0x49 or 0x4D 0x4D)
-      try {
-        const fd = fs.openSync(filePath, 'r');
-        const headerBuf = Buffer.alloc(4);
-        fs.readSync(fd, headerBuf, 0, 4, 0);
-        fs.closeSync(fd);
-
-        const isJpeg = headerBuf[0] === 0xff && headerBuf[1] === 0xd8;
-        const isPng = headerBuf[0] === 0x89 && headerBuf[1] === 0x50 && headerBuf[2] === 0x4e && headerBuf[3] === 0x47;
-        const isRaw = (headerBuf[0] === 0x49 && headerBuf[1] === 0x49) || (headerBuf[0] === 0x4d && headerBuf[1] === 0x4d);
-
-        if (!isJpeg && !isPng && !isRaw) return;
-      } catch {
-        return;
-      }
-
-      // Check if already processed
-      const fileKey = `${filename}_${stat.size}_${stat.mtimeMs}`;
-      if (
-        this.processedFiles.has(filename) ||
-        this.processedFiles.has(`${filename}_${stat.size}`) ||
-        this.processedFiles.has(fileKey)
-      ) {
-        return;
-      }
       this.processedFiles.add(fileKey);
       this.processedFiles.add(filename);
-      this.processedFiles.add(`${filename}_${stat.size}`);
+      this.processedFiles.add(`${filename}_${finalSize}`);
 
       const buffer = fs.readFileSync(filePath);
       const mime = filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
@@ -162,7 +323,7 @@ class TetherServer extends EventEmitter {
       this.latestPhotoFilename = filename;
       this.latestPhotoTimestamp = Date.now();
 
-      console.log(`[TetherServer] 📸 New high-res photo captured from camera: ${filename} (${(stat.size / (1024 * 1024)).toFixed(2)} MB)`);
+      console.log(`[TetherServer] 📸 Photo successfully stabilized & ingested: ${filename} (${(finalSize / (1024 * 1024)).toFixed(2)} MB)`);
 
       const photoPayload = {
         success: true,
@@ -170,7 +331,7 @@ class TetherServer extends EventEmitter {
         filename,
         filePath,
         photoDataUrl: base64Data,
-        byteSize: stat.size,
+        byteSize: finalSize,
         timestamp: this.latestPhotoTimestamp,
       };
 
@@ -194,8 +355,22 @@ class TetherServer extends EventEmitter {
         trigger.resolve(photoPayload);
       }
     } catch (err) {
-      console.error('[TetherServer] Error reading tether file:', err);
+      console.error('[TetherServer] Error finalizing tether file:', err);
     }
+  }
+
+  markProcessed(filename, size, mtimeMs) {
+    if (!filename) return;
+    this.processedFiles.add(filename);
+    if (size) {
+      this.processedFiles.add(`${filename}_${size}`);
+      if (mtimeMs) this.processedFiles.add(`${filename}_${size}_${mtimeMs}`);
+    }
+  }
+
+  handleNewTetherFile(filePath, filename) {
+    // Backward-compatible alias for existing callers
+    this.scheduleFileVerification(filePath, filename);
   }
 
   start() {
@@ -521,6 +696,24 @@ class TetherServer extends EventEmitter {
   }
 
   stop() {
+    if (this.sweepInterval) {
+      clearInterval(this.sweepInterval);
+      this.sweepInterval = null;
+    }
+    if (this.fsWatcher) {
+      try { this.fsWatcher.close(); } catch {}
+      this.fsWatcher = null;
+    }
+    for (const [_, poller] of this.activePollers) {
+      if (poller.timer) clearTimeout(poller.timer);
+    }
+    this.activePollers.clear();
+
+    for (const client of this.sseClients) {
+      try { client.end(); } catch {}
+    }
+    this.sseClients.clear();
+
     if (this.server) {
       this.server.close();
       this.server = null;

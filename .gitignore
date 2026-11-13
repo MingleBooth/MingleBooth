@@ -32,9 +32,19 @@ logs/
 # Electron build artifacts
 dist-electron
 release
+apps/desktop/release*/
+apps/desktop/release_backup*
+apps/desktop/release-staging/
 .vercel
 .env*.local
 *.tsbuildinfo
+
+# Mobile build artifacts
+apps/mobile/android/.gradle/
+apps/mobile/android/.idea/
+apps/mobile/android/app/build/
+apps/mobile/node_modules/
+apps/mobile/dist/
 
 # Temporary & Local Experiments
 .temp/

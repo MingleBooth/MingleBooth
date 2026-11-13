@@ -136,6 +136,7 @@ class NativeCameraService extends EventEmitter {
     this.wasExplicitlyStoppingLiveView = false;
     this.selfTestResult = null;
     this.sonyBackend = null;
+    this.canonBackend = null;
 
     if (!fs.existsSync(this.tetherDir)) {
       try {
@@ -459,6 +460,25 @@ class NativeCameraService extends EventEmitter {
    * Reports support per verified camera model without claiming universal support.
    */
   detectCameraCapabilities(camera) {
+    if (camera?.profile?.capabilities) {
+      const p = camera.profile;
+      return {
+        model: p.displayName || p.model || camera?.model || 'Kamera USB Terdeteksi',
+        brand: p.brand || 'Unknown',
+        detection: true,
+        identification: p.capabilities.identification !== false,
+        handshake: p.capabilities.handshake !== false,
+        remoteCapture: p.capabilities.remoteCapture !== false,
+        imageDownload: p.capabilities.imageDownload !== false,
+        liveView: p.capabilities.liveView === true,
+        batteryStatus: p.capabilities.batteryStatus !== false,
+        usbModeRequired: p.brand === 'Canon' ? 'USB PTP (Matikan Wi-Fi kamera)' : (p.brand === 'Sony' ? 'PC Remote' : 'PTP / MTP'),
+        verifiedStatus: p.status || 'COMPATIBLE_UNTESTED',
+        defaultDriverSupported: true,
+        notes: p.verificationNotes || (p.brand === 'Canon' ? 'Kamera Canon PTP. Matikan Wi-Fi kamera sebelum menyambungkan kabel USB.' : 'Kamera terdeteksi.'),
+      };
+    }
+
     const model = (camera?.model || this.activeCameraModel || '').toLowerCase();
 
     // Model-specific capability matrix
@@ -1015,6 +1035,37 @@ class NativeCameraService extends EventEmitter {
         return;
       }
 
+      // Check for Canon target in Windows PnP
+      const canonTarget = pnpCameras.find((dev) =>
+        dev.backendType === 'canon-ptp' ||
+        dev.backend === 'canon-ptp' ||
+        dev.vendorId === 1193 ||
+        dev.vendorId === 0x04a9 ||
+        /VID_04A9/i.test(dev.instanceId || '') ||
+        /canon|eos/i.test(dev.friendlyName || dev.model || '')
+      );
+
+      if (canonTarget) {
+        console.log('[CameraManager] Canon camera detected via Windows PnP — delegating to Canon PTP Engine.');
+        const canonProfile = identifyCamera(canonTarget.vendorId || 1193, canonTarget.productId || 0, canonTarget.rawModel || canonTarget.friendlyName || canonTarget.model);
+        const canonCam = {
+          model: canonProfile.displayName || canonTarget.model || 'Canon EOS Camera',
+          rawModel: canonTarget.rawModel || canonTarget.friendlyName || 'Canon Camera',
+          friendlyName: canonTarget.friendlyName || 'Canon Digital Camera',
+          vendorId: canonTarget.vendorId || 1193,
+          productId: canonTarget.productId || 0,
+          instanceId: canonTarget.instanceId,
+          port: 'usb:canon-ptp',
+          source: 'canon-ptp',
+          engine: 'Canon PTP Engine',
+          backend: 'canon-ptp',
+          backendType: 'canon-ptp',
+          profile: canonProfile,
+        };
+        this.finishDetection([canonCam], resolve);
+        return;
+      }
+
       // Non-Sony PnP camera fallback
       const primaryPnp = pnpCameras[0];
       const cameraProfile = identifyCamera(primaryPnp.vendorId, primaryPnp.productId, primaryPnp.model);
@@ -1299,22 +1350,34 @@ class NativeCameraService extends EventEmitter {
         (profile?.backendType === 'sony-sdk' ||
           (c.vendorId === 1356 && c.productId === 3724) ||
           /ILCE-7CM2|7CM2/i.test(c.model || ''));
+      const isCanon =
+        profile?.brand === 'Canon' ||
+        profile?.backendType === 'canon-ptp' ||
+        c.vendorId === 1193 ||
+        c.vendorId === 0x04a9 ||
+        /canon|eos/i.test(c.model || '');
 
       return {
-        model: isSonySdk ? (profile?.displayName || 'Sony α7C II') : (c.model || 'Kamera Studio USB'),
+        model: isSonySdk
+          ? (profile?.displayName || 'Sony α7C II')
+          : (isCanon ? (profile?.displayName || c.model || 'Canon EOS Camera') : (c.model || 'Kamera Studio USB')),
         rawModel: c.model,
         vendorId: c.vendorId,
         productId: c.productId,
-        manufacturer: isSonySdk ? 'Sony' : (profile?.brand || 'Unknown'),
-        port: isSonySdk ? 'usb:sony-sdk' : (c.port || 'usb'),
-        source: isSonySdk ? 'sony-sdk' : (c.source || 'native'),
-        engine: isSonySdk ? 'Sony Camera Remote SDK 2.02.00' : (c.engine || (process.platform === 'darwin' ? 'gphoto2' : 'bundled-windows-engine')),
-        backend: isSonySdk ? 'sony-sdk' : (profile?.backendType || 'gphoto2'),
+        manufacturer: isSonySdk ? 'Sony' : (isCanon ? 'Canon' : (profile?.brand || 'Unknown')),
+        port: isSonySdk ? 'usb:sony-sdk' : (isCanon ? (c.port || 'usb:canon-ptp') : (c.port || 'usb')),
+        source: isSonySdk ? 'sony-sdk' : (isCanon ? 'canon-ptp' : (c.source || 'native')),
+        engine: isSonySdk
+          ? 'Sony Camera Remote SDK 2.02.00'
+          : (isCanon ? 'Canon PTP Engine' : (c.engine || (process.platform === 'darwin' ? 'gphoto2' : 'bundled-windows-engine'))),
+        backend: isSonySdk ? 'sony-sdk' : (isCanon ? 'canon-ptp' : (profile?.backendType || 'gphoto2')),
         profile,
         detected: true,
         connected: Boolean(
           this.connectedCamera &&
-            (this.connectedCamera.model === c.model || (isSonySdk && this.connectedCamera.backend === 'sony-sdk'))
+            (this.connectedCamera.model === c.model ||
+              (isSonySdk && this.connectedCamera.backend === 'sony-sdk') ||
+              (isCanon && this.connectedCamera.backend === 'canon-ptp'))
         ),
         capabilities: isSonySdk
           ? {
@@ -1323,11 +1386,18 @@ class NativeCameraService extends EventEmitter {
               liveView: true,
               batteryStatus: true,
             }
-          : {
-              capture: caps.remoteCapture ?? true,
-              download: caps.imageDownload ?? true,
-              liveView: caps.liveView ?? true,
-            },
+          : (isCanon && profile?.capabilities
+            ? {
+                capture: profile.capabilities.remoteCapture !== false,
+                download: profile.capabilities.imageDownload !== false,
+                liveView: profile.capabilities.liveView === true,
+                batteryStatus: profile.capabilities.batteryStatus !== false,
+              }
+            : {
+                capture: caps.remoteCapture ?? true,
+                download: caps.imageDownload ?? true,
+                liveView: caps.liveView ?? true,
+              }),
       };
     });
 
@@ -1460,6 +1530,63 @@ class NativeCameraService extends EventEmitter {
         return { success: true, camera: this.connectedCamera, state: 'READY' };
       } else {
         const cErr = cameraError('CAMERA_CONNECTION_FAILED', connRes.error);
+        this.connectedCamera = null;
+        this.updateState('ERROR', { error: cErr.message });
+        return { success: false, ...cErr };
+      }
+    }
+
+    // ── Canon Camera Routing (PTP Backend via CanonCameraBackend) ───────────
+    const isCanon =
+      cameraToConnect.backend === 'canon-ptp' ||
+      cameraToConnect.profile?.backendType === 'canon-ptp' ||
+      cameraToConnect.profile?.brand === 'Canon' ||
+      (cameraToConnect.vendorId === 1193 || cameraToConnect.vendorId === 0x04a9) ||
+      /canon|eos/i.test(cameraToConnect.model || '');
+
+    if (isCanon) {
+      console.log('[CameraManager] Routing connection to CanonCameraBackend (PTP)...');
+      if (!this.canonBackend) {
+        this.canonBackend = getBackendForProfile(cameraToConnect.profile || { backendType: 'canon-ptp', brand: 'Canon' }, {
+          tetherDir: this.tetherDir,
+        });
+      }
+
+      const connRes = await this.canonBackend.connect(cameraToConnect.profile);
+      if (connRes.success) {
+        if (this.canonBackend) {
+          this.canonBackend.removeAllListeners('liveFrame');
+          this.canonBackend.on('liveFrame', (frame) => {
+            this.emit('liveFrame', frame);
+          });
+          this.canonBackend.removeAllListeners('stateChange');
+          this.canonBackend.on('stateChange', (payload) => {
+            if (payload?.state === 'DISCONNECTED') {
+              this.isLiveViewActive = false;
+              this.connectedCamera = null;
+              this.updateState('DISCONNECTED', payload);
+            }
+          });
+        }
+
+        const canonCaps = this.canonBackend.getCapabilities(cameraToConnect.profile);
+        this.connectedCamera = {
+          model: connRes.model || cameraToConnect.model || 'Canon EOS Camera',
+          displayName: cameraToConnect.profile?.displayName || connRes.model || cameraToConnect.model || 'Canon EOS Camera',
+          port: cameraToConnect.port || 'usb:canon-ptp',
+          engine: 'Canon PTP Engine',
+          backend: 'canon-ptp',
+          connectedAt: Date.now(),
+          profile: cameraToConnect.profile,
+          capabilities: canonCaps,
+        };
+        this.activeCameraModel = this.connectedCamera.model;
+        this.errorMessage = null;
+        this.updateState('CONNECTED', { camera: this.connectedCamera, error: null });
+        this.updateState('READY', { camera: this.connectedCamera, error: null });
+        return { success: true, camera: this.connectedCamera, state: 'READY' };
+      } else {
+        const cErr = cameraError('CAMERA_CONNECTION_FAILED', connRes.error || connRes.technicalError);
         this.connectedCamera = null;
         this.updateState('ERROR', { error: cErr.message });
         return { success: false, ...cErr };
@@ -1840,6 +1967,12 @@ class NativeCameraService extends EventEmitter {
       return;
     }
 
+    if (this.canonBackend && this.connectedCamera && this.connectedCamera.backend === 'canon-ptp') {
+      this.isLiveViewActive = true;
+      this.canonBackend.startLiveView(this.connectedCamera.profile);
+      return;
+    }
+
     // Hub handles live view natively
     if (this.hubProcess && !this.hubProcess.killed) {
       this.isLiveViewActive = true;
@@ -1977,6 +2110,12 @@ class NativeCameraService extends EventEmitter {
       return;
     }
 
+    if (this.canonBackend && this.connectedCamera && this.connectedCamera.backend === 'canon-ptp') {
+      this.canonBackend.stopLiveView();
+      this.isLiveViewActive = false;
+      return;
+    }
+
     if (this.hubProcess && !this.hubProcess.killed) {
       try { this.hubProcess.stdin.write('PAUSE_PREVIEW\n'); } catch (e) {}
       this.isLiveViewActive = false;
@@ -2038,6 +2177,14 @@ class NativeCameraService extends EventEmitter {
         console.warn('[CameraManager] Error disconnecting sonyBackend:', e.message);
       }
       this.sonyBackend = null;
+    }
+    if (this.canonBackend) {
+      try {
+        await this.canonBackend.disconnect();
+      } catch (e) {
+        console.warn('[CameraManager] Error disconnecting canonBackend:', e.message);
+      }
+      this.canonBackend = null;
     }
     this.stopUnifiedHubSession();
     this.stopLiveView();
@@ -2183,6 +2330,10 @@ class NativeCameraService extends EventEmitter {
         `${baseNoExt}.JPEG`,
         `${baseNoExt}.arw`,
         `${baseNoExt}.ARW`,
+        `${baseNoExt}.cr2`,
+        `${baseNoExt}.CR2`,
+        `${baseNoExt}.cr3`,
+        `${baseNoExt}.CR3`,
       ];
       const found = candidates.find((p) => fs.existsSync(p));
       if (!found) {
@@ -2306,6 +2457,39 @@ class NativeCameraService extends EventEmitter {
         return { ...ingested, success: true, elapsedTimeMs: capRes.durationMs };
       } else {
         const cErr = cameraError('DOWNLOAD_FAILED', 'Gagal memproses file foto Sony');
+        this.updateState('ERROR', { error: cErr.message });
+        return { success: false, ...cErr };
+      }
+    }
+
+    // ── CASE CANON: CanonCameraBackend active (PTP Engine) ───────────────
+    if (this.connectedCamera && (this.connectedCamera.backend === 'canon-ptp' || this.canonBackend)) {
+      console.log('[CameraManager] Triggering direct capture via CanonCameraBackend (PTP)...');
+      this.updateState('CAPTURING');
+      const filename = `capture_${Date.now()}.JPG`;
+      const targetFilePath = path.join(this.tetherDir, filename);
+
+      if (!this.canonBackend) {
+        this.canonBackend = getBackendForProfile(this.connectedCamera.profile || { backendType: 'canon-ptp', brand: 'Canon' }, {
+          tetherDir: this.tetherDir,
+        });
+      }
+
+      const capRes = await this.canonBackend.capture(this.connectedCamera.profile, targetFilePath, options);
+      if (!capRes.success) {
+        console.error('[CameraManager] Canon capture failed:', capRes.error);
+        const cErr = cameraError('CAPTURE_FAILED', capRes.error);
+        this.updateState('ERROR', { error: cErr.message });
+        return { success: false, ...cErr };
+      }
+
+      this.updateState('TRANSFERRING', { filename });
+      const ingested = await this.ingestPhotoFile(capRes.filePath, path.basename(capRes.filePath), 'canon_ptp');
+      if (ingested) {
+        this.updateState('READY');
+        return { ...ingested, success: true, elapsedTimeMs: capRes.durationMs };
+      } else {
+        const cErr = cameraError('DOWNLOAD_FAILED', 'Gagal memproses file foto Canon');
         this.updateState('ERROR', { error: cErr.message });
         return { success: false, ...cErr };
       }

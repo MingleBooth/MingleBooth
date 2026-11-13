@@ -92,7 +92,7 @@ export const TetherHubModal: React.FC<TetherHubModalProps> = ({ isOpen, onClose 
             </div>
             <div>
               <h3 className="text-sm font-semibold text-white">Sambungkan iPad / Tablet</h3>
-              <p className="text-[11px] text-neutral-400">Kendalikan kamera Sony / DSLR langsung dari layar sentuh tablet</p>
+              <p className="text-[11px] text-neutral-400">Kendalikan kamera studio / DSLR langsung dari layar sentuh tablet</p>
             </div>
           </div>
           <button

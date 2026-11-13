@@ -16,9 +16,14 @@ const DRIVER_STRATEGY = Object.freeze({
 });
 
 const VERIFICATION_STATUS = Object.freeze({
-  SUPPORTED: 'SUPPORTED',                 // Physically verified and approved for production/QA
-  NOT_YET_VERIFIED: 'NOT_YET_VERIFIED',   // Brand/model recognized, but awaiting physical QA verification
-  UNSUPPORTED: 'UNSUPPORTED',             // Incompatible or explicitly unsupported device
+  VERIFIED: 'VERIFIED',                       // Physically verified and approved for production/QA
+  COMPATIBLE_UNTESTED: 'COMPATIBLE_UNTESTED', // Technically supported by protocol/specs, awaiting physical verification
+  PARTIAL: 'PARTIAL',                         // Only a subset of capabilities are supported
+  UNSUPPORTED: 'UNSUPPORTED',                 // Explicitly incompatible or rejected device
+  UNKNOWN: 'UNKNOWN',                         // Unrecognized device or insufficient info
+  // Backward-compatibility aliases
+  SUPPORTED: 'VERIFIED',
+  NOT_YET_VERIFIED: 'COMPATIBLE_UNTESTED',
 });
 
 const KNOWN_BRANDS = Object.freeze({

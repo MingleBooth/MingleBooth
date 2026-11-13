@@ -467,7 +467,7 @@ export const CameraQAPanel: React.FC<CameraQAPanelProps> = ({ onClose }) => {
                 </span>
               )}
             </div>
-            <p className="text-xs text-neutral-400">Pengujian otomatis kamera studio Sony ILCE-7CM2 (α7C II)</p>
+            <p className="text-xs text-neutral-400">Pengujian otomatis kamera studio photobooth</p>
           </div>
         </div>
 
@@ -592,7 +592,7 @@ export const CameraQAPanel: React.FC<CameraQAPanelProps> = ({ onClose }) => {
                   Kamera siap. Lakukan satu foto percobaan?
                 </h3>
                 <p className="text-xs text-neutral-300">
-                  Foto akan diambil langsung dari kamera Sony ILCE-7CM2 dan ditampilkan di layar tablet ini.
+                  Foto akan diambil langsung dari kamera studio dan ditampilkan di layar tablet ini.
                 </p>
               </div>
               <div className="flex items-center gap-3 pt-2">
@@ -674,7 +674,7 @@ export const CameraQAPanel: React.FC<CameraQAPanelProps> = ({ onClose }) => {
                 <span>KAMERA BERHASIL DIUJI</span>
               </div>
               <p className="text-xs text-neutral-300 font-semibold">
-                Sony α7C II (ILCE-7CM2) siap digunakan untuk sesi photobooth MingleBooth.
+                {cameraProfile?.displayName || cameraInfo?.model || 'Kamera studio'} siap digunakan untuk sesi photobooth MingleBooth.
               </p>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2 pt-2 text-[11px] text-emerald-300">
                 <div className="flex items-center gap-1.5">✓ Kamera terdeteksi</div>

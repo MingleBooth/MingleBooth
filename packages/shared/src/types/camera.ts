@@ -1,5 +1,22 @@
 export type CameraBrand = 'sony' | 'canon' | 'webcam' | 'device' | 'mock';
 
+export type CameraVerificationStatus =
+  | 'VERIFIED'
+  | 'COMPATIBLE_UNTESTED'
+  | 'PARTIAL'
+  | 'UNSUPPORTED'
+  | 'UNKNOWN';
+
+export interface CameraCapabilities {
+  detection: boolean;
+  identification: boolean;
+  handshake: boolean;
+  remoteCapture: boolean;
+  imageDownload: boolean;
+  liveView: boolean;
+  batteryStatus: boolean;
+}
+
 export type CameraConnectionStatus =
   | 'disconnected'
   | 'connecting'
@@ -16,6 +33,8 @@ export interface CameraDevice {
   serialNumber?: string;
   batteryLevel?: number; // 0 - 100 percentage
   isDefault?: boolean;
+  status?: CameraVerificationStatus;
+  capabilities?: Partial<CameraCapabilities>;
 }
 
 export interface CameraSettings {
@@ -40,6 +59,7 @@ export interface CameraStatus {
   batteryLevel: number | null;
   errorMessage?: string;
   lastCapturedAt?: number;
+  capabilities?: Partial<CameraCapabilities>;
 }
 
 export interface ICameraAdapter {

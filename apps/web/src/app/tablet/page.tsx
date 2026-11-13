@@ -72,13 +72,13 @@ export default function TabletStudioPage() {
     process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
     !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
       ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-Setup-1.0.0-rc.2.exe';
+      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-Setup-1.0.0-rc.3.exe';
 
   const macUrl =
     process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
     !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
       ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-1.0.0-rc.2.dmg';
+      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-1.0.0-rc.3.dmg';
 
   return (
     <div className="min-h-screen w-full bg-mb-bg text-mb-ink flex flex-col font-sans selection:bg-mb-accent selection:text-mb-accent-ink transition-colors">

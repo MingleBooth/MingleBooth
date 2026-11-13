@@ -1,6 +1,6 @@
 {
   "name": "@minglebooth/desktop",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.3",
   "type": "module",
   "description": "MingleBooth Studio — Professional Operator Desktop Application",
   "author": "MingleBooth Team",
@@ -58,6 +58,7 @@
     "afterPack": "./scripts/after-pack.cjs",
     "mac": {
       "category": "public.app-category.photography",
+      "artifactName": "MingleBooth-Studio-${version}.${ext}",
       "icon": "build/icon.icns",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
@@ -80,6 +81,7 @@
       ]
     },
     "nsis": {
+      "artifactName": "MingleBooth-Studio-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
@@ -88,6 +90,9 @@
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
       "include": "build/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "MingleBooth-Studio-${version}-portable.${ext}"
     }
   },
   "dependencies": {},

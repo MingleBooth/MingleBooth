@@ -31,8 +31,8 @@ interface ReleaseAsset {
   buttonText: string;
 }
 
-const RELEASE_VERSION = 'v1.0.0-rc.2';
-const RELEASE_DATE = '21 Oktober 2026';
+const RELEASE_VERSION = 'v1.0.0-rc.3';
+const RELEASE_DATE = '13 November 2026';
 
 // Strictly showing ONLY the 3 primary installer categories: Android APK, macOS DMG, Windows EXE.
 const RELEASE_ASSETS: ReleaseAsset[] = [
@@ -41,10 +41,10 @@ const RELEASE_ASSETS: ReleaseAsset[] = [
     platform: 'android',
     title: 'MingleBooth Studio Android',
     formatBadge: 'APK · Android 8.0+',
-    filename: 'MingleBooth-Studio-1.0.0-rc.2.apk',
-    size: '10.03 MB',
-    sha256: '3cfa36a2ef468dfe025c1738f668afc54ee4cb7d99a07c7a969eafc863e7c318',
-    downloadUrl: 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-1.0.0-rc.2.apk',
+    filename: 'MingleBooth-Studio-1.0.0-rc.3.apk',
+    size: '7.39 MB',
+    sha256: '2410f45967ee385f7ac2259accd321620a40434ab0664fb2920a3b9bf662eee9',
+    downloadUrl: 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-1.0.0-rc.3.apk',
     targetOS: 'Android 8.0 Oreo ke atas (ARM64 & ARMv7, USB OTG Host Ready)',
     buttonText: 'Unduh untuk Android (APK)',
     notes: 'Mendukung Sony PC Remote PTP via USB OTG, Thermal Printing ESC/POS, dan Mode Demo Offline.',
@@ -54,23 +54,23 @@ const RELEASE_ASSETS: ReleaseAsset[] = [
     platform: 'macos',
     title: 'MingleBooth Studio macOS',
     formatBadge: 'DMG · macOS 12.0+',
-    filename: 'MingleBooth-Studio-1.0.0-rc.2.dmg',
-    size: '155.04 MB',
-    sha256: 'e135d78caa3c7a5df46969178bf5338f503c28ff92c802380126766ba88a249d',
-    downloadUrl: 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-1.0.0-rc.2.dmg',
+    filename: 'MingleBooth-Studio-1.0.0-rc.3.dmg',
+    size: '143.23 MB',
+    sha256: '7395738163be2d77cd6cfcd6b337a646aafcd6cbe61a77e686cca6f0b3133a91',
+    downloadUrl: 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-1.0.0-rc.3.dmg',
     targetOS: 'macOS 12.0+ (Monterey, Ventura, Sonoma, Sequoia - Apple Silicon & Intel)',
     buttonText: 'Unduh untuk macOS (DMG)',
-    notes: 'Installer universal disk image resmi. Buka DMG lalu drag & drop ke folder Applications.',
+    notes: 'Installer universal disk image resmi dengan Universal Dynamic Camera SOP (Sony & Canon). Buka DMG lalu drag & drop ke folder Applications.',
   },
   {
     id: 'windows-setup',
     platform: 'windows',
     title: 'MingleBooth Studio Windows',
     formatBadge: 'EXE · Windows 10 & 11',
-    filename: 'MingleBooth-Studio-Setup-1.0.0-rc.2.exe',
-    size: '137.66 MB',
-    sha256: 'c0a05d0cb584bb98e5068d637c7bde98d0067cf55f31a1cfab8ce12cd0369e9d',
-    downloadUrl: 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.2/MingleBooth-Studio-Setup-1.0.0-rc.2.exe',
+    filename: 'MingleBooth-Studio-Setup-1.0.0-rc.3.exe',
+    size: '137.67 MB',
+    sha256: '3e2b1bffaed89d0b5c0a24dbdd0a88b32e0d6f6ecb0542609dcedcf517d0753f',
+    downloadUrl: 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-Setup-1.0.0-rc.3.exe',
     targetOS: 'Windows 10 & Windows 11 (64-bit)',
     buttonText: 'Unduh untuk Windows (EXE)',
     notes: 'Paket installer lengkap dengan driver USB Sony dan integrasi printer foto DNP/HiTi/Citizen.',

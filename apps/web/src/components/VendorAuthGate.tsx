@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Laptop, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Laptop, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 interface VendorAuthGateProps {
   children: React.ReactNode;
@@ -16,6 +16,7 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
   // Form fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [deviceName, setDeviceName] = useState('MacBook Operator Booth 1');
   const [hwid, setHwid] = useState('');
 
@@ -164,14 +165,24 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({ children }) => {
 
             <div className="flex flex-col gap-1.5">
               <label className="text-xs text-neutral-300 font-medium">Password</label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="bg-[#171820] border border-white/[0.08] text-xs rounded-xl px-3.5 py-2.5 text-white outline-none focus:border-emerald-500/50 transition-colors"
-              />
+              <div className="relative flex items-center">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="bg-[#171820] border border-white/[0.08] text-xs rounded-xl px-3.5 py-2.5 pr-10 text-white outline-none focus:border-emerald-500/50 transition-colors w-full"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 text-neutral-400 hover:text-white transition-colors"
+                  title={showPassword ? 'Sembunyikan password' : 'Lihat password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <div className="flex flex-col gap-1.5">

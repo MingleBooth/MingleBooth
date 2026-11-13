@@ -1,0 +1,53 @@
+{
+  "name": "@minglebooth/mobile",
+  "version": "1.0.0-rc.3",
+  "type": "module",
+  "description": "MingleBooth Mobile — Cross-Platform Photobooth Application for Android, iPadOS & iOS",
+  "author": "MingleBooth Team",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "cap:sync": "cap sync",
+    "cap:android": "cap open android",
+    "cap:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/filesystem": "^6.0.4",
+    "@capacitor/ios": "^6.2.0",
+    "@minglebooth/camera": "*",
+    "@minglebooth/event-core": "*",
+    "@minglebooth/gif-engine": "*",
+    "@minglebooth/license": "*",
+    "@minglebooth/photo-engine": "*",
+    "@minglebooth/shared": "*",
+    "@minglebooth/sync-engine": "*",
+    "@minglebooth/template-engine": "*",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.439.0",
+    "nanoid": "^5.0.7",
+    "qrcode": "^1.5.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.2",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "@types/node": "^22.5.4",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.45",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.3"
+  }
+}

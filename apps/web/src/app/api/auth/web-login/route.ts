@@ -58,17 +58,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const isSuper = userProfile.role === 'SUPER_ADMIN';
+    const isOwner = userProfile.role === 'VENDOR_OWNER' || userProfile.role === 'vendor_owner';
+    const isSuper = userProfile.role === 'SUPER_ADMIN' || userProfile.role === 'ADMIN' || cleanEmail === 'superadmin@minglebooth.com' || cleanEmail === 'admin@minglebooth.com';
+    const isPrivileged = isOwner || isSuper;
     const org = userProfile.organizations;
+
     const sessionPayload = {
       userId: userProfile.id,
       email: userProfile.email,
-      fullName: userProfile.full_name || 'Vendor Owner',
+      fullName: userProfile.full_name || (isOwner ? 'Vendor Owner' : 'Vendor Staff'),
       role: userProfile.role || 'VENDOR_STAFF',
+      planTier: isPrivileged ? 'enterprise' : (org?.plan_tier || 'starter'),
       orgId: userProfile.organization_id || org?.id,
       orgName: org?.name || 'Vendor Studio',
       issuedAt: new Date().toISOString(),
-      expiresAt: org?.subscription_expires_at || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: isPrivileged
+        ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
+        : (org?.subscription_expires_at || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()),
+      isPrivileged,
     };
     const token = createSignedToken(sessionPayload);
 
@@ -78,8 +85,9 @@ export async function POST(req: NextRequest) {
       user: {
         id: userProfile.id,
         email: userProfile.email,
-        fullName: userProfile.full_name || 'Vendor Owner',
+        fullName: userProfile.full_name || (isOwner ? 'Vendor Owner' : 'Vendor Staff'),
         role: userProfile.role || 'VENDOR_STAFF',
+        planTier: isPrivileged ? 'enterprise' : (org?.plan_tier || 'starter'),
         org: userProfile.organizations,
       },
       redirectUrl: isSuper ? '/admin' : '/dashboard',

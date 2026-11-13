@@ -63,6 +63,8 @@ import { CameraQAPanel } from './components/CameraQAPanel';
 import { EventGalleryQrModal } from './components/EventGalleryQrModal';
 import { PrintChoiceModal } from './components/PrintChoiceModal';
 import { API_BASE_URL } from './config';
+import { getCameraNotification } from './lib/cameraNotifications';
+import { getCameraConnectionGuide } from './lib/cameraInstructions';
 import logoHeader from './assets/logo-minglebooth-header.png';
 import appIcon from './assets/icon.png';
 
@@ -329,6 +331,10 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
   >('DISCONNECTED');
   const [cameraSessionError, setCameraSessionError] = useState<string | null>(null);
 
+  // Connection mode derivation (Direct PTP vs Passive Hot Folder)
+  const isNativeDirectPtpReady = (cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED') && Boolean(nativeCameraModel);
+  const isHotFolderMode = (cameraMode === 'dslr' || cameraMode === 'sony') && !isNativeDirectPtpReady;
+
   // Events & Templates
   const [events, setEvents] = useState<EventItem[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>('');
@@ -411,6 +417,10 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
   const isCapturingRef = useRef<boolean>(false);
   const lastHandledPhotoRef = useRef<string | null>(null);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isCompositingRef = useRef<boolean>(false);
+  const tetherQueueRef = useRef<any[]>([]);
+  const isProcessingTetherQueueRef = useRef<boolean>(false);
+  const sessionPhotosRef = useRef<string[]>([]);
 
   // Standby Wallpaper / Screensaver States
   const [enableStandbyWallpaper, setEnableStandbyWallpaper] = useState<boolean>(() => {
@@ -864,6 +874,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
   }, []);
 
   // ── Listen to Native Camera IPC Events ──
+  const lastWarnedPartialModelRef = useRef<string | null>(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -887,6 +898,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
             setIsLiveViewSupported(true);
             setTetherStatus('disconnected');
             setCameraSessionError(payload.error || null);
+            lastWarnedPartialModelRef.current = null;
           } else if (payload.state === 'CONNECTING' || payload.state === 'DETECTING') {
             setCameraSessionError(null);
           } else if (payload.state === 'READY' || payload.state === 'CONNECTED') {
@@ -896,9 +908,43 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
             if (payload.camera?.model) {
               setNativeCameraModel(payload.camera.model);
             }
+            if (
+              payload.state === 'READY' &&
+              payload.camera?.capabilities &&
+              payload.camera.capabilities.liveView === false &&
+              lastWarnedPartialModelRef.current !== payload.camera.model
+            ) {
+              lastWarnedPartialModelRef.current = payload.camera.model;
+              setIsLiveViewSupported(false);
+              const notif = getCameraNotification('CAMERA_PARTIAL_SUPPORT', {
+                model: payload.camera.model,
+                unavailableFeatures: ['Live View preview'],
+              });
+              showNotification(notif.message, notif.type, notif.title, notif.duration);
+            }
           } else if (payload.state === 'ERROR') {
             setCameraSessionError(payload.error || 'Connection error');
-            setTetherStatus('disconnected');
+            const isCaptureOrTransferError =
+              payload.prevState === 'CAPTURING' ||
+              payload.prevState === 'TRANSFERRING' ||
+              (payload.camera && /capture|download|transfer|shutter/i.test(payload.error || ''));
+
+            if (isCaptureOrTransferError) {
+              showNotification(
+                payload.error || 'Gagal memicu shutter kamera. Pastikan fokus lensa dan baterai kamera siap.',
+                'error',
+                'Gagal Mengambil Foto',
+                5000
+              );
+            } else {
+              setTetherStatus('disconnected');
+              lastWarnedPartialModelRef.current = null;
+              const notif = getCameraNotification('CONNECTION_FAILED', {
+                model: payload.camera?.model || nativeCameraModel || undefined,
+                diagnosticError: payload.error,
+              });
+              showNotification(notif.message, notif.type, notif.title, notif.duration);
+            }
           }
         }
       });
@@ -921,7 +967,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
       unsubRaw = (window as any).electronAPI.onTetherRawDetected((payload: any) => {
         console.warn('[RAW-WARNING] Kamera menghasilkan foto RAW bukannya JPEG:', payload);
         showNotification(
-          `File foto (${payload?.filename || 'RAW'}) terdeteksi berformat RAW/ARW!\nUbah pengaturan kamera Sony ke Format: JPEG (Fine/Extra Fine) agar foto otomatis masuk ke template bingkai.`,
+          `File foto (${payload?.filename || 'RAW'}) terdeteksi berformat RAW!\nUbah pengaturan format kamera ke: JPEG (Fine / Large) agar foto otomatis masuk ke template bingkai.`,
           'warning',
           'Peringatan Format Kamera',
           8000
@@ -1759,12 +1805,12 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
     setCameraError(null);
 
     if (mode === 'webcam') {
-      // 1. Stop Sony Live View if running
+      // 1. Stop Camera Live View if running
       if (typeof window !== 'undefined' && (window as any).electronAPI?.stopCameraLiveView) {
         try {
           await (window as any).electronAPI.stopCameraLiveView();
         } catch (e) {
-          console.warn('[Camera] Error stopping Sony Live View:', e);
+          console.warn('[Camera] Error stopping Camera Live View:', e);
         }
       }
       setTetherLiveFrame(null);
@@ -1780,7 +1826,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
       if (previewVideoRef.current) previewVideoRef.current.srcObject = null;
       // 3. Switch mode to dslr (PC Remote)
       setCameraMode('dslr');
-      // 4. Start Sony Live View if camera is ready
+      // 4. Start Camera Live View if camera is ready
       if (typeof window !== 'undefined' && (window as any).electronAPI) {
         const api = (window as any).electronAPI;
         if (cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED') {
@@ -1854,9 +1900,9 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
 
     let frameData: string | null = null;
 
-    const isNativeSonyReady = (cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED') && tetherStatus === 'connected';
+    const isNativeCameraReady = (cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED') && tetherStatus === 'connected';
 
-    if (isNativeSonyReady || cameraMode !== 'webcam') {
+    if (isNativeCameraReady || cameraMode !== 'webcam') {
       isCapturingRef.current = true;
       try {
         console.log('[WIN-CAPTURE] renderer shutter clicked (native capture)');
@@ -1988,6 +2034,11 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
 
   // ── 5. COMPOSE FINAL PHOTO & GIF BOOMERANG ──
   const composeFinalPhoto = async (photos: string[], overridePhotoId?: string, targetReviewIndex?: number) => {
+    if (isCompositingRef.current) {
+      console.warn('[Compositor] Already compositing final photo. Skipping concurrent execution.');
+      return;
+    }
+    isCompositingRef.current = true;
     try {
       let frameImg: HTMLImageElement | null = null;
       if (currentTemplate?.path) {
@@ -2205,14 +2256,109 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
       console.error('Compositing failed:', err);
       setSessionStep('idle');
       showNotification('Gagal menyusun foto ke dalam bingkai. Silakan coba lagi.', 'error');
+    } finally {
+      isCompositingRef.current = false;
     }
   };
 
-  // ── Auto-absorb high-res photos captured via PC Remote / Hot Folder ──
+  // ── Auto-absorb high-res photos captured via PC Remote / Hot Folder (Serialized FIFO Queue) ──
   useEffect(() => {
     if (typeof window === 'undefined' || !(window as any).electronAPI?.onTetherPhotoCaptured) {
       return;
     }
+
+    const processTetherQueue = () => {
+      if (isProcessingTetherQueueRef.current) return;
+      isProcessingTetherQueueRef.current = true;
+
+      try {
+        while (tetherQueueRef.current.length > 0) {
+          const payload = tetherQueueRef.current.shift();
+          if (!payload?.photoDataUrl) continue;
+
+          // Phase 3: If compositing is actively in flight, reject extra incoming photos
+          if (isCompositingRef.current) {
+            console.warn('[Tether Queue] Extra photo rejected: compositing is currently in flight.');
+            showNotification(
+              'Foto tambahan diabaikan karena sesi foto sedang menyusun template bingkai.',
+              'warning',
+              'Sesi Sedang Diproses',
+              4000
+            );
+            continue;
+          }
+
+          // Cancel running countdown if guest took shot physically
+          if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = null;
+          }
+
+          // Targeted retake handling for physical shutter
+          if (retakeSlotIndex !== null) {
+            const targetSlot = retakeSlotIndex;
+            setRetakeSlotIndex(null);
+            sessionPhotosRef.current[targetSlot] = payload.photoDataUrl;
+            const updatedPhotos = [...sessionPhotosRef.current];
+            setCapturedPhotos(updatedPhotos);
+            setSessionStep('processing');
+            setCameraSessionState('COMPLETED');
+            composeFinalPhoto(updatedPhotos, currentPhotoId || undefined, targetSlot);
+            continue;
+          }
+
+          // If in setup or review, transition cleanly to kiosk
+          if (phase === 'setup') {
+            setPhase('kiosk');
+          } else if (phase === 'review') {
+            sessionPhotosRef.current = [];
+            setCapturedPhotos([]);
+            setFinalPhotoDataUrl(null);
+            setFinalGifDataUrl(null);
+            setResultTab('photo');
+            setPhase('kiosk');
+          }
+
+          // Phase 3: Prevent photos arriving after session count fulfilled from overwriting pose 1
+          const currentCount = sessionPhotosRef.current.length;
+          if (currentCount >= shotsCount) {
+            console.warn('[Tether Queue] Extra photo rejected: all pose slots for this session are filled.');
+            showNotification(
+              `Foto tambahan diabaikan karena ${shotsCount} pose untuk sesi ini sudah lengkap.`,
+              'warning',
+              'Sesi Lengkap',
+              4000
+            );
+            continue;
+          }
+
+          // Valid pose shot! Single source of truth index
+          sessionPhotosRef.current.push(payload.photoDataUrl);
+          const newCount = sessionPhotosRef.current.length;
+          const newPhotos = [...sessionPhotosRef.current];
+
+          // Trigger visual flash & sound
+          setIsFlashing(true);
+          playShutterSound();
+          setTimeout(() => setIsFlashing(false), 180);
+
+          setCapturedPhotos(newPhotos);
+
+          if (newCount < shotsCount) {
+            setCurrentShotIndex(newCount);
+            setSessionStep('paused_between_poses');
+            setCameraSessionState('READY');
+          } else {
+            setCurrentShotIndex(shotsCount);
+            setSessionStep('processing');
+            setCameraSessionState('COMPLETED');
+            composeFinalPhoto(newPhotos);
+          }
+        }
+      } finally {
+        isProcessingTetherQueueRef.current = false;
+      }
+    };
 
     const unsubscribe = (window as any).electronAPI.onTetherPhotoCaptured((payload: any) => {
       if (!payload?.photoDataUrl) return;
@@ -2229,68 +2375,15 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
       }
       lastHandledPhotoRef.current = photoKey;
 
-      console.log('[Tether] 📸 Physical shutter photo detected from camera:', payload.filename);
-
-      // Cancel running countdown if guest took shot physically
-      if (countdownTimerRef.current) {
-        clearInterval(countdownTimerRef.current);
-        countdownTimerRef.current = null;
-      }
-
-      // Targeted retake handling for physical shutter
-      if (retakeSlotIndex !== null) {
-        const targetSlot = retakeSlotIndex;
-        setRetakeSlotIndex(null);
-        setCapturedPhotos((prev) => {
-          const nextPhotos = [...prev];
-          nextPhotos[targetSlot] = payload.photoDataUrl;
-          setSessionStep('processing');
-          setCameraSessionState('COMPLETED');
-          composeFinalPhoto(nextPhotos, currentPhotoId || undefined, targetSlot);
-          return nextPhotos;
-        });
-        return;
-      }
-
-      // If in setup or review, transition smoothly to kiosk
-      if (phase === 'setup') {
-        setPhase('kiosk');
-      } else if (phase === 'review') {
-        setFinalPhotoDataUrl(null);
-        setFinalGifDataUrl(null);
-        setResultTab('photo');
-        setPhase('kiosk');
-      }
-
-      // Trigger flash & shutter sound
-      setIsFlashing(true);
-      playShutterSound();
-      setTimeout(() => setIsFlashing(false), 180);
-
-      // Automatically store in current shot slot
-      setCapturedPhotos((prev) => {
-        const nextPhotos = (phase === 'review' || (sessionStep === 'idle' && currentShotIndex === 0)) ? [] : [...prev];
-        const targetIdx = currentShotIndex < shotsCount ? currentShotIndex : 0;
-        nextPhotos[targetIdx] = payload.photoDataUrl;
-
-        const nextIdx = targetIdx + 1;
-        if (nextIdx < shotsCount) {
-          setCurrentShotIndex(nextIdx);
-          setSessionStep('paused_between_poses');
-          setCameraSessionState('READY');
-        } else {
-          setSessionStep('processing');
-          setCameraSessionState('COMPLETED');
-          composeFinalPhoto(nextPhotos);
-        }
-        return nextPhotos;
-      });
+      console.log('[Tether] 📸 Physical shutter photo queued from camera:', payload.filename);
+      tetherQueueRef.current.push(payload);
+      processTetherQueue();
     });
 
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [currentShotIndex, shotsCount, composeFinalPhoto, phase, sessionStep, retakeSlotIndex, currentPhotoId]);
+  }, [shotsCount, composeFinalPhoto, phase, retakeSlotIndex, currentPhotoId]);
 
   // Direct Print
   const handlePrintPhoto = () => {
@@ -2354,6 +2447,15 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
         }
       } else if (e.code === 'Space') {
         if (phase === 'kiosk' && (sessionStep === 'idle' || sessionStep === 'paused_between_poses')) {
+          if (isHotFolderMode) {
+            showNotification(
+              'Mode Hot Folder aktif. Silakan tekan tombol shutter fisik pada kamera atau remote nirkabel untuk memotret.',
+              'info',
+              'Hot Folder Aktif',
+              4000
+            );
+            return;
+          }
           if (retakeSlotIndex !== null) {
             triggerPoseShot(retakeSlotIndex);
           } else {
@@ -2401,6 +2503,10 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
       clearInterval(countdownTimerRef.current);
       countdownTimerRef.current = null;
     }
+    sessionPhotosRef.current = [];
+    tetherQueueRef.current = [];
+    isProcessingTetherQueueRef.current = false;
+    isCompositingRef.current = false;
     setCapturedPhotos([]);
     setCurrentShotIndex(0);
     setRetakeSlotIndex(null);
@@ -3334,10 +3440,10 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                       ? 'Menghubungkan Webcam...'
                       : 'Webcam Offline'
                     : cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                    ? nativeCameraModel || 'Sony USB Siap'
+                    ? nativeCameraModel || 'Kamera USB Siap'
                     : cameraSessionState === 'CONNECTING' || cameraSessionState === 'DETECTING'
-                    ? 'Menyiapkan Sony...'
-                    : 'Sony Belum Terhubung'}
+                    ? 'Menyiapkan Kamera...'
+                    : 'Kamera Belum Terhubung'}
                 </span>
               </div>
 
@@ -3441,13 +3547,13 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                     <div className="text-xs text-amber-200/90 max-w-sm mb-6 leading-relaxed bg-amber-500/10 px-4 py-3 rounded-xl border border-amber-500/20 text-left">
                       <div className="font-semibold text-amber-300 mb-1 flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                        {nativeCameraModel || 'Sony Alpha-A6000'} Terhubung
+                        {nativeCameraModel || 'Kamera USB'} Terhubung
                       </div>
                       <p className="text-neutral-300 text-[11px] leading-normal mb-1.5">
                         Kamera siap mengambil foto studio melalui tombol <strong>Ambil Foto</strong> di layar atau <strong>tombol shutter fisik</strong> pada kamera.
                       </p>
                       <p className="text-[10px] text-neutral-400 font-mono">
-                        (Catatan: Firmware A6000 tidak menyediakan Live View streaming melalui port USB).
+                        (Catatan: Model kamera ini tidak menyediakan Live View streaming melalui port USB. Remote shutter tetap aktif.)
                       </p>
                     </div>
                   ) : (
@@ -3856,7 +3962,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                     </div>
                   )}
 
-                  {/* Sony / PC Remote Controls */}
+                  {/* Kontrol Kamera Studio */}
                   {cameraMode !== 'webcam' && (
                     <div className="space-y-3 p-3.5 rounded-xl bg-[#14161C] border border-white/[0.06]">
                       <div className="flex items-center justify-between text-xs">
@@ -3874,9 +3980,9 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                           />
                           <span className="truncate max-w-[200px]">
                             {cameraSessionState === 'READY' || cameraSessionState === 'CONNECTED'
-                              ? nativeCameraModel || 'Sony α7C II Connected'
+                              ? nativeCameraModel || 'Kamera USB Terhubung'
                               : cameraSessionState === 'CONNECTING'
-                              ? 'Menyiapkan Sony...'
+                              ? 'Menyiapkan Kamera...'
                               : cameraSessionState === 'DETECTING'
                               ? 'Mendeteksi USB...'
                               : cameraSessionState === 'ERROR'
@@ -3918,16 +4024,28 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                         </button>
                       </div>
 
-                      {/* SOP Reminder */}
-                      <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-neutral-300 space-y-1">
-                        <div className="font-semibold text-amber-300 flex items-center gap-1 text-[11px]">
-                          <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />
-                          <span>SOP Kamera Sony (WAJIB)</span>
-                        </div>
-                        <p>1. Format Foto: <strong className="text-white">JPEG Fine</strong> (Bukan RAW/ARW).</p>
-                        <p>2. Shutter: <strong className="text-white">Silent Mode = OFF</strong>.</p>
-                        <p>3. USB Mode: <strong className="text-white">PC Remote</strong>.</p>
-                      </div>
+                      {/* Dynamic SOP Guide */}
+                      {(() => {
+                        const guide = getCameraConnectionGuide(nativeCameraModel);
+                        return (
+                          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-neutral-300 space-y-1">
+                            <div className="font-semibold text-amber-300 flex items-center gap-1 text-[11px]">
+                              <AlertCircle className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                              <span>{guide.title}</span>
+                            </div>
+                            {guide.steps.map((st, i) => (
+                              <p key={i}>
+                                {i + 1}. {st.title}: <strong className="text-white">{st.instruction}</strong>
+                              </p>
+                            ))}
+                            {guide.notes && (
+                              <p className="text-[9px] text-neutral-400 pt-1 italic border-t border-amber-500/10 mt-1">
+                                *{guide.notes}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -4274,7 +4392,7 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
                 </p>
               ) : (
                 <p className="text-xs text-neutral-400 max-w-md mb-6 leading-relaxed">
-                  Sambungkan kamera Sony melalui PC Remote. Atur kamera di mode <span className="text-neutral-200 font-medium">FOTO (M) ➔ USB Connection: PC Remote</span>.
+                  Sambungkan kamera studio via kabel USB. Pastikan mode kamera diset ke <span className="text-neutral-200 font-medium">FOTO (M) ➔ USB: PC Remote / PTP</span> dan format foto JPEG Fine.
                 </p>
               )}
               <div className="flex items-center gap-3">
@@ -4523,6 +4641,15 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
+                if (isHotFolderMode) {
+                  showNotification(
+                    'Mode Hot Folder aktif. Silakan tekan tombol shutter fisik pada bodi kamera atau remote nirkabel untuk mengambil foto.',
+                    'info',
+                    'Hot Folder Aktif',
+                    4000
+                  );
+                  return;
+                }
                 if (retakeSlotIndex !== null) {
                   triggerPoseShot(retakeSlotIndex);
                 } else {
@@ -4533,12 +4660,19 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
             >
               <Camera className="w-5 h-5 fill-black" />
               <span>
-                {retakeSlotIndex !== null
+                {isHotFolderMode
+                  ? 'TEKAN TOMBOL SHUTTER PADA KAMERA / REMOTE UNTUK MEMOTRET'
+                  : retakeSlotIndex !== null
                   ? `AMBIL FOTO UNTUK POSE ${retakeSlotIndex + 1}`
                   : 'SENTUH LAYAR ATAU TEKAN SPACE UNTUK MEMOTRET'}
               </span>
             </button>
-            {retakeSlotIndex !== null ? (
+            {isHotFolderMode ? (
+              <span className="text-[11px] font-medium text-emerald-300 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Hot Folder Aktif: Foto otomatis diterima ke template saat shutter kamera ditekan
+              </span>
+            ) : retakeSlotIndex !== null ? (
               <button
                 type="button"
                 onClick={(e) => {
@@ -4567,12 +4701,25 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
+                if (isHotFolderMode) {
+                  showNotification(
+                    'Mode Hot Folder aktif. Silakan tekan tombol shutter fisik pada kamera untuk mengambil pose berikutnya.',
+                    'info',
+                    'Hot Folder Aktif',
+                    4000
+                  );
+                  return;
+                }
                 triggerPoseShot(currentShotIndex);
               }}
               className="px-9 py-4 rounded-full bg-white text-black font-bold text-sm tracking-wider uppercase flex items-center gap-3 shadow-[0_10px_35px_rgba(0,0,0,0.6)] active:scale-95 transition-all hover:bg-neutral-200 animate-pulse cursor-pointer"
             >
               <Camera className="w-5 h-5 fill-black" />
-              <span>SENTUH UNTUK FOTO {currentShotIndex + 1}</span>
+              <span>
+                {isHotFolderMode
+                  ? `TEKAN SHUTTER KAMERA UNTUK POSE ${currentShotIndex + 1}`
+                  : `SENTUH UNTUK FOTO ${currentShotIndex + 1}`}
+              </span>
             </button>
             <button
               type="button"
