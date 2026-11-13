@@ -109,8 +109,117 @@ export function generateDokuOrderId(environment?: 'sandbox' | 'production'): str
 /**
  * Dedicated internal QA organization (STUDIO ONE).
  * Testing & sandbox transactions associated with this tenant are segregated from commercial metrics.
+ * Preserved for backward compatibility.
  */
 export const INTERNAL_QA_ORG_ID = 'f9077b0e-0486-4749-820a-a025ceb010b6';
+
+/**
+ * Static baseline of explicitly approved QA organization UUIDs.
+ * Only known, audited internal QA organizations are included.
+ * Future QA organization UUIDs must be explicitly added after formal approval.
+ */
+export const STATIC_INTERNAL_QA_ORG_IDS: readonly string[] = Object.freeze([
+  INTERNAL_QA_ORG_ID,
+]);
+
+/**
+ * In-memory registry of dynamically registered QA organization UUIDs (for testing / runtime).
+ */
+const dynamicInternalQaOrgIds = new Set<string>();
+
+/**
+ * Returns the consolidated set of all explicitly designated QA organization UUIDs.
+ * Evaluates:
+ * 1. Static baseline (STUDIO ONE).
+ * 2. Any additional approved QA UUIDs in the INTERNAL_QA_ORG_IDS environment variable (comma-separated).
+ * 3. Dynamically registered test QA UUIDs.
+ */
+export function getInternalQaOrgIds(): Set<string> {
+  const ids = new Set<string>();
+  for (const id of STATIC_INTERNAL_QA_ORG_IDS) {
+    ids.add(id.trim().toLowerCase());
+  }
+
+  const envOrgs = process.env.INTERNAL_QA_ORG_IDS;
+  if (envOrgs && typeof envOrgs === 'string') {
+    for (const raw of envOrgs.split(',')) {
+      const clean = raw.trim().toLowerCase();
+      if (clean) ids.add(clean);
+    }
+  }
+
+  for (const id of dynamicInternalQaOrgIds) {
+    ids.add(id);
+  }
+
+  return ids;
+}
+
+/**
+ * Exported Set representation of configured internal QA organization UUIDs.
+ * Note: Use getInternalQaOrgIds() or isInternalQaOrg() for dynamic lookup.
+ */
+export const INTERNAL_QA_ORG_IDS: ReadonlySet<string> = new Set<string>(
+  STATIC_INTERNAL_QA_ORG_IDS.map((id) => id.trim().toLowerCase())
+);
+
+/**
+ * Checks whether an organization UUID belongs to an explicitly configured internal QA organization.
+ * Case-insensitive comparison, handles whitespace and null/undefined values safely.
+ */
+export function isInternalQaOrg(organizationId?: string | null): boolean {
+  if (!organizationId || typeof organizationId !== 'string') return false;
+  const clean = organizationId.trim().toLowerCase();
+  if (!clean) return false;
+  return getInternalQaOrgIds().has(clean);
+}
+
+/**
+ * Programmatically registers an approved QA organization UUID at runtime (e.g. for testing).
+ */
+export function registerInternalQaOrgId(orgId: string): void {
+  if (orgId && typeof orgId === 'string') {
+    const clean = orgId.trim().toLowerCase();
+    if (clean) dynamicInternalQaOrgIds.add(clean);
+  }
+}
+
+/**
+ * Programmatically unregisters a QA organization UUID (e.g. for test teardown).
+ */
+export function unregisterInternalQaOrgId(orgId: string): void {
+  if (orgId && typeof orgId === 'string') {
+    const clean = orgId.trim().toLowerCase();
+    if (clean) dynamicInternalQaOrgIds.delete(clean);
+  }
+}
+
+/**
+ * Checks if a payment record is an internal QA or Sandbox transaction that must be
+ * segregated from commercial revenue metrics.
+ *
+ * Excludes:
+ * 1. Explicitly configured QA organization UUIDs (case-insensitive).
+ * 2. Existing Sandbox invoice prefixes ('MB-SBX-').
+ * 3. Both historical Sandbox invoice IDs ('MB-MWARY392-F84E78', 'MB-MWASYKYT-7B46A7').
+ */
+export function isQaOrTestPayment(payment: {
+  organization_id?: string | null;
+  order_id?: string | null;
+  [key: string]: any;
+}): boolean {
+  if (!payment || typeof payment !== 'object') return false;
+
+  if (payment.organization_id && isInternalQaOrg(payment.organization_id)) {
+    return true;
+  }
+
+  if (payment.order_id && isDokuSandboxOrderId(payment.order_id)) {
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Known historical sandbox orders from early integration testing

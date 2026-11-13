@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
 import { verifyServerAuth } from '@/lib/auth-server';
-import { INTERNAL_QA_ORG_ID } from '@/lib/doku';
+import { INTERNAL_QA_ORG_ID, INTERNAL_QA_ORG_IDS, isInternalQaOrg, isQaOrTestPayment } from '@/lib/doku';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,21 +44,8 @@ export async function GET(req: NextRequest) {
       .from('user_profiles')
       .select('*, organizations(name)');
 
-    // Calculate metrics: Separate commercial revenue from internal testing/sandbox revenue (Phase 4)
-    const isTestingPayment = (p: any) => {
-      if (p.organization_id === INTERNAL_QA_ORG_ID) return true;
-      if (p.order_id && typeof p.order_id === 'string') {
-        const upper = p.order_id.trim().toUpperCase();
-        if (
-          upper.startsWith('MB-SBX-') ||
-          upper === 'MB-MWARY392-F84E78' ||
-          upper === 'MB-MWASYKYT-7B46A7'
-        ) {
-          return true;
-        }
-      }
-      return false;
-    };
+    // Calculate metrics: Separate commercial revenue from internal testing/sandbox revenue (Phase 4 & Revenue Isolation)
+    const isTestingPayment = (p: any) => isQaOrTestPayment(p);
 
     const commercialPayments = (payments || []).filter((p: any) => !isTestingPayment(p));
     const testingPayments = (payments || []).filter((p: any) => isTestingPayment(p));
