@@ -19,13 +19,6 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(req: NextRequest) {
   try {
-    if (isPreviewDeployment()) {
-      return previewBlockedResponse(
-        'doku_webhook',
-        'Webhook settlement billing DOKU dinonaktifkan pada Vercel Preview.'
-      );
-    }
-
     const rawBodyText = await req.text();
     let body: any = {};
     try {
@@ -51,25 +44,24 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Validate DOKU Webhook Cryptographic HMAC-SHA256 Signature
-    if (dokuConfig.secretKey || isProd || signature) {
-      if (!signature || !dokuConfig.secretKey) {
-        return NextResponse.json({ error: 'Missing DOKU signature or secret key' }, { status: 401 });
-      }
+    // Mandatory cryptographic authentication across all environments before processing any mutation
+    if (!signature || !dokuConfig.secretKey) {
+      return NextResponse.json({ error: 'Missing DOKU signature or secret key' }, { status: 401 });
+    }
 
-      const isValid = validateDokuWebhookSignature({
-        clientId: clientId || dokuConfig.clientId,
-        requestId,
-        requestTimestamp,
-        requestTarget: '/api/billing/webhook/doku',
-        rawBody: rawBodyText,
-        receivedSignature: signature,
-        secretKey: dokuConfig.secretKey,
-      });
+    const isValid = validateDokuWebhookSignature({
+      clientId: clientId || dokuConfig.clientId,
+      requestId,
+      requestTimestamp,
+      requestTarget: '/api/billing/webhook/doku',
+      rawBody: rawBodyText,
+      receivedSignature: signature,
+      secretKey: dokuConfig.secretKey,
+    });
 
-      if (!isValid) {
-        console.error('[DOKU Webhook] Invalid signature from client:', clientId);
-        return NextResponse.json({ error: 'Invalid DOKU signature' }, { status: 401 });
-      }
+    if (!isValid) {
+      console.error('[DOKU Webhook] Invalid signature from client:', clientId);
+      return NextResponse.json({ error: 'Invalid DOKU signature' }, { status: 401 });
     }
 
     // 3. Extract Order, Transaction & Currency Information
@@ -91,7 +83,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Strict Environment Namespace Validation (Phase 2 & Phase 3)
+    // 4. Preview Guard & Sandbox Isolation (Fail-Closed)
+    // On Vercel Preview, settlement mutations are strictly restricted to legitimate DOKU Sandbox orders.
+    // Production orders (e.g. MB- commercial orders) or non-sandbox environments are strictly blocked.
+    if (isPreviewDeployment()) {
+      const cleanInvoice = invoiceNumber.trim().toUpperCase();
+      const isSandboxOrder = cleanInvoice.startsWith('MB-SBX-');
+      const isSandboxEnv = dokuConfig.environment === 'sandbox';
+
+      if (!isSandboxOrder || !isSandboxEnv) {
+        console.warn(
+          `[Preview Guard] Blocked non-sandbox webhook settlement in Preview deployment: invoice=${invoiceNumber}, env=${dokuConfig.environment}`
+        );
+        return previewBlockedResponse(
+          'doku_webhook',
+          'Webhook settlement billing pada Vercel Preview hanya diizinkan untuk DOKU Sandbox order (MB-SBX-).'
+        );
+      }
+    }
+
+    // 5. Strict Environment Namespace Validation
     try {
       validateDokuOrderEnvironment(invoiceNumber, dokuConfig.environment);
     } catch (envErr: any) {
@@ -216,6 +227,16 @@ export async function POST(req: NextRequest) {
 
     // 7. Handle SUCCESS Notifications
     if (transactionStatus === 'SUCCESS') {
+      // Validate Payment Status is PENDING
+      if (existingPayment && existingPayment.payment_status !== 'PENDING') {
+        return NextResponse.json(
+          {
+            error: `INVALID_PAYMENT_STATE: Order ${invoiceNumber} is in status ${existingPayment.payment_status}, expected PENDING`,
+          },
+          { status: 400 }
+        );
+      }
+
       // Validate Organization Ownership
       const incomingOrgId = body.customer?.id;
       if (incomingOrgId && expectedOrgId && incomingOrgId !== expectedOrgId) {

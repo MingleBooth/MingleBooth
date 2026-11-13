@@ -286,16 +286,48 @@ export function getDokuBaseUrl(environment?: 'sandbox' | 'production'): string {
 
 /**
  * Returns the explicit canonical application URL with HTTPS protocol.
- * Falls back to Vercel production URL or localhost for dev.
+ * In Vercel Preview environments, prioritizes the stable Git branch URL
+ * or active Vercel preview deployment host to guarantee that callbacks
+ * and return URLs always point to the active preview deployment instead of
+ * stale deployments or production.
  */
-export function getCanonicalAppUrl(): string {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
+export function getCanonicalAppUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const isPreview =
+    env.VERCEL_ENV === 'preview' ||
+    env.NEXT_PUBLIC_VERCEL_ENV === 'preview' ||
+    env.MINGLEBOOTH_ENV === 'preview' ||
+    env.IS_PREVIEW === 'true';
+
+  if (isPreview) {
+    // 1. If explicit NEXT_PUBLIC_APP_URL is configured for preview (and not production www.minglebooth.id)
+    if (
+      env.NEXT_PUBLIC_APP_URL &&
+      !env.NEXT_PUBLIC_APP_URL.includes('www.minglebooth.id') &&
+      !env.NEXT_PUBLIC_APP_URL.includes('localhost')
+    ) {
+      return env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
+    }
+
+    // 2. Automatically resolve stable Vercel Git branch preview URL or active deployment URL
+    const previewHost = env.VERCEL_BRANCH_URL || env.VERCEL_URL;
+    if (previewHost) {
+      const cleanHost = previewHost.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      return `https://${cleanHost}`;
+    }
   }
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-    const host = process.env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+
+  // 3. Explicit production or local NEXT_PUBLIC_APP_URL
+  if (env.NEXT_PUBLIC_APP_URL) {
+    return env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
+  }
+
+  // 4. Fallback to Vercel production project URL
+  if (env.VERCEL_PROJECT_PRODUCTION_URL) {
+    const host = env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, '').replace(/\/+$/, '');
     return `https://${host}`;
   }
+
+  // 5. Default local development URL
   return 'http://localhost:3000';
 }
 
