@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyServerAuth, corsHeaders } from '@/lib/auth-server';
 import { createCheckoutOrder, PlanTier, BillingInterval } from '@/lib/pricing';
-import { createDokuCheckoutSession, generateDokuOrderId, getDokuConfig } from '@/lib/doku';
+import { createDokuCheckoutSession, generateDokuOrderId, getDokuConfig, getCanonicalAppUrl } from '@/lib/doku';
 import { getServiceSupabase } from '@/lib/supabase';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
@@ -104,6 +104,78 @@ export async function POST(req: NextRequest) {
       customerName: auth.email?.split('@')[0] || 'Studio Vendor',
       organizationId: targetOrgId,
     });
+
+    // 1. Validate DOKU paymentUrl presence (Temuan 1)
+    const rawPaymentUrl = dokuSession?.paymentUrl;
+    if (!rawPaymentUrl || typeof rawPaymentUrl !== 'string' || !rawPaymentUrl.trim()) {
+      console.error(
+        `[Checkout Route] Missing DOKU paymentUrl for order ${snapshot.orderId} (isMock: ${Boolean(dokuSession?.isMock)})`
+      );
+      throw new Error('DOKU_GATEWAY_ERROR: Payment gateway did not return a valid checkout URL.');
+    }
+
+    // 2. Validate checkout URL security and origin (Temuan 2)
+    let isUrlValid = false;
+    try {
+      const parsed = new URL(rawPaymentUrl);
+      if (dokuSession.isMock) {
+        // Mock URL must strictly match application canonical origin and designated mock path
+        const canonicalBase = getCanonicalAppUrl();
+        const canonicalParsed = new URL(canonicalBase);
+        isUrlValid =
+          parsed.origin === canonicalParsed.origin &&
+          parsed.pathname.startsWith('/billing/result') &&
+          parsed.searchParams.get('mock') === '1';
+      } else {
+        // Real DOKU checkout URL must be HTTPS and strictly on doku.com domain or subdomains
+        isUrlValid =
+          parsed.protocol === 'https:' &&
+          (parsed.hostname === 'doku.com' || parsed.hostname.endsWith('.doku.com'));
+      }
+    } catch {
+      isUrlValid = false;
+    }
+
+    if (!isUrlValid) {
+      console.error(
+        `[Checkout Route] Invalid DOKU paymentUrl origin/format for order ${snapshot.orderId} (isMock: ${Boolean(dokuSession.isMock)})`
+      );
+      throw new Error('DOKU_GATEWAY_ERROR: Invalid checkout URL format or domain returned by payment gateway.');
+    }
+
+    // 3. Persist authoritative DOKU Checkout URL into payments record (Temuan 3)
+    const client = getServiceSupabase();
+    const { data: updatedRows, error: updateErr } = await client
+      .from('payments')
+      .update({
+        payment_link_url: rawPaymentUrl,
+      })
+      .eq('order_id', snapshot.orderId)
+      .eq('organization_id', targetOrgId)
+      .eq('payment_status', 'PENDING')
+      .select('id');
+
+    if (updateErr) {
+      console.error(
+        `[Checkout Route] Database error persisting paymentUrl for order ${snapshot.orderId}:`,
+        updateErr.message
+      );
+      throw new Error(`Failed to persist payment gateway URL: ${updateErr.message}`);
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      console.error(
+        `[Checkout Route] Zero rows updated when persisting paymentUrl for order ${snapshot.orderId}`
+      );
+      throw new Error('Failed to update payment record: order record not found in PENDING state');
+    }
+
+    if (updatedRows.length > 1) {
+      console.error(
+        `[Checkout Route] Ambiguous update: multiple rows (${updatedRows.length}) matched order ${snapshot.orderId}`
+      );
+      throw new Error('Failed to update payment record: ambiguous multiple records updated');
+    }
 
     return NextResponse.json(
       {

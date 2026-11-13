@@ -427,6 +427,7 @@ export interface DokuCheckoutResult {
   paymentUrl: string;
   invoiceNumber: string;
   isMock: boolean;
+  dokuTokenId?: string;
 }
 
 export interface DokuOrderStatusResult {
@@ -530,7 +531,7 @@ export async function checkDokuOrderStatus(orderId: string): Promise<DokuOrderSt
 /**
  * Creates a DOKU Checkout Payment URL.
  * Calls DOKU Jokul Checkout API (`/checkout/v1/payment`).
- * If credentials are not yet filled in, returns a simulated sandbox URL so developers can test.
+ * If credentials are not configured in sandbox/dev, returns a simulated sandbox URL so developers can test.
  */
 export async function createDokuCheckoutSession(
   params: DokuCheckoutOrderParams
@@ -542,9 +543,36 @@ export async function createDokuCheckoutSession(
     throw new Error('DOKU_CREDENTIALS_REQUIRED: DOKU_CLIENT_ID and DOKU_SECRET_KEY are required in Production.');
   }
 
+  // Sanitize and normalize inputs to comply with strict DOKU Checkout specifications:
+  const integerAmount = Math.round(Number(params.amountIdr) || 0);
+  if (integerAmount <= 0) {
+    throw new Error(`DOKU_INVALID_AMOUNT: Order amount must be an integer greater than 0, got ${params.amountIdr}`);
+  }
+
+  // DOKU strictly prohibits special characters in customer.name (allows only alphanumeric and spaces)
+  const sanitizedCustomerName = (params.customerName || 'Studio Vendor')
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Studio Vendor';
+
+  // Sanitize line item name (< 64 characters, clean alphanumeric label)
+  const safePlanName = (params.planName || 'Subscription')
+    .replace(/[^a-zA-Z0-9\s\(\)\-\.]/g, '')
+    .trim()
+    .substring(0, 64) || 'Subscription';
+
   // If Client ID & Secret Key are configured, initiate official DOKU Checkout API session
   if (config.clientId && config.secretKey) {
     const baseUrl = getDokuBaseUrl(config.environment);
+
+    // Hard security guard: Sandbox must never hit production URL, Production must never hit sandbox
+    if (config.environment === 'sandbox' && !baseUrl.includes('sandbox')) {
+      throw new Error('SECURITY_CONFIGURATION_ERROR: Sandbox environment cannot use production API endpoint.');
+    }
+    if (config.environment === 'production' && baseUrl.includes('sandbox')) {
+      throw new Error('SECURITY_CONFIGURATION_ERROR: Production environment cannot use sandbox API endpoint.');
+    }
+
     const requestTarget = '/checkout/v1/payment';
     const requestId = crypto.randomUUID();
     const requestTimestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -558,13 +586,13 @@ export async function createDokuCheckoutSession(
     const payload = {
       order: {
         invoice_number: params.orderId,
-        amount: params.amountIdr,
+        amount: integerAmount,
         callback_url: callbackUrl,
         callback_back_url: callbackBackUrl,
         line_items: [
           {
-            name: `MingleBooth ${params.planName}`,
-            price: params.amountIdr,
+            name: `MingleBooth ${safePlanName}`,
+            price: integerAmount,
             quantity: 1,
           },
         ],
@@ -574,7 +602,7 @@ export async function createDokuCheckoutSession(
       },
       customer: {
         id: params.organizationId,
-        name: params.customerName || 'Studio Vendor',
+        name: sanitizedCustomerName,
         email: params.customerEmail,
       },
     };
@@ -612,25 +640,77 @@ export async function createDokuCheckoutSession(
       if (response.ok) {
         const data = await response.json();
         const dokuUrl = data?.response?.payment?.url || data?.payment?.url;
+        const tokenId = data?.response?.payment?.token_id || data?.payment?.token_id;
         if (dokuUrl) {
           return {
             paymentUrl: dokuUrl,
             invoiceNumber: params.orderId,
             isMock: false,
+            dokuTokenId: tokenId,
           };
         }
       } else {
         const errText = await response.text();
-        console.error('[DOKU API Error]', response.status, errText);
-        if (config.environment === 'production') {
-          throw new Error(`DOKU_GATEWAY_ERROR: Payment gateway returned HTTP ${response.status}`);
+        let parsedError: any = null;
+        try {
+          parsedError = JSON.parse(errText);
+        } catch {
+          parsedError = null;
         }
+
+        const dokuErrorCode =
+          parsedError?.error?.code ||
+          parsedError?.response?.error?.code ||
+          (Array.isArray(parsedError?.message) ? parsedError.message[0] : null) ||
+          'GATEWAY_ERROR';
+
+        const dokuErrorMessage =
+          parsedError?.error?.message ||
+          parsedError?.response?.error?.message ||
+          (Array.isArray(parsedError?.message) ? parsedError.message.join('; ') : parsedError?.message) ||
+          errText ||
+          `Payment gateway returned HTTP ${response.status}`;
+
+        const correlationId =
+          parsedError?.uuid ||
+          parsedError?.headers?.request_id ||
+          response.headers.get('request-id') ||
+          requestId;
+
+        // Structured diagnostic record without exposing secret keys or authorization headers
+        const diagnosticLog = {
+          httpStatus: response.status,
+          dokuErrorCode,
+          dokuErrorMessage,
+          requestEndpoint: `${baseUrl}${requestTarget}`,
+          invoiceId: params.orderId,
+          environment: config.environment,
+          correlationId,
+          requestId,
+          requestTimestamp,
+          payloadNonSensitive: {
+            invoice_number: params.orderId,
+            amount: integerAmount,
+            planName: safePlanName,
+            customerEmail: params.customerEmail,
+            customerName: sanitizedCustomerName,
+            organizationId: params.organizationId,
+          },
+          signatureGenerationStatus: 'SUCCESS',
+        };
+
+        console.error('[DOKU Diagnostic Report]', JSON.stringify(diagnosticLog, null, 2));
+
+        throw new Error(
+          `DOKU_GATEWAY_ERROR (HTTP ${response.status}${dokuErrorCode ? ` - ${dokuErrorCode}` : ''}): ${dokuErrorMessage}`
+        );
       }
     } catch (fetchErr: any) {
-      console.error('[DOKU Checkout Request Failed]', fetchErr?.message);
-      if (config.environment === 'production') {
-        throw new Error(`DOKU_CHECKOUT_FAILED: ${fetchErr?.message || 'Failed to initiate production checkout session'}`);
+      if (fetchErr.message?.startsWith('DOKU_GATEWAY_ERROR')) {
+        throw new Error(`DOKU_CHECKOUT_FAILED: ${fetchErr.message}`);
       }
+      console.error('[DOKU Checkout Request Failed]', fetchErr?.message);
+      throw new Error(`DOKU_CHECKOUT_FAILED: ${fetchErr?.message || 'Failed to initiate checkout session'}`);
     }
   }
 
@@ -638,7 +718,7 @@ export async function createDokuCheckoutSession(
     throw new Error('DOKU_SESSION_FAILED: Production payment session could not be established.');
   }
 
-  // Fallback for development / mock when DOKU credentials are not yet configured in Sandbox/Dev:
+  // Fallback for development / mock ONLY when DOKU credentials are not configured in Sandbox/Dev:
   const appBaseUrl = getCanonicalAppUrl();
   const mockDokuUrl = `${appBaseUrl}/billing/result?orderId=${encodeURIComponent(params.orderId)}&mock=1`;
 
