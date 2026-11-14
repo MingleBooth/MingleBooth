@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateDokuWebhookSignature, getDokuConfig, isDokuTimestampValid, validateDokuOrderEnvironment } from '@/lib/doku';
 import { executePaymentSettlement } from '@/lib/billing-settlement';
 import { getServiceSupabase } from '@/lib/supabase';
-import { getOrderSnapshot } from '@/lib/pricing';
+import { getOrderSnapshot, resolveOrderDurationAndInterval, ResolvedPackageTerms } from '@/lib/pricing';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
 export const dynamic = 'force-dynamic';
@@ -142,7 +142,20 @@ export async function POST(req: NextRequest) {
     const expectedOrgId = existingPayment?.organization_id || snapshot?.organizationId;
     const targetPlanTier = (existingPayment?.plan_tier || snapshot?.planTier || 'starter') as any;
     const expectedAmount = Number(existingPayment?.amount_idr || snapshot?.amountIdr || 0);
-    const targetDurationDays = Number(existingPayment?.duration_days || snapshot?.durationDays || 365);
+
+    // Authoritatively resolve package duration & interval from catalog (Fail-closed)
+    const resolvedTerms = resolveOrderDurationAndInterval(
+      existingPayment || {
+        order_id: invoiceNumber,
+        plan_tier: targetPlanTier,
+        amount_idr: expectedAmount,
+        duration_days: snapshot?.durationDays,
+        billing_interval: snapshot?.billingInterval,
+      }
+    );
+    const targetDurationDays = resolvedTerms.durationDays;
+    const targetBillingInterval = resolvedTerms.billingInterval;
+
     const targetCustomerEmail =
       existingPayment?.snapshot_metadata?.customerEmail ||
       snapshot?.metadata?.customerEmail ||
@@ -267,7 +280,7 @@ export async function POST(req: NextRequest) {
         amountIdr: expectedAmount,
         durationDays: targetDurationDays,
         providerTransactionId: originalRequestId,
-        paymentLinkUrl: 'https://doku.com',
+        paymentLinkUrl: existingPayment?.payment_link_url || 'https://doku.com',
         environment: dokuConfig.environment,
       });
 
@@ -301,9 +314,17 @@ export async function POST(req: NextRequest) {
     );
   } catch (err: any) {
     console.error('[DOKU Webhook Handler Error]', err);
+    const isValidationErr =
+      err.message?.includes('INVALID_') ||
+      err.message?.includes('MISMATCH') ||
+      err.message?.includes('UNRESOLVED_') ||
+      err.message?.includes('AMBIGUOUS_') ||
+      err.message?.includes('PRICE_NOT_FOUND') ||
+      err.message?.includes('CONTRADICTORY_');
+    const status = isValidationErr ? 400 : 500;
     return NextResponse.json(
       { error: err?.message || 'Internal server error processing DOKU webhook' },
-      { status: 500 }
+      { status }
     );
   }
 }

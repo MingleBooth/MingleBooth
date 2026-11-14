@@ -34,6 +34,58 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const ts = require('typescript');
+const vm = require('vm');
+
+// Compile authoritative pricing.ts for duration resolver & anti-fraud snapshot validation
+const pricingTsPath = path.join(__dirname, '../apps/web/src/lib/pricing.ts');
+const pricingTsCode = fs.readFileSync(pricingTsPath, 'utf8');
+const transpiledPricing = ts.transpileModule(pricingTsCode, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
+});
+
+const pricingSandbox = {
+  exports: {},
+  module: { exports: {} },
+  require: (mod) => {
+    if (mod === 'crypto') return crypto;
+    if (mod.includes('supabase')) return { getServiceSupabase: () => ({}) };
+    return {};
+  },
+  console
+};
+vm.createContext(pricingSandbox);
+vm.runInContext(transpiledPricing.outputText, pricingSandbox);
+
+const {
+  resolveOrderDurationAndInterval,
+  validateOrderAgainstSnapshot,
+  BASELINE_PRICES,
+  runtimeOrderSnapshots,
+} = pricingSandbox.exports;
+
+function validateDokuOrderEnvironment(orderId, currentEnvironment) {
+  if (!orderId || typeof orderId !== 'string') {
+    throw new Error('ORDER_ID_REQUIRED: orderId is required for environment validation.');
+  }
+
+  const clean = orderId.trim().toUpperCase();
+  const isSandbox = clean.startsWith('MB-SBX-');
+
+  if (currentEnvironment === 'production') {
+    if (isSandbox) {
+      throw new Error(
+        `SECURITY_ENVIRONMENT_MISMATCH: Production DOKU gateway cannot process or settle Sandbox order: ${clean}`
+      );
+    }
+  } else if (currentEnvironment === 'sandbox') {
+    if (clean.startsWith('MB-') && !isSandbox) {
+      throw new Error(
+        `SECURITY_ENVIRONMENT_MISMATCH: Sandbox DOKU gateway cannot process or settle Production order: ${clean}`
+      );
+    }
+  }
+}
 
 // Colors for terminal reporting
 const GREEN = '\x1b[32m';
@@ -242,6 +294,14 @@ class MockDatabase {
     const finalPlan = payment.plan_tier || planTier || 'pro';
     const maxDevices = finalPlan === 'business' ? 10 : (finalPlan === 'starter' ? 1 : 3);
 
+    // Anti-fraud snapshot and catalog cross-validation (matching executePaymentSettlement)
+    validateOrderAgainstSnapshot(payment, {
+      amountIdr: Number(amountIdr),
+      planTier: finalPlan,
+      durationDays: Number(durationDays),
+      organizationId: targetOrgId,
+    });
+
     const now = Date.now();
     const currentExpiryMs = org.subscription_expires_at ? new Date(org.subscription_expires_at).getTime() : 0;
     const baseTimeMs = (org.subscription_status === 'active' && currentExpiryMs > now) ? currentExpiryMs : now;
@@ -367,7 +427,30 @@ async function simulateDokuWebhook({
   const expectedOrgId = existingPayment.organization_id;
   const targetPlanTier = existingPayment.plan_tier || 'starter';
   const expectedAmount = Number(existingPayment.amount_idr || 0);
-  const targetDurationDays = Number(existingPayment.duration_days || 365);
+
+  // Authoritatively resolve package duration & interval from catalog (Fail-closed)
+  let resolvedTerms;
+  try {
+    resolvedTerms = resolveOrderDurationAndInterval(
+      existingPayment || {
+        order_id: invoiceNumber,
+        plan_tier: targetPlanTier,
+        amount_idr: expectedAmount,
+      }
+    );
+  } catch (termErr) {
+    const isValidationErr =
+      termErr.message?.includes('INVALID_') ||
+      termErr.message?.includes('MISMATCH') ||
+      termErr.message?.includes('UNRESOLVED_') ||
+      termErr.message?.includes('AMBIGUOUS_') ||
+      termErr.message?.includes('PRICE_NOT_FOUND') ||
+      termErr.message?.includes('CONTRADICTORY_');
+    const status = isValidationErr ? 400 : 500;
+    return { status, body: { error: termErr.message } };
+  }
+  const targetDurationDays = resolvedTerms.durationDays;
+  const targetBillingInterval = resolvedTerms.billingInterval;
 
   // 5. Monotonic payment state protection
   if (existingPayment.payment_status === 'PAID') {
@@ -753,6 +836,143 @@ async function runTestSuite() {
   assert(updatedOrg.plan_tier === 'pro', 'Organization plan_tier updated to pro');
   assert(updatedOrg.max_devices_quota === 3, 'Organization max_devices_quota updated to 3');
   assert(new Date(updatedOrg.subscription_expires_at) > new Date(), 'subscription_expires_at set to future expiration timestamp');
+
+  // Test 5.4: Webhook settlement on legacy DB rows (NO duration_days, NO billing_interval, NO snapshot)
+  console.log(`\n${YELLOW}[SECTION 5.4] Webhook Settlement on Legacy DB Rows (All 6 Baseline Packages)${RESET}`);
+  const legacyCases = [
+    { planId: 'starter', interval: 'monthly', amountIdr: 549000, expectedDays: 30, expectedQuota: 1 },
+    { planId: 'pro', interval: 'monthly', amountIdr: 1099000, expectedDays: 30, expectedQuota: 3 },
+    { planId: 'business', interval: 'monthly', amountIdr: 2199000, expectedDays: 30, expectedQuota: 10 },
+    { planId: 'starter', interval: 'yearly', amountIdr: 1499000, expectedDays: 365, expectedQuota: 1 },
+    { planId: 'pro', interval: 'yearly', amountIdr: 2999000, expectedDays: 365, expectedQuota: 3 },
+    { planId: 'business', interval: 'yearly', amountIdr: 5999000, expectedDays: 365, expectedQuota: 10 },
+  ];
+
+  for (const tc of legacyCases) {
+    const orgId = crypto.randomUUID();
+    db.insertOrg({
+      id: orgId,
+      name: `Studio Legacy ${tc.planId} ${tc.interval}`,
+      plan_tier: 'starter',
+      subscription_status: 'pending_payment',
+      subscription_expires_at: null,
+      max_devices_quota: 1,
+    });
+
+    const orderId = `MB-SBX-LEGACY-${tc.planId.toUpperCase()}-${tc.interval.toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
+    // Explicitly insert legacy row without duration_days or billing_interval
+    db.insertPayment({
+      order_id: orderId,
+      organization_id: orgId,
+      plan_tier: tc.planId,
+      amount_idr: tc.amountIdr,
+      payment_status: 'PENDING',
+    });
+
+    // Ensure no in-memory snapshot exists
+    runtimeOrderSnapshots.delete(orderId);
+
+    const body = JSON.stringify({
+      order: { invoice_number: orderId, currency: 'IDR', amount: tc.amountIdr },
+      transaction: { status: 'SUCCESS', original_request_id: `req_${orderId}` },
+      customer: { id: orgId },
+    });
+
+    const res = await simulateDokuWebhook({
+      headers: createSignedHeaders(body),
+      rawBody: body,
+      db,
+      dokuSecret: DOKU_SECRET,
+    });
+
+    assert(res.status === 200, `Webhook succeeds for legacy ${tc.planId} ${tc.interval} (HTTP 200)`);
+    assert(res.body.status === 'SUCCESS', `Response status reports SUCCESS for ${tc.planId} ${tc.interval}`);
+    assert(res.body.settlement.planTier === tc.planId, `Settlement resolves planTier to ${tc.planId}`);
+    assert(res.body.settlement.maxDevicesQuota === tc.expectedQuota, `Settlement allocates ${tc.expectedQuota} device quota`);
+
+    const savedPay = db.getPayment(orderId);
+    assert(savedPay.payment_status === 'PAID', `Payment record for ${tc.planId} ${tc.interval} transitioned to PAID`);
+
+    const savedOrg = db.getOrg(orgId);
+    assert(savedOrg.subscription_status === 'active', `Organization status updated to active for ${tc.planId} ${tc.interval}`);
+    assert(savedOrg.plan_tier === tc.planId, `Organization plan_tier updated to ${tc.planId}`);
+    assert(savedOrg.max_devices_quota === tc.expectedQuota, `Organization quota set to ${tc.expectedQuota}`);
+
+    const expiryTime = new Date(savedOrg.subscription_expires_at).getTime();
+    const durationDaysCalculated = Math.round((expiryTime - Date.now()) / (24 * 60 * 60 * 1000));
+    assert(
+      durationDaysCalculated === tc.expectedDays,
+      `Entitlement expiry calculates exactly ${tc.expectedDays} days for legacy ${tc.planId} ${tc.interval} (got ${durationDaysCalculated}d)`
+    );
+  }
+
+  // Test 5.5: Webhook Security & Fail-Closed Validations
+  console.log(`\n${YELLOW}[SECTION 5.5] Webhook Security & Fail-Closed Validations${RESET}`);
+
+  // 1. Unknown plan tier rejected
+  const UNKNOWN_PLAN_ORG = crypto.randomUUID();
+  db.insertOrg({ id: UNKNOWN_PLAN_ORG, name: 'Unknown Plan Org', plan_tier: 'starter', subscription_status: 'pending_payment' });
+  const UNKNOWN_PLAN_ORDER = 'MB-SBX-UNKNOWN-PLAN-' + Date.now().toString(36).toUpperCase();
+  db.insertPayment({ order_id: UNKNOWN_PLAN_ORDER, organization_id: UNKNOWN_PLAN_ORG, plan_tier: 'enterprise_custom', amount_idr: 1099000, payment_status: 'PENDING' });
+  const unkPlanBody = JSON.stringify({
+    order: { invoice_number: UNKNOWN_PLAN_ORDER, currency: 'IDR', amount: 1099000 },
+    transaction: { status: 'SUCCESS' },
+    customer: { id: UNKNOWN_PLAN_ORG },
+  });
+  const resUnkPlan = await simulateDokuWebhook({ headers: createSignedHeaders(unkPlanBody), rawBody: unkPlanBody, db, dokuSecret: DOKU_SECRET });
+  assert(resUnkPlan.status === 400 && resUnkPlan.body.error.includes('INVALID_PLAN_TIER'), 'Webhook rejects unknown plan tier with HTTP 400 INVALID_PLAN_TIER');
+
+  // 2. Unknown / uncataloged amount rejected
+  const UNKNOWN_AMOUNT_ORG = crypto.randomUUID();
+  db.insertOrg({ id: UNKNOWN_AMOUNT_ORG, name: 'Unknown Amount Org', plan_tier: 'pro', subscription_status: 'pending_payment' });
+  const UNKNOWN_AMOUNT_ORDER = 'MB-SBX-UNKNOWN-AMT-' + Date.now().toString(36).toUpperCase();
+  db.insertPayment({ order_id: UNKNOWN_AMOUNT_ORDER, organization_id: UNKNOWN_AMOUNT_ORG, plan_tier: 'pro', amount_idr: 888888, payment_status: 'PENDING' });
+  const unkAmtBody = JSON.stringify({
+    order: { invoice_number: UNKNOWN_AMOUNT_ORDER, currency: 'IDR', amount: 888888 },
+    transaction: { status: 'SUCCESS' },
+    customer: { id: UNKNOWN_AMOUNT_ORG },
+  });
+  const resUnkAmt = await simulateDokuWebhook({ headers: createSignedHeaders(unkAmtBody), rawBody: unkAmtBody, db, dokuSecret: DOKU_SECRET });
+  assert(resUnkAmt.status === 400, 'Webhook rejects uncataloged amount with HTTP 400');
+
+  // 3. Contradictory snapshot and database terms rejected
+  const CONTRADICT_ORG = crypto.randomUUID();
+  db.insertOrg({ id: CONTRADICT_ORG, name: 'Contradict Org', plan_tier: 'starter', subscription_status: 'pending_payment' });
+  const CONTRADICT_ORDER = 'MB-SBX-CONTRADICT-' + Date.now().toString(36).toUpperCase();
+  db.insertPayment({ order_id: CONTRADICT_ORDER, organization_id: CONTRADICT_ORG, plan_tier: 'pro', amount_idr: 549000, payment_status: 'PENDING' });
+  runtimeOrderSnapshots.set(CONTRADICT_ORDER, {
+    orderId: CONTRADICT_ORDER,
+    organizationId: CONTRADICT_ORG,
+    planTier: 'starter', // conflicts with DB 'pro'
+    amountIdr: 549000,
+    durationDays: 30,
+  });
+  const contradictBody = JSON.stringify({
+    order: { invoice_number: CONTRADICT_ORDER, currency: 'IDR', amount: 549000 },
+    transaction: { status: 'SUCCESS' },
+    customer: { id: CONTRADICT_ORG },
+  });
+  const resContradict = await simulateDokuWebhook({ headers: createSignedHeaders(contradictBody), rawBody: contradictBody, db, dokuSecret: DOKU_SECRET });
+  assert(resContradict.status === 400 && resContradict.body.error.includes('CONTRADICTORY_ORDER_TERMS'), 'Webhook rejects contradictory snapshot terms with HTTP 400 CONTRADICTORY_ORDER_TERMS');
+  runtimeOrderSnapshots.delete(CONTRADICT_ORDER);
+
+  // 4. Sandbox order rejected under Production gateway environment
+  let threwSbxInProd = false;
+  try {
+    validateDokuOrderEnvironment('MB-SBX-MWF54NUL-4E94B6', 'production');
+  } catch (envErr) {
+    threwSbxInProd = envErr.message.includes('SECURITY_ENVIRONMENT_MISMATCH');
+  }
+  assert(threwSbxInProd === true, 'Sandbox order (MB-SBX-) strictly rejected under Production gateway environment');
+
+  // 5. Production order rejected under Sandbox gateway environment
+  let threwProdInSbx = false;
+  try {
+    validateDokuOrderEnvironment('MB-COMMERCIAL-LIVE-001', 'sandbox');
+  } catch (envErr) {
+    threwProdInSbx = envErr.message.includes('SECURITY_ENVIRONMENT_MISMATCH');
+  }
+  assert(threwProdInSbx === true, 'Production order strictly rejected under Sandbox gateway environment');
 
   // ----------------------------------------------------------------------------
   // SECTION 6: Monotonic Payment State Protection (Crucial Invariant)
