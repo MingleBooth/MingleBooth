@@ -4,6 +4,7 @@ import { getServiceSupabase } from '@/lib/supabase';
 import { checkDokuOrderStatus, getDokuConfig, validateDokuOrderEnvironment } from '@/lib/doku';
 import { executePaymentSettlement } from '@/lib/billing-settlement';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
+import { resolveOrderDurationAndInterval, ResolvedPackageTerms } from '@/lib/pricing';
 
 export const dynamic = 'force-dynamic';
 
@@ -148,6 +149,13 @@ export async function POST(req: NextRequest) {
       const isEntitlementActive =
         orgData?.subscription_status === 'active' && expiryMs > nowMs;
 
+      let resolvedTerms: ResolvedPackageTerms | null = null;
+      try {
+        resolvedTerms = resolveOrderDurationAndInterval(paymentRecord);
+      } catch {
+        // Fallback for non-blocking read-only response if historical order cannot be resolved
+      }
+
       return NextResponse.json(
         {
           success: true,
@@ -158,8 +166,8 @@ export async function POST(req: NextRequest) {
             orderId: paymentRecord.order_id,
             planTier: paymentRecord.plan_tier,
             amountIdr: Number(paymentRecord.amount_idr),
-            billingInterval: paymentRecord.billing_interval || 'yearly',
-            durationDays: Number(paymentRecord.duration_days || 365),
+            billingInterval: paymentRecord.billing_interval || resolvedTerms?.billingInterval || 'monthly',
+            durationDays: Number(paymentRecord.duration_days || resolvedTerms?.durationDays || 30),
             createdAt: paymentRecord.created_at,
             paidAt: paymentRecord.paid_at,
             providerTransactionId: paymentRecord.provider_transaction_id,
@@ -241,8 +249,11 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // Authoritatively resolve package duration & interval from catalog (Fail-closed)
+      const resolvedTerms = resolveOrderDurationAndInterval(paymentRecord);
+      const durationDays = resolvedTerms.durationDays;
+
       // Execute Atomic Database Settlement using the same mechanism as the Webhook
-      const durationDays = Number(paymentRecord.duration_days || (paymentRecord.billing_interval === 'monthly' ? 30 : 365));
       const settlement = await executePaymentSettlement({
         orderId: cleanOrderId,
         organizationId: targetOrgId,
@@ -275,7 +286,7 @@ export async function POST(req: NextRequest) {
             orderId: cleanOrderId,
             planTier: settlement.planTier,
             amountIdr: expectedAmount,
-            billingInterval: paymentRecord.billing_interval || 'yearly',
+            billingInterval: paymentRecord.billing_interval || resolvedTerms.billingInterval,
             durationDays: settlement.durationDays,
             paidAt: new Date().toISOString(),
             providerTransactionId: dokuInquiry.originalRequestId || null,
@@ -343,9 +354,16 @@ export async function POST(req: NextRequest) {
     );
   } catch (err: any) {
     console.error('[VerifyOrder Exception]', err);
+    const isValidationErr =
+      err.message?.includes('INVALID_') ||
+      err.message?.includes('MISMATCH') ||
+      err.message?.includes('UNRESOLVED_') ||
+      err.message?.includes('AMBIGUOUS_') ||
+      err.message?.includes('PRICE_NOT_FOUND');
+    const status = isValidationErr ? 400 : 500;
     return NextResponse.json(
       { error: err?.message || 'Internal server error verifying order status' },
-      { status: 500, headers: corsHeaders }
+      { status, headers: corsHeaders }
     );
   }
 }

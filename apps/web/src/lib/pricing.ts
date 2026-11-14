@@ -487,3 +487,233 @@ export function validateOrderAgainstSnapshot(
     }
   }
 }
+
+export interface ResolvedPackageTerms {
+  durationDays: number;
+  billingInterval: BillingInterval;
+  planTier: PlanTier;
+  amountIdr: number;
+}
+
+/**
+ * Authoritatively resolves durationDays and billingInterval for an order.
+ *
+ * Precedence / Order of Authority:
+ * 1. Explicit valid duration_days (30 or 365) and billing_interval ('monthly' or 'yearly')
+ *    on the database record or runtime snapshot.
+ * 2. Authoritative BASELINE_PRICES catalog match by (plan_tier, amount_idr).
+ *
+ * Fail-Closed Safeguards:
+ * - Never silently defaults unknown or missing intervals to 365 days.
+ * - Rejects unrecognized plan tiers (throws INVALID_PLAN_TIER).
+ * - Rejects non-positive or missing amounts (throws INVALID_AMOUNT).
+ * - Rejects conflicting or ambiguous package matches (throws AMBIGUOUS_PACKAGE_MATCH).
+ * - Fails closed if the package cannot be authoritatively resolved (throws UNRESOLVED_PACKAGE_DURATION).
+ */
+export function resolveOrderDurationAndInterval(order: {
+  order_id?: string;
+  plan_tier?: string | null;
+  amount_idr?: number | string | null;
+  duration_days?: number | null;
+  billing_interval?: string | null;
+}): ResolvedPackageTerms {
+  const cleanOrderId = order.order_id || '';
+  const snapshot = cleanOrderId ? runtimeOrderSnapshots.get(cleanOrderId) : undefined;
+
+  // 1. Detect and reject contradictory snapshot and database terms
+  if (snapshot) {
+    if (order.plan_tier && snapshot.planTier && order.plan_tier !== snapshot.planTier) {
+      throw new Error(
+        `CONTRADICTORY_ORDER_TERMS: Order record plan '${order.plan_tier}' conflicts with snapshot plan '${snapshot.planTier}'`
+      );
+    }
+    if (order.amount_idr != null && snapshot.amountIdr != null && Number(order.amount_idr) !== Number(snapshot.amountIdr)) {
+      throw new Error(
+        `CONTRADICTORY_ORDER_TERMS: Order record amount '${order.amount_idr}' conflicts with snapshot amount '${snapshot.amountIdr}'`
+      );
+    }
+    if (order.duration_days != null && snapshot.durationDays != null && Number(order.duration_days) !== Number(snapshot.durationDays)) {
+      throw new Error(
+        `CONTRADICTORY_ORDER_TERMS: Order record duration '${order.duration_days}' conflicts with snapshot duration '${snapshot.durationDays}'`
+      );
+    }
+    if (order.billing_interval && snapshot.billingInterval && order.billing_interval !== snapshot.billingInterval) {
+      throw new Error(
+        `CONTRADICTORY_ORDER_TERMS: Order record interval '${order.billing_interval}' conflicts with snapshot interval '${snapshot.billingInterval}'`
+      );
+    }
+  }
+
+  // 2. Validate plan tier & amount
+  const planTier = (order.plan_tier || snapshot?.planTier) as PlanTier;
+  const rawAmount = order.amount_idr != null ? order.amount_idr : snapshot?.amountIdr;
+  const amountIdr = Number(rawAmount);
+
+  if (!planTier || !['starter', 'pro', 'business'].includes(planTier)) {
+    throw new Error(`INVALID_PLAN_TIER: Plan '${planTier}' is invalid or unrecognized`);
+  }
+
+  if (rawAmount == null || isNaN(amountIdr) || amountIdr <= 0) {
+    throw new Error(`INVALID_AMOUNT: Payment amount '${rawAmount}' is invalid or missing`);
+  }
+
+  // 3. Extract and validate explicit duration & interval formats (if present)
+  const explicitDuration = order.duration_days != null
+    ? Number(order.duration_days)
+    : (snapshot?.durationDays != null ? Number(snapshot.durationDays) : null);
+  const explicitInterval = (order.billing_interval || snapshot?.billingInterval || null) as BillingInterval | null;
+
+  if (explicitDuration !== null && ![30, 365].includes(explicitDuration)) {
+    throw new Error(`INVALID_DURATION: Duration ${explicitDuration} days is not permitted (must be 30 or 365)`);
+  }
+
+  if (explicitInterval !== null && !['monthly', 'yearly'].includes(explicitInterval)) {
+    throw new Error(`INVALID_INTERVAL: Billing interval '${explicitInterval}' is invalid (must be monthly or yearly)`);
+  }
+
+  // 4. Case 1: Both explicit duration and interval are provided
+  // MANDATORY SECURITY GUARANTEE: Explicit duration and interval MUST NOT bypass catalog validation!
+  if (explicitDuration !== null && explicitInterval !== null) {
+    if (explicitInterval === 'monthly' && explicitDuration !== 30) {
+      throw new Error(`INVALID_DURATION: Inconsistent order terms - monthly interval specified with ${explicitDuration} days`);
+    }
+    if (explicitInterval === 'yearly' && explicitDuration !== 365) {
+      throw new Error(`INVALID_DURATION: Inconsistent order terms - yearly interval specified with ${explicitDuration} days`);
+    }
+
+    // Must find active catalog entries matching plan and interval
+    const catalogMatches = BASELINE_PRICES.filter(
+      (p) => p.planId === planTier && p.billingInterval === explicitInterval && p.isActive === true
+    );
+
+    if (catalogMatches.length === 0) {
+      throw new Error(
+        `UNRESOLVED_PACKAGE_DURATION: No active catalog package found for plan '${planTier}' with interval '${explicitInterval}'`
+      );
+    }
+
+    if (catalogMatches.length > 1) {
+      throw new Error(
+        `AMBIGUOUS_PACKAGE_MATCH: Multiple active catalog packages found for plan '${planTier}' with interval '${explicitInterval}'`
+      );
+    }
+
+    const catalogPackage = catalogMatches[0];
+
+    // Validate catalog amount equals amountIdr
+    if (catalogPackage.amountIdr !== amountIdr) {
+      throw new Error(
+        `PAYMENT_AMOUNT_MISMATCH: Inconsistent commercial terms. Plan '${planTier}' (${explicitInterval}) requires ${catalogPackage.amountIdr} IDR, but received ${amountIdr} IDR`
+      );
+    }
+
+    // Validate catalog duration equals explicitDuration
+    if (catalogPackage.durationDays !== explicitDuration) {
+      throw new Error(
+        `INVALID_DURATION: Inconsistent commercial terms. Plan '${planTier}' (${explicitInterval}) duration is ${catalogPackage.durationDays} days, but received ${explicitDuration} days`
+      );
+    }
+
+    return {
+      durationDays: catalogPackage.durationDays,
+      billingInterval: catalogPackage.billingInterval,
+      planTier,
+      amountIdr,
+    };
+  }
+
+  // 5. Case 2: Explicit interval exists, but explicit duration is missing
+  if (explicitInterval !== null && explicitDuration === null) {
+    const catalogMatches = BASELINE_PRICES.filter(
+      (p) => p.planId === planTier && p.billingInterval === explicitInterval && p.isActive === true
+    );
+
+    if (catalogMatches.length === 0) {
+      throw new Error(
+        `UNRESOLVED_PACKAGE_DURATION: No active catalog package found for plan '${planTier}' with interval '${explicitInterval}'`
+      );
+    }
+
+    if (catalogMatches.length > 1) {
+      throw new Error(
+        `AMBIGUOUS_PACKAGE_MATCH: Multiple active catalog packages found for plan '${planTier}' with interval '${explicitInterval}'`
+      );
+    }
+
+    const catalogPackage = catalogMatches[0];
+
+    if (catalogPackage.amountIdr !== amountIdr) {
+      throw new Error(
+        `PAYMENT_AMOUNT_MISMATCH: Inconsistent commercial terms. Plan '${planTier}' (${explicitInterval}) requires ${catalogPackage.amountIdr} IDR, but received ${amountIdr} IDR`
+      );
+    }
+
+    return {
+      durationDays: catalogPackage.durationDays,
+      billingInterval: catalogPackage.billingInterval,
+      planTier,
+      amountIdr,
+    };
+  }
+
+  // 6. Case 3: Explicit duration exists, but explicit interval is missing
+  if (explicitDuration !== null && explicitInterval === null) {
+    const catalogMatches = BASELINE_PRICES.filter(
+      (p) => p.planId === planTier && p.durationDays === explicitDuration && p.isActive === true
+    );
+
+    if (catalogMatches.length === 0) {
+      throw new Error(
+        `UNRESOLVED_PACKAGE_DURATION: No active catalog package found for plan '${planTier}' with duration ${explicitDuration} days`
+      );
+    }
+
+    if (catalogMatches.length > 1) {
+      throw new Error(
+        `AMBIGUOUS_PACKAGE_MATCH: Multiple active catalog packages found for plan '${planTier}' with duration ${explicitDuration} days`
+      );
+    }
+
+    const catalogPackage = catalogMatches[0];
+
+    if (catalogPackage.amountIdr !== amountIdr) {
+      throw new Error(
+        `PAYMENT_AMOUNT_MISMATCH: Inconsistent commercial terms. Plan '${planTier}' with ${explicitDuration} days requires ${catalogPackage.amountIdr} IDR, but received ${amountIdr} IDR`
+      );
+    }
+
+    return {
+      durationDays: catalogPackage.durationDays,
+      billingInterval: catalogPackage.billingInterval,
+      planTier,
+      amountIdr,
+    };
+  }
+
+  // 7. Case 4: Neither explicit duration nor explicit interval exists (Legacy / Minimal DB row)
+  // Authoritative catalog lookup by (planTier, amountIdr)
+  const matchingPrices = BASELINE_PRICES.filter(
+    (p) => p.planId === planTier && p.amountIdr === amountIdr && p.isActive === true
+  );
+
+  if (matchingPrices.length === 1) {
+    const matched = matchingPrices[0];
+    return {
+      durationDays: matched.durationDays,
+      billingInterval: matched.billingInterval,
+      planTier,
+      amountIdr,
+    };
+  }
+
+  if (matchingPrices.length > 1) {
+    throw new Error(
+      `AMBIGUOUS_PACKAGE_MATCH: Multiple active price packages match plan '${planTier}' with amount ${amountIdr}`
+    );
+  }
+
+  // Fail closed (NEVER default to 365)
+  throw new Error(
+    `UNRESOLVED_PACKAGE_DURATION: Cannot authoritatively resolve duration for plan '${planTier}' with amount ${amountIdr} IDR. Fail-closed.`
+  );
+}
