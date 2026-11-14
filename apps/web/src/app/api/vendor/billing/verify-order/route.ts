@@ -27,13 +27,6 @@ export async function OPTIONS() {
  */
 export async function POST(req: NextRequest) {
   try {
-    if (isPreviewDeployment()) {
-      return previewBlockedResponse(
-        'verify_order',
-        'Verifikasi settlement order dinonaktifkan pada Vercel Preview.'
-      );
-    }
-
     // 1. Authenticate vendor session
     const auth = await verifyServerAuth(req);
     if (!auth.isValid || !auth.orgId) {
@@ -77,6 +70,24 @@ export async function POST(req: NextRequest) {
         },
         { status: 403, headers: corsHeaders }
       );
+    }
+
+    // 2. Scoped Preview Guard & Sandbox Isolation (Fail-Closed)
+    // On Vercel Preview, order settlement verification is strictly restricted to legitimate DOKU Sandbox orders.
+    // Production orders (e.g. MB- commercial orders) or non-sandbox environments are strictly blocked.
+    if (isPreviewDeployment()) {
+      const isSandboxOrder = cleanOrderId.toUpperCase().startsWith('MB-SBX-');
+      const isSandboxEnv = dokuConfig.environment === 'sandbox';
+
+      if (!isSandboxOrder || !isSandboxEnv) {
+        console.warn(
+          `[Preview Guard] Blocked non-sandbox order verification in Preview deployment: order=${cleanOrderId}, env=${dokuConfig.environment}`
+        );
+        return previewBlockedResponse(
+          'verify_order',
+          'Verifikasi settlement order pada Vercel Preview hanya diizinkan untuk DOKU Sandbox order (MB-SBX-).'
+        );
+      }
     }
 
     const client = getServiceSupabase();
@@ -239,7 +250,7 @@ export async function POST(req: NextRequest) {
         amountIdr: expectedAmount,
         durationDays,
         providerTransactionId: dokuInquiry.originalRequestId || null,
-        paymentLinkUrl: 'https://doku.com',
+        paymentLinkUrl: paymentRecord.payment_link_url || 'https://doku.com',
         environment: dokuConfig.environment,
       });
 
