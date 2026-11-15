@@ -60,7 +60,8 @@ export async function POST(req: NextRequest) {
 
     const isOwner = userProfile.role === 'VENDOR_OWNER' || userProfile.role === 'vendor_owner';
     const isSuper = userProfile.role === 'SUPER_ADMIN' || userProfile.role === 'ADMIN' || cleanEmail === 'superadmin@minglebooth.com' || cleanEmail === 'admin@minglebooth.com';
-    const isPrivileged = isOwner || isSuper;
+    // Strict Role Separation: Only platform superadmin retains privileged bypass. Vendor Owners follow organization subscription.
+    const isPrivileged = Boolean(isSuper);
     const org = userProfile.organizations;
 
     const sessionPayload = {

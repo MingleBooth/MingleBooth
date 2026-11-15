@@ -1,6 +1,6 @@
 {
   "name": "@minglebooth/mobile",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "type": "module",
   "description": "MingleBooth Mobile — Cross-Platform Photobooth Application for Android, iPadOS & iOS",
   "author": "MingleBooth Team",
@@ -10,8 +10,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:test": "VITE_TEST_ISOLATION_MODE=true sh -c 'tsc && vite build'",
     "preview": "vite preview",
-    "cap:sync": "cap sync",
+    "cap:sync": "cap sync android",
+    "cap:sync:test": "MINGLEBOOTH_BUILD_TYPE=test cap sync android",
+    "gradle:assemble:test": "cd android && ./gradlew assembleDebug -PMINGLEBOOTH_APP_ID=com.minglebooth.mobile.test",
     "cap:android": "cap open android",
     "cap:ios": "cap open ios"
   },

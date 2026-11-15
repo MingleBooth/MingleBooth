@@ -187,7 +187,7 @@ const constantTimeSigVerification =
 
 const expiryCheckPresent =
   authServerSrc.includes('LICENSE_EXPIRED') &&
-  authServerSrc.includes('now > expiryMs + gracePeriodMs');
+  (authServerSrc.includes('now >= expiryMs') || authServerSrc.includes('now > expiryMs + gracePeriodMs'));
 
 recordAudit({
   id: 7,

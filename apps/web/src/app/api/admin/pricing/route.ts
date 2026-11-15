@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyServerAuth, corsHeaders } from '@/lib/auth-server';
-import { getActivePricingCatalog, updatePlanPrice, PlanTier, BillingInterval } from '@/lib/pricing';
-import { getServiceSupabase } from '@/lib/supabase';
-import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
+import {
+  getActivePricingCatalog,
+  createOrUpdatePriceVersion,
+  cancelScheduledPriceVersion,
+  getPricingAuditLogs,
+  PlanTier,
+  BillingInterval,
+  PRICING_LIMITS,
+} from '@/lib/pricing';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,51 +17,43 @@ export async function OPTIONS() {
 }
 
 /**
- * Superadmin Pricing Management API
- * Allows authorized administrators to view and configure subscription prices dynamically.
+ * Super Admin Pricing Management API
+ * GET: Retrieve official active prices, scheduled price changes, and audit logs.
+ * POST: Create/schedule a new price version or cancel a scheduled version.
  */
 export async function GET(req: NextRequest) {
   try {
     const auth = await verifyServerAuth(req);
     if (!auth.isValid) {
       return NextResponse.json(
-        { error: auth.error, code: 'AUTH_REQUIRED' },
+        { error: auth.error || 'Authentication required', code: 'AUTH_REQUIRED' },
         { status: auth.status || 401, headers: corsHeaders }
       );
     }
     if (!auth.isSuperAdmin) {
       return NextResponse.json(
-        { error: 'Superadmin privileges required to manage pricing', code: 'ORG_ACCESS_DENIED' },
+        { error: 'Super Admin privileges required to manage pricing', code: 'ORG_ACCESS_DENIED' },
         { status: 403, headers: corsHeaders }
       );
     }
 
-    const catalog = await getActivePricingCatalog();
-    const client = getServiceSupabase();
-
-    // Query historical price versions if available
-    let priceHistory: any[] = [];
-    try {
-      const { data: hist } = await client
-        .from('plan_prices')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (hist) priceHistory = hist;
-    } catch {
-      priceHistory = catalog.prices;
-    }
+    const catalog = await getActivePricingCatalog({ includeScheduled: true });
+    const auditLogs = await getPricingAuditLogs();
 
     return NextResponse.json(
       {
         success: true,
         plans: catalog.plans,
         activePrices: catalog.prices,
-        history: priceHistory,
+        scheduledPrices: catalog.scheduled,
+        auditLogs,
+        limits: PRICING_LIMITS,
         source: catalog.source,
       },
       { status: 200, headers: corsHeaders }
     );
   } catch (err: any) {
+    console.error('[Admin Pricing GET Error]', err);
     return NextResponse.json(
       { error: err?.message || 'Internal server error' },
       { status: 500, headers: corsHeaders }
@@ -64,27 +62,60 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (isPreviewDeployment()) {
-    return previewBlockedResponse('update_pricing', 'Modifying subscription pricing is disabled in Preview deployments.');
-  }
-
   try {
     const auth = await verifyServerAuth(req);
     if (!auth.isValid) {
       return NextResponse.json(
-        { error: auth.error, code: 'AUTH_REQUIRED' },
+        { error: auth.error || 'Authentication required', code: 'AUTH_REQUIRED' },
         { status: auth.status || 401, headers: corsHeaders }
       );
     }
     if (!auth.isSuperAdmin) {
       return NextResponse.json(
-        { error: 'Superadmin privileges required to modify pricing', code: 'ORG_ACCESS_DENIED' },
+        { error: 'Super Admin privileges required to modify pricing', code: 'ORG_ACCESS_DENIED' },
         { status: 403, headers: corsHeaders }
       );
     }
 
-    const body = await req.json();
-    const { planId, billingInterval, newAmountIdr } = body;
+    const body = await req.json().catch(() => ({}));
+    const action = body.action || 'update_price';
+
+    // 1. Action: Cancel a scheduled price change
+    if (action === 'cancel_scheduled') {
+      const { planId, billingInterval, reason } = body;
+
+      if (!['starter', 'pro', 'business'].includes(planId)) {
+        return NextResponse.json(
+          { error: `Invalid plan tier: '${planId}'`, code: 'INVALID_PLAN_TIER' },
+          { status: 400, headers: corsHeaders }
+        );
+      }
+      if (!['monthly', 'yearly'].includes(billingInterval)) {
+        return NextResponse.json(
+          { error: `Invalid billing interval: '${billingInterval}'`, code: 'INVALID_INTERVAL' },
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      await cancelScheduledPriceVersion({
+        planId: planId as PlanTier,
+        billingInterval: billingInterval as BillingInterval,
+        actorId: auth.orgId || 'superadmin',
+        actorEmail: auth.email || 'superadmin@minglebooth.com',
+        reason: reason || 'Scheduled price change cancelled by Super Admin',
+      });
+
+      return NextResponse.json(
+        {
+          success: true,
+          message: `Scheduled price change for ${planId} (${billingInterval}) was cancelled.`,
+        },
+        { status: 200, headers: corsHeaders }
+      );
+    }
+
+    // 2. Action: Create or schedule new price version
+    const { planId, billingInterval, newAmountIdr, changeReason, effectiveFrom } = body;
 
     if (!['starter', 'pro', 'business'].includes(planId)) {
       return NextResponse.json(
@@ -114,24 +145,67 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const updatedPrice = await updatePlanPrice({
+    if (newAmountIdr < PRICING_LIMITS.MIN_AMOUNT_IDR) {
+      return NextResponse.json(
+        {
+          error: `Price cannot be less than minimum limit of Rp ${PRICING_LIMITS.MIN_AMOUNT_IDR.toLocaleString('id-ID')}`,
+          code: 'PRICE_BELOW_MINIMUM',
+        },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    if (newAmountIdr > PRICING_LIMITS.MAX_AMOUNT_IDR) {
+      return NextResponse.json(
+        {
+          error: `Price cannot exceed maximum limit of Rp ${PRICING_LIMITS.MAX_AMOUNT_IDR.toLocaleString('id-ID')}`,
+          code: 'PRICE_EXCEEDS_MAXIMUM',
+        },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    if (!changeReason || typeof changeReason !== 'string' || changeReason.trim().length < 3) {
+      return NextResponse.json(
+        {
+          error: 'Change reason is mandatory (minimum 3 characters required for audit trail)',
+          code: 'INVALID_REASON',
+        },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    const { updatedPrice, auditLog } = await createOrUpdatePriceVersion({
       planId: planId as PlanTier,
       billingInterval: billingInterval as BillingInterval,
       newAmountIdr,
+      changeReason: changeReason.trim(),
+      actorId: auth.orgId || 'superadmin',
+      actorEmail: auth.email || 'superadmin@minglebooth.com',
+      effectiveFrom,
     });
+
+    const isScheduled = updatedPrice.status === 'scheduled';
+    const message = isScheduled
+      ? `Price change for ${planId} (${billingInterval}) scheduled to Rp ${newAmountIdr.toLocaleString('id-ID')} effective ${new Date(updatedPrice.effectiveFrom).toLocaleString('id-ID')}`
+      : `Official price for ${planId} (${billingInterval}) updated to Rp ${newAmountIdr.toLocaleString('id-ID')} (Version ${updatedPrice.version})`;
 
     return NextResponse.json(
       {
         success: true,
-        message: `Price for ${planId} (${billingInterval}) updated to Rp ${newAmountIdr.toLocaleString('id-ID')}`,
+        message,
         updatedPrice,
+        auditLog,
       },
       { status: 200, headers: corsHeaders }
     );
   } catch (err: any) {
+    console.error('[Admin Pricing POST Error]', err);
+    const errorCode = err?.code || (err?.message?.includes('DATABASE_PERSISTENCE_ERROR') ? 'DATABASE_PERSISTENCE_ERROR' : 'PRICING_UPDATE_FAILED');
+    const statusCode = errorCode === 'SCHEDULE_COLLISION' ? 409 : (err?.status || 500);
     return NextResponse.json(
-      { error: err?.message || 'Internal server error' },
-      { status: 500, headers: corsHeaders }
+      { error: err?.message || 'Internal server error modifying pricing', code: errorCode },
+      { status: statusCode, headers: corsHeaders }
     );
   }
 }

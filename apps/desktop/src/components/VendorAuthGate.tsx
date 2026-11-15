@@ -65,66 +65,201 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
       }
       setHwid(currentHwid);
 
-      // 2. Cryptographic Local Verification of Cached Token
-      const token = localStorage.getItem('mb_license_token');
-      if (token) {
-        const verifier = new LicenseVerifier(true);
-        const result = verifier.verifyTokenString(token, currentHwid);
+      // Helper: Revalidate license with cloud backend (Bi-directional Auto-Sync)
+      const LAST_KNOWN_TIME_KEY = 'mb_last_known_time';
+      let exactExpiryTimer: any = null;
 
-        if (result.isValid) {
-          if (result.isGracePeriod) {
-            setGracePeriodNotice(result.message);
+      const scheduleExactExpiryTimer = (tokenStr: string, currentHw: string, payload: any) => {
+        if (exactExpiryTimer) {
+          clearTimeout(exactExpiryTimer);
+          exactExpiryTimer = null;
+        }
+        const expiresAtStr = payload?.expiresAt || payload?.validUntil;
+        if (expiresAtStr) {
+          const expiryMs = new Date(expiresAtStr).getTime();
+          if (!isNaN(expiryMs)) {
+            const msUntilExpiry = expiryMs - Date.now();
+            if (msUntilExpiry > 0 && msUntilExpiry < 2147483647) {
+              exactExpiryTimer = setTimeout(() => {
+                console.warn('[VendorAuthGate] Exact expiresAt reached! Immediate transition to Demo Mode.');
+                verifyLocalImmediate(tokenStr, currentHw);
+              }, msUntilExpiry);
+            }
           }
-          const localIsDemo = Boolean(result.isDemo || (result as any).code === 'DEMO_MODE' || localStorage.getItem('mb_is_demo') === 'true');
-          onAuthSuccess?.(localIsDemo);
-          setIsAuthenticated(true);
+        }
+      };
 
-          // Non-blocking background verification with cloud server
-          fetch(`${API_BASE_URL}/api/auth/verify-license`, {
+      const verifyLocalImmediate = (currentToken: string, currentHw: string): boolean => {
+        const now = Date.now();
+        // Clock tampering check: rollback > 5 minutes
+        const lastKnownTimeStr = localStorage.getItem(LAST_KNOWN_TIME_KEY);
+        if (lastKnownTimeStr) {
+          const lastKnown = parseInt(lastKnownTimeStr, 10);
+          if (!isNaN(lastKnown) && now < lastKnown - 5 * 60 * 1000) {
+            console.warn('[VendorAuthGate] System clock rollback detected! Forcing demo mode.');
+            localStorage.setItem('mb_is_demo', 'true');
+            setGracePeriodNotice('Deteksi manipulasi jam perangkat. Sinkronkan waktu sistem Anda.');
+            onAuthSuccess?.(true);
+            return true;
+          }
+        }
+        localStorage.setItem(LAST_KNOWN_TIME_KEY, now.toString());
+
+        const verifier = new LicenseVerifier(true);
+        const result = verifier.verifyTokenString(currentToken, currentHw);
+        const previouslyMarkedDemo = localStorage.getItem('mb_is_demo') === 'true';
+
+        const isExpired = !result.isValid && (result.isExpired || result.code === 'LICENSE_EXPIRED');
+        const effectiveDemo = Boolean(
+          isExpired ||
+          result.isDemo ||
+          result.code === 'DEMO_MODE' ||
+          previouslyMarkedDemo ||
+          !result.isValid
+        );
+
+        if (effectiveDemo) {
+          if (exactExpiryTimer) {
+            clearTimeout(exactExpiryTimer);
+            exactExpiryTimer = null;
+          }
+          localStorage.setItem('mb_is_demo', 'true');
+          setGracePeriodNotice('Masa aktif lisensi telah berakhir. Aplikasi berjalan dalam Mode Demo.');
+          onAuthSuccess?.(true);
+          return true; // is demo
+        } else {
+          localStorage.setItem('mb_is_demo', 'false');
+          setGracePeriodNotice(null);
+          onAuthSuccess?.(false);
+          // Schedule true immediate millisecond timer for when expiresAt arrives
+          scheduleExactExpiryTimer(currentToken, currentHw, result.payload);
+          return false; // is pro
+        }
+      };
+
+      const revalidateWithCloud = async (currentToken: string, currentHw: string) => {
+        // Enforce immediate local expiration first (offline policy: STRICT)
+        const isCurrentlyDemo = verifyLocalImmediate(currentToken, currentHw);
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/auth/verify-license`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
+              Authorization: `Bearer ${currentToken}`,
             },
             body: JSON.stringify({
-              token,
-              hardwareFingerprint: currentHwid,
+              token: currentToken,
+              hardwareFingerprint: currentHw,
             }),
-          })
-            .then(async (res) => {
-              if (res.ok) {
-                const data = await res.json();
-                const serverIsDemo = Boolean(data.isDemo || !data.isLicensed);
-                localStorage.setItem('mb_is_demo', serverIsDemo ? 'true' : 'false');
-                onAuthSuccess?.(serverIsDemo);
-              } else if (res.status === 401 || res.status === 403) {
-                const errData = await res.json().catch(() => ({}));
-                if (['DEVICE_MISMATCH', 'ORG_ACCESS_DENIED'].includes(errData.code)) {
-                  console.warn('[VendorAuthGate] Cloud revoked token:', errData);
-                  localStorage.removeItem('mb_license_token');
-                  setIsAuthenticated(false);
-                  setErrorMsg(errData.error || 'Lisensi tidak lagi valid di server.');
-                }
+          });
+
+          if (res.ok) {
+            const data = await res.json().catch(() => null);
+
+            // Defensive Validation: Response must contain valid boolean isLicensed field
+            if (!data || typeof data.isLicensed !== 'boolean') {
+              console.warn('[VendorAuthGate] Invalid response structure from verify-license, preserving offline state');
+              return;
+            }
+
+            if (data.isLicensed === true && data.isDemo === false) {
+              // REACTIVATION PATH: Subscription Active in Cloud (Demo -> Active without logout)
+              localStorage.setItem('mb_is_demo', 'false');
+              if (data.licenseToken) {
+                localStorage.setItem('mb_license_token', data.licenseToken);
               }
-            })
-            .catch((netErr) => {
-              // Network offline / unreachable: ALLOW local operation with valid cached token
-              console.log('[VendorAuthGate] Cloud unreachable, continuing in verified offline mode:', netErr.message);
-            });
-        } else {
-          // Token is corrupted, expired past grace period, or bound to another machine
-          console.warn('[VendorAuthGate] Cached token failed validation:', result.code);
-          setErrorMsg(result.message);
-          setIsAuthenticated(false);
+              setGracePeriodNotice(null);
+              setIsAuthenticated(true);
+              onAuthSuccess?.(false);
+            } else if (data.isLicensed === false || data.isDemo === true || data.subscriptionStatus === 'expired') {
+              // EXPIRATION PATH: Subscription Expired in Cloud (Active -> Demo without logout)
+              localStorage.setItem('mb_is_demo', 'true');
+              setIsAuthenticated(true);
+              setGracePeriodNotice(data.message || 'Masa aktif langganan telah berakhir. Aplikasi berjalan dalam Mode Demo.');
+              onAuthSuccess?.(true);
+            }
+          } else if (res.status === 401 || res.status === 403) {
+            const errData = await res.json().catch(() => ({}));
+            if (['LICENSE_EXPIRED', 'SUBSCRIPTION_REQUIRED'].includes(errData.code)) {
+              console.warn('[VendorAuthGate] Cloud license expired/unsubscribed:', errData);
+              localStorage.setItem('mb_is_demo', 'true');
+              onAuthSuccess?.(true);
+              setIsAuthenticated(true);
+              setGracePeriodNotice('Masa aktif langganan Anda telah berakhir. Aplikasi berjalan dalam Mode Demo.');
+            } else if (['DEVICE_MISMATCH', 'ORG_ACCESS_DENIED', 'REVOKED'].includes(errData.code)) {
+              console.warn('[VendorAuthGate] Cloud revoked token:', errData);
+              localStorage.removeItem('mb_license_token');
+              setIsAuthenticated(false);
+              setErrorMsg(errData.error || 'Lisensi tidak lagi valid di server.');
+            }
+          }
+        } catch (netErr: any) {
+          // Network offline / unreachable: STRICT offline evaluation (no extra grace period)
+          console.log('[VendorAuthGate] Cloud unreachable, strict offline policy enforced:', netErr.message);
+          verifyLocalImmediate(currentToken, currentHw);
         }
+      };
+
+      // 2. Cryptographic Local Verification of Cached Token
+      const token = localStorage.getItem('mb_license_token');
+      if (token) {
+        verifyLocalImmediate(token, currentHwid);
+        setIsAuthenticated(true);
+
+        // Initial background verification with cloud server
+        revalidateWithCloud(token, currentHwid);
       } else {
         setIsAuthenticated(false);
       }
 
       setLoading(false);
+
+      // 3. Periodic Background Sync (Every 30 seconds for immediate local expiration and cloud sync)
+      const SYNC_INTERVAL_MS = 30 * 1000;
+      const intervalId = setInterval(() => {
+        const activeToken = localStorage.getItem('mb_license_token');
+        if (activeToken) {
+          revalidateWithCloud(activeToken, currentHwid);
+        }
+      }, SYNC_INTERVAL_MS);
+
+      // 4. Application Resume / Window Focus Listener
+      const handleWindowFocus = () => {
+        const activeToken = localStorage.getItem('mb_license_token');
+        if (activeToken) {
+          revalidateWithCloud(activeToken, currentHwid);
+        }
+      };
+
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          const activeToken = localStorage.getItem('mb_license_token');
+          if (activeToken) {
+            revalidateWithCloud(activeToken, currentHwid);
+          }
+        }
+      };
+
+      window.addEventListener('focus', handleWindowFocus);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      return () => {
+        if (exactExpiryTimer) clearTimeout(exactExpiryTimer);
+        clearInterval(intervalId);
+        window.removeEventListener('focus', handleWindowFocus);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
     };
 
-    initAuth();
+    let cleanupFn: (() => void) | undefined;
+    initAuth().then((cleanup) => {
+      cleanupFn = cleanup;
+    });
+
+    return () => {
+      cleanupFn?.();
+    };
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -157,18 +292,20 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
         // Verify token immediately before saving
         const verifier = new LicenseVerifier(true);
         const check = verifier.verifyTokenString(data.licenseToken, hwid);
-        if (!check.isValid) {
+        if (!check.isValid && !check.isExpired && check.code !== 'LICENSE_EXPIRED') {
           setErrorMsg(check.message || 'Token lisensi yang diterima tidak valid.');
           return;
         }
 
-        const isDemo = Boolean(data.isDemo || check.isDemo);
+        const isDemo = Boolean(data.isDemo || check.isDemo || data.subscriptionStatus === 'expired' || check.isExpired);
         localStorage.setItem('mb_license_token', data.licenseToken);
         localStorage.setItem('mb_vendor_org', JSON.stringify(data.organization));
         localStorage.setItem('mb_device_info', JSON.stringify(data.device));
         localStorage.setItem('mb_is_demo', isDemo ? 'true' : 'false');
 
-        if (check.isGracePeriod) {
+        if (isDemo) {
+          setGracePeriodNotice('Masa aktif langganan telah berakhir. Aplikasi berjalan dalam Mode Demo.');
+        } else if (check.isGracePeriod) {
           setGracePeriodNotice(check.message);
         } else {
           setGracePeriodNotice(null);
@@ -387,7 +524,7 @@ export const VendorAuthGate: React.FC<VendorAuthGateProps> = ({
             <span>{gracePeriodNotice}</span>
           </div>
           <span className="text-[10px] bg-black/20 text-black px-2 py-0.5 rounded font-mono uppercase">
-            Mode Tenggang Offline
+            Mode Demo
           </span>
         </div>
       )}

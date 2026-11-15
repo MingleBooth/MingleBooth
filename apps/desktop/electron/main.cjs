@@ -809,18 +809,16 @@ async function verifyPrintEntitlement(options = {}) {
     };
   }
 
-  // 5. Expiration & offline grace period check
+  // 5. Expiration Check (Strict Immediate Expiration: now >= expiryMs -> BLOCKED)
   const expiresAtStr = payload.expiresAt || payload.validUntil;
   if (expiresAtStr) {
     const expiryMs = new Date(expiresAtStr).getTime();
     if (!isNaN(expiryMs)) {
-      const gracePeriodDays = payload.offlineGracePeriodDays || 7;
-      const gracePeriodMs = gracePeriodDays * 24 * 60 * 60 * 1000;
-      if (Date.now() > expiryMs + gracePeriodMs) {
+      if (Date.now() >= expiryMs) {
         return {
           allowed: false,
           code: 'SUBSCRIPTION_EXPIRED',
-          error: 'Masa aktif langganan telah berakhir. Cetak diblokir.',
+          error: 'Masa aktif langganan telah berakhir (SUBSCRIPTION_EXPIRED). Cetak diblokir.',
         };
       }
     }

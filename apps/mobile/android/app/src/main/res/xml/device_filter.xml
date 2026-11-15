@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sony Corporation Vendor ID: 0x054C (1356 decimal) -->
+    <usb-device vendor-id="1356" />
+    <!-- Still Image / PTP USB Class: 6 -->
+    <usb-device class="6" />
+</resources>

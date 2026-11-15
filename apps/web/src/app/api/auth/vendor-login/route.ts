@@ -76,8 +76,15 @@ export async function POST(req: NextRequest) {
       userProfile?.role === 'OWNER' ||
       userProfile?.role === 'owner';
 
-    // Privileged users (Owner and Admin) receive authoritative Full Feature Access
-    const isPrivilegedUser = Boolean(isAdmin || isOwner);
+    // Strict Role Separation: Only platform administrators (SuperAdmin) receive platform-level bypass.
+    // Studio Owners (VENDOR_OWNER) are customer tenants and must strictly follow their organization subscription terms.
+    const isSuperAdmin = Boolean(
+      isAdmin ||
+      userProfile?.role === 'SUPER_ADMIN' ||
+      userProfile?.role === 'ADMIN' ||
+      userProfile?.role === 'superadmin' ||
+      userProfile?.role === 'admin'
+    );
 
     let orgId = userProfile?.organization_id;
 
@@ -114,144 +121,199 @@ export async function POST(req: NextRequest) {
     const now = new Date();
     const expiresAt = org.subscription_expires_at ? new Date(org.subscription_expires_at) : new Date(0);
 
-    const isSuperAdmin =
-      isAdmin ||
-      userProfile?.role === 'superadmin' ||
-      userProfile?.role === 'admin' ||
-      org.slug === 'minglebooth-hq';
+    const isPlatformAdmin = isSuperAdmin || org.slug === 'minglebooth-hq';
 
-    // Owner and Admin are always granted active subscription status
+    // Platform Admins are always granted active subscription status.
+    // Vendor Owners must have an active subscription with valid expiration date.
     const hasActiveSubscription =
-      isPrivilegedUser ||
-      (org.subscription_status === 'active' && expiresAt >= now);
+      isPlatformAdmin ||
+      (org.subscription_status === 'active' && now < expiresAt);
 
-    // 3. Check registered devices and quota for this organization (ALWAYS REGISTER DEVICE FOR ALL ACCOUNTS)
-    const { data: orgDevice } = await client
-      .from('devices')
-      .select('*')
-      .eq('organization_id', org.id)
-      .eq('hardware_fingerprint', hardwareFingerprint)
-      .maybeSingle();
+    // 3. Strict Finite vs. Unlimited Device Quota Resolution
+    // Unlimited is ONLY true if max_devices_quota is explicitly NULL or -1.
+    // Finite quotas (e.g. 1, 3, 10, 20, 999) are strictly finite numbers — NEVER assumed to be unlimited.
+    const isExplicitUnlimited = Boolean(
+      org.max_devices_quota === -1 ||
+      (org.plan_tier === 'enterprise' && org.max_devices_quota === null) ||
+      (isPlatformAdmin && (org.max_devices_quota === null || org.max_devices_quota === -1))
+    );
+    const maxQuota = isExplicitUnlimited
+      ? -1
+      : (org.max_devices_quota ?? (org.plan_tier === 'business' ? 10 : org.plan_tier === 'pro' ? 3 : 1));
 
-    const { count: activeCount } = await client
-      .from('devices')
-      .select('*', { count: 'exact', head: true })
-      .eq('organization_id', org.id)
-      .eq('is_active', true);
+    let currentDeviceId: string | undefined;
+    let finalActiveCount = 0;
+    let rpcHandled = false;
 
-    const maxQuota = isPrivilegedUser ? 9999 : (org.max_devices_quota || 1);
-    const currentActiveCount = activeCount || 0;
+    // A. Preferred Atomic Strategy: Attempt PostgreSQL RPC register_or_activate_device
+    // Acquires an exclusive row lock (FOR UPDATE) on organizations to strictly serialize concurrent activations
+    try {
+      const { data: rpcResult, error: rpcError } = await client.rpc('register_or_activate_device', {
+        p_org_id: org.id,
+        p_hwid: hardwareFingerprint,
+        p_device_name: deviceName,
+        p_os_type: osType,
+        p_app_version: appVersion,
+        p_is_admin: isPlatformAdmin,
+      });
 
-    let currentDeviceId = orgDevice?.id;
+      if (!rpcError && rpcResult) {
+        if (rpcResult.success === false && rpcResult.code === 'DEVICE_QUOTA_EXCEEDED') {
+          return NextResponse.json(
+            {
+              error: rpcResult.error || `Batas kuota perangkat tercapai (${rpcResult.current_active_count}/${rpcResult.max_quota}). Silakan non-aktifkan salah satu laptop lama di Vendor Dashboard atau hubungi admin.`,
+              code: 'DEVICE_QUOTA_EXCEEDED',
+              currentActiveCount: rpcResult.current_active_count,
+              maxQuota: rpcResult.max_quota,
+            },
+            { status: 403, headers: corsHeaders }
+          );
+        }
 
-    if (orgDevice && orgDevice.is_active) {
-      // Existing active device: update last seen & metadata
-      await client
-        .from('devices')
-        .update({
-          last_seen_at: new Date().toISOString(),
-          device_name: deviceName,
-          os_type: osType,
-          app_version: appVersion,
-        })
-        .eq('id', orgDevice.id);
-    } else {
-      // New device OR reactivating a deactivated device
-      if (hasActiveSubscription && !isPrivilegedUser && currentActiveCount >= maxQuota) {
-        return NextResponse.json(
-          {
-            error: `Batas kuota perangkat tercapai (${currentActiveCount}/${maxQuota}). Silakan non-aktifkan salah satu laptop lama di Vendor Dashboard atau hubungi admin.`,
-            code: 'DEVICE_QUOTA_EXCEEDED',
-            currentActiveCount,
-            maxQuota,
-          },
-          { status: 403, headers: corsHeaders }
-        );
+        if (rpcResult.success === true && rpcResult.device_id) {
+          currentDeviceId = rpcResult.device_id;
+          finalActiveCount = rpcResult.active_count;
+          rpcHandled = true;
+        }
       }
+    } catch (rpcEx) {
+      // RPC not yet deployed or error — fall through to application-level fallback
+      rpcHandled = false;
+    }
 
-      if (orgDevice) {
-        // Reactivate previously deactivated device (prevents unique constraint violation)
+    // B. Best-Effort Application-Level Fallback (Active when RPC is not deployed in DB)
+    // NOTE: This fallback performs pre-check and post-insert verification/rollback.
+    // It is a best-effort mitigation and does NOT replace a true atomic database transaction.
+    if (!rpcHandled) {
+      const { data: orgDevice } = await client
+        .from('devices')
+        .select('*')
+        .eq('organization_id', org.id)
+        .eq('hardware_fingerprint', hardwareFingerprint)
+        .maybeSingle();
+
+      const { count: activeCount } = await client
+        .from('devices')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', org.id)
+        .eq('is_active', true);
+
+      const currentActiveCount = activeCount || 0;
+      currentDeviceId = orgDevice?.id;
+
+      if (orgDevice && orgDevice.is_active) {
+        // Existing active device: update last seen & metadata
         await client
           .from('devices')
           .update({
-            is_active: true,
             last_seen_at: new Date().toISOString(),
-            activated_at: new Date().toISOString(),
             device_name: deviceName,
             os_type: osType,
             app_version: appVersion,
           })
           .eq('id', orgDevice.id);
+        finalActiveCount = currentActiveCount;
       } else {
-        // Insert brand new device
-        const { data: newDev, error: insertDevError } = await client
-          .from('devices')
-          .insert({
-            organization_id: org.id,
-            hardware_fingerprint: hardwareFingerprint,
-            device_name: deviceName,
-            os_type: osType,
-            app_version: appVersion,
-            is_active: true,
-            last_seen_at: new Date().toISOString(),
-            activated_at: new Date().toISOString(),
-          })
-          .select('id')
-          .maybeSingle();
-
-        if (insertDevError) {
-          console.error('[Device Activation Insert Error]:', insertDevError);
+        // New device OR reactivating a deactivated device
+        if (hasActiveSubscription && !isExplicitUnlimited && !isPlatformAdmin && currentActiveCount >= maxQuota) {
+          return NextResponse.json(
+            {
+              error: `Batas kuota perangkat tercapai (${currentActiveCount}/${maxQuota}). Silakan non-aktifkan salah satu laptop lama di Vendor Dashboard atau hubungi admin.`,
+              code: 'DEVICE_QUOTA_EXCEEDED',
+              currentActiveCount,
+              maxQuota,
+            },
+            { status: 403, headers: corsHeaders }
+          );
         }
-        if (newDev?.id) {
-          currentDeviceId = newDev.id;
-        }
-      }
 
-      // Concurrency race guard: ensure parallel registrations do not exceed max quota
-      if (!currentDeviceId) {
-        const { data: refetchDev } = await client
-          .from('devices')
-          .select('id')
-          .eq('organization_id', org.id)
-          .eq('hardware_fingerprint', hardwareFingerprint)
-          .maybeSingle();
-        currentDeviceId = refetchDev?.id;
-      }
+        if (orgDevice) {
+          // Reactivate previously deactivated device
+          await client
+            .from('devices')
+            .update({
+              is_active: true,
+              last_seen_at: new Date().toISOString(),
+              activated_at: new Date().toISOString(),
+              device_name: deviceName,
+              os_type: osType,
+              app_version: appVersion,
+            })
+            .eq('id', orgDevice.id);
+        } else {
+          // Insert brand new device
+          const { data: newDev, error: insertDevError } = await client
+            .from('devices')
+            .insert({
+              organization_id: org.id,
+              hardware_fingerprint: hardwareFingerprint,
+              device_name: deviceName,
+              os_type: osType,
+              app_version: appVersion,
+              is_active: true,
+              last_seen_at: new Date().toISOString(),
+              activated_at: new Date().toISOString(),
+            })
+            .select('id')
+            .maybeSingle();
 
-      if (hasActiveSubscription && !isPrivilegedUser && currentDeviceId) {
-        const { data: allActive } = await client
-          .from('devices')
-          .select('id')
-          .eq('organization_id', org.id)
-          .eq('is_active', true)
-          .order('activated_at', { ascending: true })
-          .order('id', { ascending: true });
-
-        const activeList = allActive || [];
-        if (activeList.length > maxQuota) {
-          const allowedIds = new Set(activeList.slice(0, maxQuota).map((d: any) => d.id));
-          if (!allowedIds.has(currentDeviceId)) {
-            // Lost the concurrency race: roll back this device's activation
-            await client
-              .from('devices')
-              .update({ is_active: false })
-              .eq('id', currentDeviceId);
-
-            return NextResponse.json(
-              {
-                error: `Batas kuota perangkat tercapai (${activeList.length - 1}/${maxQuota}). Perangkat lain baru saja mengaktivasi kuota yang tersisa. Silakan non-aktifkan perangkat lama di Vendor Dashboard.`,
-                code: 'DEVICE_QUOTA_EXCEEDED',
-                currentActiveCount: maxQuota,
-                maxQuota,
-              },
-              { status: 403, headers: corsHeaders }
-            );
+          if (insertDevError) {
+            console.error('[Device Activation Insert Error]:', insertDevError);
           }
+          if (newDev?.id) {
+            currentDeviceId = newDev.id;
+          }
+        }
+
+        if (!currentDeviceId) {
+          const { data: refetchDev } = await client
+            .from('devices')
+            .select('id')
+            .eq('organization_id', org.id)
+            .eq('hardware_fingerprint', hardwareFingerprint)
+            .maybeSingle();
+          currentDeviceId = refetchDev?.id;
+        }
+
+        // Post-Insert Concurrency Guard (Best-Effort Fallback)
+        if (hasActiveSubscription && !isExplicitUnlimited && !isPlatformAdmin && currentDeviceId) {
+          const { data: allActive } = await client
+            .from('devices')
+            .select('id')
+            .eq('organization_id', org.id)
+            .eq('is_active', true)
+            .order('activated_at', { ascending: true })
+            .order('id', { ascending: true });
+
+          const activeList = allActive || [];
+          if (activeList.length > maxQuota) {
+            const allowedIds = new Set(activeList.slice(0, maxQuota).map((d: any) => d.id));
+            if (!allowedIds.has(currentDeviceId)) {
+              // Lost the concurrency race: roll back this device's activation
+              await client
+                .from('devices')
+                .update({ is_active: false })
+                .eq('id', currentDeviceId);
+
+              return NextResponse.json(
+                {
+                  error: `Batas kuota perangkat tercapai (${activeList.length - 1}/${maxQuota}). Perangkat lain baru saja mengaktivasi kuota yang tersisa. Silakan non-aktifkan perangkat lama di Vendor Dashboard.`,
+                  code: 'DEVICE_QUOTA_EXCEEDED',
+                  currentActiveCount: maxQuota,
+                  maxQuota,
+                },
+                { status: 403, headers: corsHeaders }
+              );
+            }
+          }
+          finalActiveCount = Math.min(activeList.length, maxQuota);
+        } else {
+          finalActiveCount = (orgDevice && orgDevice.is_active) ? currentActiveCount : currentActiveCount + 1;
         }
       }
     }
 
-    const calculatedActiveCount = (orgDevice && orgDevice.is_active) ? currentActiveCount : Math.min(currentActiveCount + 1, maxQuota);
+    const calculatedActiveCount = finalActiveCount;
 
     // If unpaid account (pending_payment, expired, etc.):
     // Allow login into limited Demo Presentation with the device registered and tracked in Supabase
@@ -302,24 +364,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ensure database organization reflects active status for privileged user (Owner or Admin)
-    if (isPrivilegedUser && org.subscription_status !== 'active') {
-      try {
-        await client
-          .from('organizations')
-          .update({
-            subscription_status: 'active',
-            plan_tier: 'enterprise',
-            max_devices_quota: 9999,
-            subscription_expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-          })
-          .eq('id', org.id);
-      } catch {}
-    }
-
-    // 4. Generate signed license token with Full Features for Owner/Admin
-    const effectiveTier = isPrivilegedUser ? 'enterprise' : org.plan_tier;
-    const effectiveExpiresAt = isPrivilegedUser
+    // 4. Generate signed license token with active features
+    // NOTE: Strictly ZERO database mutations during vendor login.
+    // Tenant plan status is determined solely by the database organizations record.
+    const effectiveTier = isPlatformAdmin ? 'enterprise' : org.plan_tier;
+    const effectiveExpiresAt = isPlatformAdmin
       ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
       : org.subscription_expires_at;
 
@@ -327,13 +376,14 @@ export async function POST(req: NextRequest) {
       orgId: org.id,
       orgName: org.name,
       planTier: effectiveTier,
-      maxDevices: maxQuota,
+      maxDevices: isExplicitUnlimited ? -1 : maxQuota,
       hwid: hardwareFingerprint,
       expiresAt: effectiveExpiresAt,
       issuedAt: new Date().toISOString(),
       role: userProfile?.role,
       isOwner: Boolean(isOwner),
       isAdmin: Boolean(isAdmin),
+      isSuperAdmin: Boolean(isPlatformAdmin),
     };
 
     const licenseToken = createSignedToken(tokenPayload);
@@ -343,18 +393,19 @@ export async function POST(req: NextRequest) {
         success: true,
         isDemo: false,
         isLicensed: true,
-        message: isPrivilegedUser
-          ? `Aktivasi perangkat berhasil! Selamat datang, ${userProfile?.full_name || org.name}. Akses Full Fitur (${isOwner ? 'Owner Studio' : 'Admin'}) Aktif.`
+        message: isPlatformAdmin
+          ? `Aktivasi perangkat berhasil! Selamat datang, ${userProfile?.full_name || org.name}. Akses Platform Administrator Aktif.`
           : `Aktivasi perangkat berhasil! Selamat datang, ${org.name}.`,
         licenseToken,
         organization: {
           id: org.id,
           name: org.name,
           planTier: effectiveTier,
-          subscriptionStatus: isPrivilegedUser ? 'active' : org.subscription_status,
+          subscriptionStatus: isPlatformAdmin ? 'active' : org.subscription_status,
           expiresAt: effectiveExpiresAt,
           maxDevicesQuota: maxQuota,
-          activeDevicesCount: (orgDevice && orgDevice.is_active) ? currentActiveCount : Math.min(currentActiveCount + 1, maxQuota),
+          isUnlimited: isExplicitUnlimited,
+          activeDevicesCount: calculatedActiveCount,
         },
         device: {
           hwid: hardwareFingerprint,

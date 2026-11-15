@@ -51,3 +51,25 @@ apps/mobile/dist/
 **/.temp/
 camera-sdk-poc/
 release_assets*/
+
+# Database Dumps & SQL Backups
+*.dump
+*.sql.gz
+
+# Local Scratch Test Harness & Diagnostics
+scratch/
+apps/desktop/camera-validation-report.json
+
+# Mobile Distribution Binaries & Legacy Previews
+apps/mobile/distribution/
+apps/mobile-expo-preview/
+.expo/
+apps/.expo/
+
+# Root Temporary Build Bundles & Legacy Duplicates (Anchored to repository root)
+/electron/
+/index-*.js
+/index.html
+/native-camera.cjs
+/tether-server.cjs
+

@@ -505,6 +505,14 @@ export default function SuperAdminPortalPage() {
           </button>
 
           <Link
+            href="/admin/pricing"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFD21F]/15 hover:bg-[#FFD21F]/25 text-[#FFD21F] border border-[#FFD21F]/30 font-bold transition-all"
+          >
+            <CreditCard className="w-3.5 h-3.5" />
+            <span>Kelola Harga</span>
+          </Link>
+
+          <Link
             href="/dashboard"
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 border border-white/10"
           >

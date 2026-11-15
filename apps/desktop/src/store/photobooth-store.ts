@@ -868,6 +868,13 @@ export const usePhotoboothStore = create<PhotoboothState>((set, get) => {
 
       syncManager.setUploadHandler(async (item: any, onProgress: any) => {
         onProgress(25);
+        // Authoritative License / Demo Guard on sync worker
+        const isDemo = typeof window !== 'undefined' && localStorage.getItem('mb_is_demo') === 'true';
+        if (isDemo || item?.isDemo || (item?.eventId && item.eventId.startsWith('demo'))) {
+          console.log('[Sync Worker] Demo mode active — skipping cloud upload for item:', item?.entityId);
+          onProgress(100);
+          return { cloudUrl: `${API_BASE_URL}/p/${item?.entityId}`, skipped: true, reason: 'demo_mode' };
+        }
         try {
           const token = typeof window !== 'undefined' ? localStorage.getItem('mb_license_token') : null;
           const headers: Record<string, string> = { 'Content-Type': 'application/json' };

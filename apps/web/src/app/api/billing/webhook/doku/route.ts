@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateDokuWebhookSignature, getDokuConfig, isDokuTimestampValid, validateDokuOrderEnvironment } from '@/lib/doku';
 import { executePaymentSettlement } from '@/lib/billing-settlement';
 import { getServiceSupabase } from '@/lib/supabase';
-import { getOrderSnapshot, resolveOrderDurationAndInterval, ResolvedPackageTerms } from '@/lib/pricing';
+import { getOrderSnapshot, resolveOrderDurationAndIntervalAsync, resolveOrderDurationAndInterval, ResolvedPackageTerms } from '@/lib/pricing';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
 export const dynamic = 'force-dynamic';
@@ -143,8 +143,8 @@ export async function POST(req: NextRequest) {
     const targetPlanTier = (existingPayment?.plan_tier || snapshot?.planTier || 'starter') as any;
     const expectedAmount = Number(existingPayment?.amount_idr || snapshot?.amountIdr || 0);
 
-    // Authoritatively resolve package duration & interval from catalog (Fail-closed)
-    const resolvedTerms = resolveOrderDurationAndInterval(
+    // Authoritatively resolve package duration & interval from catalog or durable snapshot (Fail-closed)
+    const resolvedTerms = await resolveOrderDurationAndIntervalAsync(
       existingPayment || {
         order_id: invoiceNumber,
         plan_tier: targetPlanTier,

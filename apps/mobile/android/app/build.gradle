@@ -4,12 +4,27 @@ android {
     namespace "com.minglebooth.mobile"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.minglebooth.mobile"
+        // Dynamic Application ID & App Label: Production default is "com.minglebooth.mobile" & "MingleBooth Mobile".
+        // Test Isolated build is activated ONLY when MINGLEBOOTH_APP_ID is provided or MINGLEBOOTH_BUILD_TYPE is 'test'.
+        def targetAppId = "com.minglebooth.mobile"
+        if (project.hasProperty('MINGLEBOOTH_APP_ID')) {
+            targetAppId = project.property('MINGLEBOOTH_APP_ID')
+        } else if (project.hasProperty('MINGLEBOOTH_BUILD_TYPE') && project.property('MINGLEBOOTH_BUILD_TYPE') == 'test') {
+            targetAppId = "com.minglebooth.mobile.test"
+        } else if (System.getenv('MINGLEBOOTH_BUILD_TYPE') == 'test') {
+            targetAppId = "com.minglebooth.mobile.test"
+        }
+        def isTestBuild = targetAppId.endsWith('.test') || (project.hasProperty('MINGLEBOOTH_BUILD_TYPE') && project.property('MINGLEBOOTH_BUILD_TYPE') == 'test') || System.getenv('MINGLEBOOTH_BUILD_TYPE') == 'test'
+        def targetAppLabel = isTestBuild ? "MingleBooth (Test Isolated)" : "MingleBooth Mobile"
+        applicationId targetAppId
+        manifestPlaceholders = [
+            appLabel: targetAppLabel
+        ]
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 8
-        versionName "1.0.0-rc.3"
-        buildConfigField "String", "BUILD_IDENTIFIER", "\"20261113-RC3-RELEASE\""
+        versionCode 9
+        versionName "1.0.0-rc.4"
+        buildConfigField "String", "BUILD_IDENTIFIER", "\"20261115-RC4-RELEASE\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

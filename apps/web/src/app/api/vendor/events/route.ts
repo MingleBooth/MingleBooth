@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
 
       const now = new Date();
       const expiresAt = orgData.subscription_expires_at ? new Date(orgData.subscription_expires_at) : new Date(0);
-      const hasActiveSub = orgData.subscription_status === 'active' && expiresAt >= now;
+      const hasActiveSub = orgData.subscription_status === 'active' && now < expiresAt;
 
       if (!hasActiveSub) {
         return NextResponse.json(

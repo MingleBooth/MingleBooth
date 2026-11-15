@@ -31,8 +31,8 @@ interface ReleaseAsset {
   buttonText: string;
 }
 
-const RELEASE_VERSION = 'v1.0.0-rc.3';
-const RELEASE_DATE = '13 November 2026';
+const RELEASE_VERSION = 'v1.0.0-rc.4';
+const RELEASE_DATE = '15 November 2026';
 
 // Strictly showing ONLY the 3 primary installer categories: Android APK, macOS DMG, Windows EXE.
 const RELEASE_ASSETS: ReleaseAsset[] = [

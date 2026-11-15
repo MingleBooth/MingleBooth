@@ -41,7 +41,15 @@ export async function GET(req: NextRequest) {
 
     const devicesList = rawDevices || [];
     const activeCount = devicesList.filter((d: any) => d.is_active).length;
-    const maxQuota = org?.max_devices_quota ?? 1;
+
+    // Strict Finite vs. Unlimited Quota Evaluation
+    const isExplicitUnlimited = Boolean(
+      org?.max_devices_quota === -1 ||
+      (org?.plan_tier === 'enterprise' && (org?.max_devices_quota === null || org?.max_devices_quota === undefined))
+    );
+    const maxQuota = isExplicitUnlimited
+      ? -1
+      : (org?.max_devices_quota ?? (org?.plan_tier === 'business' ? 10 : org?.plan_tier === 'pro' ? 3 : 1));
 
     // Map safe fields only (never expose hardware fingerprints to renderer)
     const safeDevices = devicesList.map((d: any) => ({
@@ -65,8 +73,9 @@ export async function GET(req: NextRequest) {
       quota: {
         activeCount,
         maxQuota,
+        isUnlimited: isExplicitUnlimited,
         planTier: org?.plan_tier || 'starter',
-        isFull: activeCount >= maxQuota,
+        isFull: isExplicitUnlimited ? false : activeCount >= maxQuota,
       },
     }, { headers: corsHeaders });
   } catch (err: any) {

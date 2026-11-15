@@ -38,6 +38,35 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
+/**
+ * Format kuota perangkat secara dinamis sesuai ketentuan:
+ * Format: "X / Y Perangkat Booth"
+ * Enterprise dengan kuota finite: menampilkan angka riil (cth: "X / 20 Perangkat Booth" atau "X / 999 Perangkat Booth")
+ * Enterprise eksplisit tidak terbatas: "X / Tidak Terbatas Perangkat Booth"
+ */
+function formatDeviceQuota(
+  activeCount: number,
+  maxQuota: number | null | undefined,
+  planTier?: string,
+  isUnlimited?: boolean
+): string {
+  const isExplicitUnlimited = Boolean(
+    isUnlimited ||
+    maxQuota === -1 ||
+    (planTier === 'enterprise' && (maxQuota === null || maxQuota === undefined))
+  );
+
+  if (isExplicitUnlimited) {
+    return `${activeCount} / Tidak Terbatas Perangkat Booth`;
+  }
+
+  const finiteQuota = (maxQuota !== null && maxQuota !== undefined && maxQuota > 0)
+    ? maxQuota
+    : (planTier === 'business' ? 10 : planTier === 'pro' ? 3 : 1);
+
+  return `${activeCount} / ${finiteQuota} Perangkat Booth`;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -54,6 +83,7 @@ export default function DashboardPage() {
     maxQuota: number;
     planTier: string;
     isFull: boolean;
+    isUnlimited?: boolean;
   } | null>(null);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [deviceError, setDeviceError] = useState<string | null>(null);
@@ -383,7 +413,7 @@ export default function DashboardPage() {
                 </div>
                 <p className="text-xs sm:text-sm text-mb-muted mt-1.5 leading-relaxed">
                   Lisensi aktif hingga {org?.subscription_expires_at ? new Date(org.subscription_expires_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Aktif'}.
-                  {' '}Kuota: <strong>{deviceQuota?.activeCount ?? 0} dari {deviceQuota?.maxQuota ?? (org?.max_devices_quota || 1)}</strong> perangkat booth aktif terdaftar.
+                  {' '}Kuota: <strong>{formatDeviceQuota(deviceQuota?.activeCount ?? 0, deviceQuota?.maxQuota ?? org?.max_devices_quota, org?.plan_tier, deviceQuota?.isUnlimited)}</strong>.
                 </p>
               </div>
             </div>
@@ -560,9 +590,12 @@ export default function DashboardPage() {
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-mb-muted mt-1">
-                {deviceQuota
-                  ? `${deviceQuota.activeCount} dari ${deviceQuota.maxQuota} perangkat booth aktif terdaftar.`
-                  : `${devices.filter((d: any) => d.isActive ?? d.is_active).length} perangkat aktif terdaftar.`}
+                {formatDeviceQuota(
+                  deviceQuota?.activeCount ?? devices.filter((d: any) => d.isActive ?? d.is_active).length,
+                  deviceQuota?.maxQuota ?? org?.max_devices_quota,
+                  deviceQuota?.planTier || org?.plan_tier,
+                  deviceQuota?.isUnlimited
+                )}
               </p>
             </div>
 
@@ -610,7 +643,9 @@ export default function DashboardPage() {
             <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex items-start gap-3">
               <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 leading-relaxed">
-                <span className="font-heading font-bold block text-sm">Kuota Perangkat Penuh ({deviceQuota.activeCount} / {deviceQuota.maxQuota})</span>
+                <span className="font-heading font-bold block text-sm">
+                  Kuota Perangkat Penuh ({deviceQuota.activeCount} / {deviceQuota.isUnlimited ? 'Tidak Terbatas' : deviceQuota.maxQuota})
+                </span>
                 Semua slot perangkat untuk paket Anda sedang digunakan. Untuk menghubungkan laptop booth baru, silakan nonaktifkan salah satu laptop yang tidak sedang digunakan di bawah ini.
               </div>
             </div>

@@ -14,11 +14,11 @@ export class LicenseVerifier {
 
   /**
    * Decodes and verifies a raw base64 license token string
-   * Verifies structure, HWID device binding, expiration date, and offline grace period.
+   * Verifies structure, HWID device binding, and immediate expiration policy (strict offline).
    * NOTE: Full HMAC-SHA256 signature verification is performed by the server
    * to protect server signing secrets from client-side exposure.
    */
-  public verifyTokenString(rawToken: string, currentHwid?: string): LicenseVerificationResult {
+  public verifyTokenString(rawToken: string, currentHwid?: string, referenceTime?: number | Date): LicenseVerificationResult {
     // 1. Development Bypass (when SUBSCRIPTION_ENABLED=false)
     if (!this.subscriptionEnabled) {
       return {
@@ -148,14 +148,17 @@ export class LicenseVerifier {
       };
     }
 
-    // 3. Expiration & Grace Period Check
-    const now = Date.now();
+    // 3. Expiration Check (Strict Immediate Expiration: now >= expiryDate -> EXPIRED)
+    const now = referenceTime instanceof Date
+      ? referenceTime.getTime()
+      : (typeof referenceTime === 'number' ? referenceTime : Date.now());
     const expiryDate = new Date(expiresAtStr).getTime();
     if (isNaN(expiryDate)) {
       return {
         isValid: false,
         isDevMode: false,
         isExpired: true,
+        isGracePeriod: false,
         isLimitedMode: true,
         daysRemaining: 0,
         tier: planTier,
@@ -165,31 +168,7 @@ export class LicenseVerifier {
       };
     }
 
-    const diffDays = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-    const gracePeriodDays = payload.offlineGracePeriodDays || 7;
-    const gracePeriodMs = gracePeriodDays * 24 * 60 * 60 * 1000;
-
-    if (diffDays <= 0) {
-      const isWithinGracePeriod = now <= (expiryDate + gracePeriodMs);
-      if (isWithinGracePeriod) {
-        return {
-          isValid: true,
-          isDevMode: false,
-          isExpired: true,
-          isGracePeriod: true,
-          isLimitedMode: false,
-          daysRemaining: diffDays,
-          tier: planTier,
-          code: 'LICENSE_VALID',
-          allowedFeatures: DEFAULT_PLAN_LIMITS[planTier] || DEFAULT_PLAN_LIMITS.starter,
-          message: `Masa aktif lisensi telah berakhir. Berjalan dalam mode tenggang offline (${Math.abs(diffDays)} hari lewat jatuh tempo).`,
-          orgId,
-          orgName,
-          hwid: tokenHwid,
-          payload,
-        };
-      }
-
+    if (now >= expiryDate) {
       return {
         isValid: false,
         isDevMode: false,
@@ -207,6 +186,8 @@ export class LicenseVerifier {
         payload,
       };
     }
+
+    const diffDays = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
 
     // 4. Valid Active License
     return {
@@ -230,7 +211,7 @@ export class LicenseVerifier {
   /**
    * Verifies local license token or provides development bypass
    */
-  public verify(license?: LicensePayload | null, currentHwid?: string): LicenseVerificationResult {
+  public verify(license?: LicensePayload | null, currentHwid?: string, referenceTime?: number | Date): LicenseVerificationResult {
     // 1. Development Bypass (when SUBSCRIPTION_ENABLED=false)
     if (!this.subscriptionEnabled) {
       return {
@@ -261,32 +242,14 @@ export class LicenseVerifier {
       };
     }
 
-    // 3. Expiration Check
-    const now = new Date().getTime();
+    // 3. Expiration Check (Strict Immediate Expiration: now >= expiryDate -> EXPIRED)
+    const now = referenceTime instanceof Date
+      ? referenceTime.getTime()
+      : (typeof referenceTime === 'number' ? referenceTime : Date.now());
     const expiryDate = new Date((license as any).validUntil || (license as any).expiresAt).getTime();
-    const diffDays = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
     const tier = (license.tier || (license as any).planTier || 'starter') as PlanTier;
 
-    if (diffDays <= 0) {
-      // Check grace period
-      const gracePeriodMs = (license.offlineGracePeriodDays || 7) * 24 * 60 * 60 * 1000;
-      const isWithinGracePeriod = now <= expiryDate + gracePeriodMs;
-
-      if (isWithinGracePeriod) {
-        return {
-          isValid: true,
-          isDevMode: false,
-          isExpired: true,
-          isGracePeriod: true,
-          isLimitedMode: false,
-          daysRemaining: diffDays,
-          tier,
-          code: 'LICENSE_VALID',
-          allowedFeatures: DEFAULT_PLAN_LIMITS[tier] || DEFAULT_PLAN_LIMITS.starter,
-          message: `Subscription expired! Operating within offline grace period (${Math.abs(diffDays)} days past due).`,
-        };
-      }
-
+    if (isNaN(expiryDate) || now >= expiryDate) {
       return {
         isValid: false,
         isDevMode: false,
@@ -300,6 +263,8 @@ export class LicenseVerifier {
         message: 'Subscription has expired (LICENSE_EXPIRED). New event creation and cloud synchronization disabled.',
       };
     }
+
+    const diffDays = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
 
     // 4. Valid Active License
     return {

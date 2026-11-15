@@ -4,7 +4,7 @@ import { getServiceSupabase } from '@/lib/supabase';
 import { checkDokuOrderStatus, getDokuConfig, validateDokuOrderEnvironment } from '@/lib/doku';
 import { executePaymentSettlement } from '@/lib/billing-settlement';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
-import { resolveOrderDurationAndInterval, ResolvedPackageTerms } from '@/lib/pricing';
+import { resolveOrderDurationAndIntervalAsync, resolveOrderDurationAndInterval, ResolvedPackageTerms } from '@/lib/pricing';
 
 export const dynamic = 'force-dynamic';
 
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
 
       let resolvedTerms: ResolvedPackageTerms | null = null;
       try {
-        resolvedTerms = resolveOrderDurationAndInterval(paymentRecord);
+        resolvedTerms = await resolveOrderDurationAndIntervalAsync(paymentRecord);
       } catch {
         // Fallback for non-blocking read-only response if historical order cannot be resolved
       }
@@ -249,8 +249,8 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Authoritatively resolve package duration & interval from catalog (Fail-closed)
-      const resolvedTerms = resolveOrderDurationAndInterval(paymentRecord);
+      // Authoritatively resolve package duration & interval from catalog or durable snapshot (Fail-closed)
+      const resolvedTerms = await resolveOrderDurationAndIntervalAsync(paymentRecord);
       const durationDays = resolvedTerms.durationDays;
 
       // Execute Atomic Database Settlement using the same mechanism as the Webhook

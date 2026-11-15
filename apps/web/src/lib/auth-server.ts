@@ -136,21 +136,18 @@ export async function verifyServerAuth(req: NextRequest): Promise<VerifiedAuthRe
     };
   }
 
-  // Expiration & Offline Grace Period Check
+  // Expiration Check (Strict Immediate Expiration: now >= expiryMs -> EXPIRED)
   if (expiresAtStr) {
     const expiryMs = new Date(expiresAtStr).getTime();
     if (!isNaN(expiryMs)) {
       const now = Date.now();
-      const gracePeriodDays = payload.offlineGracePeriodDays || 7;
-      const gracePeriodMs = gracePeriodDays * 24 * 60 * 60 * 1000;
-
-      if (now > expiryMs + gracePeriodMs) {
+      if (now >= expiryMs) {
         return {
           success: false,
           isValid: false,
           status: 403,
           code: 'LICENSE_EXPIRED',
-          error: 'Masa aktif lisensi telah berakhir dan melewati masa tenggang (LICENSE_EXPIRED).',
+          error: 'Masa aktif lisensi telah berakhir (LICENSE_EXPIRED).',
         };
       }
     }
