@@ -258,19 +258,19 @@ export default function DashboardPage() {
     process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
     !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
       ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-Setup-1.0.0-rc.3.exe';
+      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-Setup-1.0.0-rc.4.exe';
 
   const macUrl =
     process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
     !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
       ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-1.0.0-rc.3.dmg';
+      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.dmg';
 
   const apkUrl =
     process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL &&
     !process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL.includes('drive.google.com')
       ? process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-1.0.0-rc.3.apk';
+      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.apk';
 
   return (
     <div className="min-h-screen bg-mb-bg text-mb-ink flex flex-col font-sans select-none antialiased transition-colors">
@@ -445,7 +445,7 @@ export default function DashboardPage() {
                     Software &amp; Aplikasi MingleBooth Studio
                   </h2>
                   <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-neutral-200 dark:bg-neutral-800 text-mb-muted border border-mb-line uppercase tracking-wider">
-                    Versi v1.0.0-rc.3
+                    Versi v1.0.0-rc.4
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-mb-muted mt-1 leading-relaxed">

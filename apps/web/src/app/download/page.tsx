@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import {
@@ -13,9 +12,17 @@ import {
   Laptop,
   Monitor,
   ShieldCheck,
-  AlertTriangle,
   Terminal,
 } from 'lucide-react';
+
+interface SecondaryOption {
+  formatBadge: string;
+  filename: string;
+  size: string;
+  sha256: string;
+  downloadUrl: string;
+  label: string;
+}
 
 interface ReleaseAsset {
   id: string;
@@ -29,67 +36,80 @@ interface ReleaseAsset {
   targetOS: string;
   notes: string;
   buttonText: string;
+  secondaryOption?: SecondaryOption;
 }
 
 const RELEASE_VERSION = 'v1.0.0-rc.4';
 const RELEASE_DATE = '15 November 2026';
 
-// Strictly showing ONLY the 3 primary installer categories: Android APK, macOS DMG, Windows EXE.
 const RELEASE_ASSETS: ReleaseAsset[] = [
   {
     id: 'android-apk',
     platform: 'android',
     title: 'MingleBooth Studio Android',
     formatBadge: 'APK · Android 8.0+',
-    filename: 'MingleBooth-Studio-1.0.0-rc.3.apk',
-    size: '7.39 MB',
-    sha256: '2410f45967ee385f7ac2259accd321620a40434ab0664fb2920a3b9bf662eee9',
-    downloadUrl: 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-1.0.0-rc.3.apk',
+    filename: 'MingleBooth-Studio-1.0.0-rc.4.apk',
+    size: '6.61 MB',
+    sha256: '81579cda6970e54a4d26e6745c13e0480ec29a70eb389b260d66948d5a7d76e1',
+    downloadUrl:
+      'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.apk',
     targetOS: 'Android 8.0 Oreo ke atas (ARM64 & ARMv7, USB OTG Host Ready)',
     buttonText: 'Unduh untuk Android (APK)',
-    notes: 'Mendukung Sony PC Remote PTP via USB OTG, Thermal Printing ESC/POS, dan Mode Demo Offline.',
+    notes:
+      'Mendukung Sony PC Remote PTP via USB OTG, Thermal Printing ESC/POS, dan Mode Demo Offline.',
   },
   {
     id: 'macos-dmg',
     platform: 'macos',
     title: 'MingleBooth Studio macOS',
     formatBadge: 'DMG · macOS 12.0+',
-    filename: 'MingleBooth-Studio-1.0.0-rc.3.dmg',
+    filename: 'MingleBooth-Studio-1.0.0-rc.4.dmg',
     size: '143.23 MB',
-    sha256: '7395738163be2d77cd6cfcd6b337a646aafcd6cbe61a77e686cca6f0b3133a91',
-    downloadUrl: 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-1.0.0-rc.3.dmg',
+    sha256: '7d33e1e52bc92bfd33643225f3d48620dd46f0e3116a84e2bd71e1659736e921',
+    downloadUrl:
+      'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.dmg',
     targetOS: 'macOS 12.0+ (Monterey, Ventura, Sonoma, Sequoia - Apple Silicon & Intel)',
     buttonText: 'Unduh untuk macOS (DMG)',
-    notes: 'Installer universal disk image resmi dengan Universal Dynamic Camera SOP (Sony & Canon). Buka DMG lalu drag & drop ke folder Applications.',
+    notes:
+      'Installer universal disk image resmi dengan Universal Dynamic Camera SOP (Sony & Canon). Buka DMG lalu drag & drop ke folder Applications.',
+    secondaryOption: {
+      formatBadge: 'ZIP Universal',
+      filename: 'MingleBooth-Studio-1.0.0-rc.4.zip',
+      size: '138.17 MB',
+      sha256: '352db291add49a93ffc3e496e891144ecf2e48d9daad3eaa04a16e4b7fd0dcef',
+      downloadUrl:
+        'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.zip',
+      label: 'Unduh Alternatif ZIP (138.17 MB)',
+    },
   },
   {
     id: 'windows-setup',
     platform: 'windows',
     title: 'MingleBooth Studio Windows',
     formatBadge: 'EXE · Windows 10 & 11',
-    filename: 'MingleBooth-Studio-Setup-1.0.0-rc.3.exe',
-    size: '137.67 MB',
-    sha256: '3e2b1bffaed89d0b5c0a24dbdd0a88b32e0d6f6ecb0542609dcedcf517d0753f',
-    downloadUrl: 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.3/MingleBooth-Studio-Setup-1.0.0-rc.3.exe',
+    filename: 'MingleBooth-Studio-Setup-1.0.0-rc.4.exe',
+    size: '131.72 MB',
+    sha256: '17c32d95e1dd26e322ae26828e33f0f04fffb2d66dc0507a0e338b389af557c6',
+    downloadUrl:
+      'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-Setup-1.0.0-rc.4.exe',
     targetOS: 'Windows 10 & Windows 11 (64-bit)',
-    buttonText: 'Unduh untuk Windows (EXE)',
-    notes: 'Paket installer lengkap dengan driver USB Sony dan integrasi printer foto DNP/HiTi/Citizen.',
+    buttonText: 'Unduh untuk Windows (Installer EXE)',
+    notes:
+      'Paket installer lengkap dengan driver USB Sony dan integrasi printer foto DNP/HiTi/Citizen.',
+    secondaryOption: {
+      formatBadge: 'Portable EXE',
+      filename: 'MingleBooth-Studio-1.0.0-rc.4-portable.exe',
+      size: '131.39 MB',
+      sha256: '98ea4498fecbafc4c5c47a66c16bdc6ce0a9fbbf8145da5b979e8c53572269c9',
+      downloadUrl:
+        'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4-portable.exe',
+      label: 'Unduh Portable EXE Tanpa Install (131.39 MB)',
+    },
   },
 ];
 
 export default function DownloadPage() {
-  const router = useRouter();
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Official software downloads are strictly gated for registered vendors inside the dashboard
-    const sessionUser = typeof window !== 'undefined' ? localStorage.getItem('mb_web_user') : null;
-    if (sessionUser) {
-      router.replace('/dashboard');
-    } else {
-      router.replace('/login');
-    }
-  }, [router]);
 
   const handleCopyHash = (hash: string, id: string) => {
     navigator.clipboard.writeText(hash);
@@ -192,8 +212,8 @@ export default function DownloadPage() {
                     </div>
                   </div>
 
-                  {/* Download Button */}
-                  <div className="mt-6">
+                  {/* Download Buttons Section */}
+                  <div className="mt-6 space-y-3">
                     <a
                       href={asset.downloadUrl}
                       className="btn-primary w-full text-sm py-3"
@@ -201,6 +221,39 @@ export default function DownloadPage() {
                       <Download className="w-4 h-4" />
                       <span>{asset.buttonText}</span>
                     </a>
+
+                    {/* Secondary Option (Portable EXE or ZIP) */}
+                    {asset.secondaryOption && (
+                      <div className="pt-2.5 border-t border-mb-line/60">
+                        <a
+                          href={asset.secondaryOption.downloadUrl}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-mb-line bg-mb-bg hover:bg-neutral-100 text-xs font-semibold text-mb-ink transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5 text-mb-muted" />
+                          <span>{asset.secondaryOption.label}</span>
+                        </a>
+                        <div className="mt-1.5 flex items-center justify-between text-[10px] text-mb-muted font-mono px-1">
+                          <span className="truncate max-w-[160px]" title={asset.secondaryOption.filename}>
+                            {asset.secondaryOption.filename}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleCopyHash(asset.secondaryOption!.sha256, `${asset.id}-sec`)
+                            }
+                            className="hover:text-mb-ink flex items-center gap-1"
+                            title="Salin SHA-256 Alternatif"
+                          >
+                            <span>SHA-256</span>
+                            {copiedHash === `${asset.id}-sec` ? (
+                              <Check className="w-3 h-3 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -218,14 +271,14 @@ export default function DownloadPage() {
               <div>
                 <h4 className="font-bold text-mb-ink mb-1.5">macOS (Apple Silicon &amp; Intel)</h4>
                 <p className="leading-relaxed">
-                  Buka file <code className="bg-mb-bg px-1 py-0.5 rounded font-mono text-xs">.dmg</code>, seret ikon MingleBooth Studio ke folder Applications. Jika muncul peringatan keamanan pengembang pihak ketiga, klik kanan ikon aplikasi lalu pilih <strong>Buka (Open)</strong>.
+                  Buka file <code className="bg-mb-bg px-1 py-0.5 rounded font-mono text-xs">.dmg</code>, seret ikon MingleBooth Studio ke folder Applications (atau ekstrak file <code className="bg-mb-bg px-1 py-0.5 rounded font-mono text-xs">.zip</code>). Jika muncul peringatan keamanan pengembang pihak ketiga, klik kanan ikon aplikasi lalu pilih <strong>Buka (Open)</strong>.
                 </p>
               </div>
 
               <div>
                 <h4 className="font-bold text-mb-ink mb-1.5">Windows 10 &amp; 11 (64-bit)</h4>
                 <p className="leading-relaxed">
-                  Jalankan installer <code className="bg-mb-bg px-1 py-0.5 rounded font-mono text-xs">.exe</code>. Jika Windows SmartScreen muncul, klik <em>More info</em> lalu pilih <em>Run anyway</em> untuk menyelesaikan pemasangan shortcut dan driver kamera.
+                  Jalankan installer <code className="bg-mb-bg px-1 py-0.5 rounded font-mono text-xs">.exe</code> atau gunakan varian <strong>Portable EXE</strong> langsung tanpa instalasi. Jika Windows SmartScreen muncul, klik <em>More info</em> lalu pilih <em>Run anyway</em> untuk menyelesaikan pemasangan driver kamera.
                 </p>
               </div>
 
