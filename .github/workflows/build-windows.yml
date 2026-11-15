@@ -1,0 +1,61 @@
+name: Build Windows RC4
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows RC4 (NSIS & Portable)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: release/v1.0.0-rc.4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Windows Camera Engine
+        run: npm --workspace=@minglebooth/desktop run camera:validate
+
+      - name: Build Windows Desktop (NSIS & Portable)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm --workspace=@minglebooth/desktop run electron:build:win
+
+      - name: Verify Output Artifacts & Compute SHA-256
+        shell: pwsh
+        run: |
+          Write-Host "================ OUTPUT ARTIFACTS VERIFICATION ================"
+          $releaseDir = "apps/desktop/release"
+          Get-ChildItem -Path $releaseDir -Filter "*.exe" | Format-Table Name, Length, LastWriteTime
+          
+          $exeFiles = Get-ChildItem -Path $releaseDir -Filter "*.exe"
+          if ($exeFiles.Count -eq 0) {
+            Write-Error "No .exe binaries found in $releaseDir!"
+            exit 1
+          }
+          
+          Write-Host "`n================ SHA-256 CHECKSUMS ================"
+          foreach ($file in $exeFiles) {
+            $hash = (Get-FileHash -Path $file.FullName -Algorithm SHA256).Hash.ToLower()
+            Write-Host "$($file.Name) : $hash ($($file.Length) bytes)"
+          }
+
+      - name: Upload Windows Binaries Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: minglebooth-studio-windows-rc4
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.exe.blockmap
+          if-no-files-found: error
+          retention-days: 14
