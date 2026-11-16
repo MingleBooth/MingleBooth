@@ -1,12 +1,12 @@
 -- ==============================================================================
--- MINGLEBOOTH — ATOMIC DEVICE REGISTRATION & QUOTA ENFORCEMENT RPC
+-- MINGLEBOOTH — DEVICE REGISTRATION & QUOTA ENFORCEMENT RPC
 -- ==============================================================================
 --
 -- Migration: 20261115000001_atomic_device_quota_rpc.sql
 -- Function: public.register_or_activate_device
 --
 -- Key Guarantees:
--- 1. ACID Atomicity & Concurrency Guard: Row locks (FOR UPDATE) on the tenant's
+-- 1. ACID Concurrency Guard: Row locks (FOR UPDATE) on the tenant's
 --    organization row serialize concurrent device registration requests.
 -- 2. Finite vs. Unlimited Quota Integrity:
 --    - Finite quotas (1 for starter, 3 for pro, 10 for business, or any finite enterprise number
@@ -133,7 +133,7 @@ BEGIN
         );
     END IF;
 
-    -- 7. Execute activation / insert atomically
+    -- 7. Execute activation / insert safely in transaction
     IF v_existing_device.id IS NOT NULL THEN
         -- Reactivate existing record
         UPDATE public.devices

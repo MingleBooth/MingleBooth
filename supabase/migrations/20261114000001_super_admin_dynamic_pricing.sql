@@ -18,7 +18,7 @@
 --    resetting legitimate Super Admin plan customizations or price adjustments.
 -- 5. Append-Only Snapshots: Immutable checkout snapshot table preserving original
 --    commercial terms for all pending and historical payment orders.
--- 6. Atomic Stored Procedures: SECURITY DEFINER procedures with search_path hardening
+-- 6. Transactional Stored Procedures: SECURITY DEFINER procedures with search_path hardening
 --    and row-level locking (FOR UPDATE) for single-transaction price mutations.
 -- ==============================================================================
 
@@ -420,11 +420,11 @@ BEFORE UPDATE OR DELETE ON public.pricing_audit_logs
 FOR EACH ROW EXECUTE FUNCTION public.prevent_audit_log_modification();
 
 -- ==============================================================================
--- SECTION 5: ATOMIC STORED PROCEDURES
+-- SECTION 5: TRANSACTIONAL STORED PROCEDURES
 -- ==============================================================================
 
--- 5.1 update_subscription_price_version_atomic
-CREATE OR REPLACE FUNCTION public.update_subscription_price_version_atomic(
+-- 5.1 update_subscription_price_version
+CREATE OR REPLACE FUNCTION public.update_subscription_price_version(
     p_plan_id TEXT,
     p_billing_interval TEXT,
     p_new_amount_idr BIGINT,
@@ -596,8 +596,8 @@ BEGIN
 END;
 $$;
 
--- 5.2 cancel_scheduled_price_version_atomic
-CREATE OR REPLACE FUNCTION public.cancel_scheduled_price_version_atomic(
+-- 5.2 cancel_scheduled_price_version
+CREATE OR REPLACE FUNCTION public.cancel_scheduled_price_version(
     p_plan_id TEXT,
     p_billing_interval TEXT,
     p_reason TEXT,
@@ -708,25 +708,25 @@ END $$;
 
 -- Execution grants on stored procedures
 DO $$ BEGIN
-    REVOKE EXECUTE ON FUNCTION public.update_subscription_price_version_atomic(TEXT, TEXT, BIGINT, TIMESTAMPTZ, TEXT, TEXT, TEXT) FROM PUBLIC;
+    REVOKE EXECUTE ON FUNCTION public.update_subscription_price_version(TEXT, TEXT, BIGINT, TIMESTAMPTZ, TEXT, TEXT, TEXT) FROM PUBLIC;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-        REVOKE EXECUTE ON FUNCTION public.update_subscription_price_version_atomic(TEXT, TEXT, BIGINT, TIMESTAMPTZ, TEXT, TEXT, TEXT) FROM anon;
+        REVOKE EXECUTE ON FUNCTION public.update_subscription_price_version(TEXT, TEXT, BIGINT, TIMESTAMPTZ, TEXT, TEXT, TEXT) FROM anon;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-        REVOKE EXECUTE ON FUNCTION public.update_subscription_price_version_atomic(TEXT, TEXT, BIGINT, TIMESTAMPTZ, TEXT, TEXT, TEXT) FROM authenticated;
+        REVOKE EXECUTE ON FUNCTION public.update_subscription_price_version(TEXT, TEXT, BIGINT, TIMESTAMPTZ, TEXT, TEXT, TEXT) FROM authenticated;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-        GRANT EXECUTE ON FUNCTION public.update_subscription_price_version_atomic(TEXT, TEXT, BIGINT, TIMESTAMPTZ, TEXT, TEXT, TEXT) TO service_role;
+        GRANT EXECUTE ON FUNCTION public.update_subscription_price_version(TEXT, TEXT, BIGINT, TIMESTAMPTZ, TEXT, TEXT, TEXT) TO service_role;
     END IF;
 
-    REVOKE EXECUTE ON FUNCTION public.cancel_scheduled_price_version_atomic(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+    REVOKE EXECUTE ON FUNCTION public.cancel_scheduled_price_version(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-        REVOKE EXECUTE ON FUNCTION public.cancel_scheduled_price_version_atomic(TEXT, TEXT, TEXT, TEXT, TEXT) FROM anon;
+        REVOKE EXECUTE ON FUNCTION public.cancel_scheduled_price_version(TEXT, TEXT, TEXT, TEXT, TEXT) FROM anon;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-        REVOKE EXECUTE ON FUNCTION public.cancel_scheduled_price_version_atomic(TEXT, TEXT, TEXT, TEXT, TEXT) FROM authenticated;
+        REVOKE EXECUTE ON FUNCTION public.cancel_scheduled_price_version(TEXT, TEXT, TEXT, TEXT, TEXT) FROM authenticated;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-        GRANT EXECUTE ON FUNCTION public.cancel_scheduled_price_version_atomic(TEXT, TEXT, TEXT, TEXT, TEXT) TO service_role;
+        GRANT EXECUTE ON FUNCTION public.cancel_scheduled_price_version(TEXT, TEXT, TEXT, TEXT, TEXT) TO service_role;
     END IF;
 END $$;

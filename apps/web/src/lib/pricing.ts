@@ -446,7 +446,7 @@ export async function createOrUpdatePriceVersion(input: {
   let rpcResult: any = null;
 
   try {
-    const { data, error } = await client.rpc('update_subscription_price_version_atomic', {
+    let rpcCall = await client.rpc('update_subscription_price_version', {
       p_plan_id: planId,
       p_billing_interval: billingInterval,
       p_new_amount_idr: newAmountIdr,
@@ -455,6 +455,20 @@ export async function createOrUpdatePriceVersion(input: {
       p_actor_id: actorId || 'superadmin',
       p_actor_email: actorEmail || 'superadmin@minglebooth.com',
     });
+
+    if (rpcCall.error && (rpcCall.error.code === 'PGRST202' || rpcCall.error.message?.includes('Could not find the function'))) {
+      rpcCall = await client.rpc('update_subscription_price_version_atomic', {
+        p_plan_id: planId,
+        p_billing_interval: billingInterval,
+        p_new_amount_idr: newAmountIdr,
+        p_effective_from: effectiveIso,
+        p_change_reason: changeReason.trim(),
+        p_actor_id: actorId || 'superadmin',
+        p_actor_email: actorEmail || 'superadmin@minglebooth.com',
+      });
+    }
+
+    const { data, error } = rpcCall;
 
     if (error) {
       // If RPC explicitly failed (e.g. SCHEDULE_COLLISION, validation error, etc.)
@@ -659,13 +673,25 @@ export async function cancelScheduledPriceVersion(input: {
   // 1. Try atomic cancellation RPC first
   let rpcHandled = false;
   try {
-    const { data, error } = await client.rpc('cancel_scheduled_price_version_atomic', {
+    let rpcCall = await client.rpc('cancel_scheduled_price_version', {
       p_plan_id: planId,
       p_billing_interval: billingInterval,
       p_reason: reason || 'Scheduled price change cancelled by Super Admin',
       p_actor_id: actorId || 'superadmin',
       p_actor_email: actorEmail || 'superadmin@minglebooth.com',
     });
+
+    if (rpcCall.error && (rpcCall.error.code === 'PGRST202' || rpcCall.error.message?.includes('Could not find the function'))) {
+      rpcCall = await client.rpc('cancel_scheduled_price_version_atomic', {
+        p_plan_id: planId,
+        p_billing_interval: billingInterval,
+        p_reason: reason || 'Scheduled price change cancelled by Super Admin',
+        p_actor_id: actorId || 'superadmin',
+        p_actor_email: actorEmail || 'superadmin@minglebooth.com',
+      });
+    }
+
+    const { data, error } = rpcCall;
 
     if (error) {
       const isMissingRpc =
