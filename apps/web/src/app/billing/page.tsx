@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { supabase } from '@/lib/supabase';
-import { Check, ShieldCheck, RefreshCw, CreditCard, ChevronRight } from 'lucide-react';
+import { Check, ShieldCheck, RefreshCw, CreditCard, ChevronRight, AlertTriangle, X } from 'lucide-react';
 
 export default function BillingPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -14,6 +14,8 @@ export default function BillingPage() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
   const [justRegistered, setJustRegistered] = useState(false);
   const [registeredPlan, setRegisteredPlan] = useState<string | null>(null);
+  const [paymentCancelled, setPaymentCancelled] = useState(false);
+  const [cancelledOrderId, setCancelledOrderId] = useState<string | null>(null);
 
   const [payments, setPayments] = useState<any[]>([]);
   const [dynamicPrices, setDynamicPrices] = useState<Record<string, { monthly: number; yearly: number }>>({
@@ -145,6 +147,14 @@ export default function BillingPage() {
       const planParam = params.get('plan');
       if (planParam) {
         setRegisteredPlan(planParam);
+      }
+      const paymentParam = params.get('payment');
+      const orderIdParam = params.get('orderId');
+      if (paymentParam === 'cancelled') {
+        setPaymentCancelled(true);
+        if (orderIdParam) {
+          setCancelledOrderId(decodeURIComponent(orderIdParam));
+        }
       }
     }
 
@@ -355,6 +365,45 @@ export default function BillingPage() {
                   Selesaikan aktivasi lisensi di bawah untuk mengaktifkan galeri cloud dan kuota perangkat armada Anda.
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Notification If Payment Was Cancelled */}
+          {paymentCancelled && (
+            <div className="mb-8 p-5 rounded-2xl bg-amber-500/15 border-2 border-amber-500/40 flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <span className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-500 font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-500" />
+                </span>
+                <div className="text-sm">
+                  <p className="font-bold text-mb-ink">Sesi Pembayaran Dibatalkan</p>
+                  <p className="text-mb-muted mt-0.5">
+                    Pembayaran sebelumnya belum diselesaikan dan tidak ada saldo yang terpotong. Anda dapat melanjutkan pembayaran pesanan ini atau memilih paket lain di bawah.
+                  </p>
+                  {cancelledOrderId && (
+                    <div className="mt-2.5 flex items-center gap-2">
+                      <span className="font-mono text-xs px-2.5 py-1 rounded bg-black/5 dark:bg-white/10 text-mb-ink font-semibold">
+                        Invoice: {cancelledOrderId}
+                      </span>
+                      <Link
+                        href={`/billing/result?orderId=${encodeURIComponent(cancelledOrderId)}`}
+                        className="text-xs font-bold text-mb-accent hover:underline inline-flex items-center gap-1"
+                      >
+                        <span>Buka Detail Tagihan</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentCancelled(false)}
+                className="text-mb-muted hover:text-mb-ink p-1 rounded-lg transition-colors flex-shrink-0"
+                aria-label="Tutup pemberitahuan"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
 

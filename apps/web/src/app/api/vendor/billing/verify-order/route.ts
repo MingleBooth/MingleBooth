@@ -13,6 +13,40 @@ export async function OPTIONS() {
 }
 
 /**
+ * Validates whether a payment gateway URL is safe, HTTPS, and matches the active environment.
+ * Rejects phishing, non-HTTPS, or mismatched environment URLs.
+ */
+function getValidatedPaymentUrl(
+  rawUrl: string | null | undefined,
+  environment: 'sandbox' | 'production'
+): string | undefined {
+  if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) return undefined;
+  try {
+    const parsed = new URL(rawUrl.trim());
+    // 1. Mock URL fallback in sandbox/dev
+    if (parsed.pathname.startsWith('/billing/result') && parsed.searchParams.get('mock') === '1') {
+      return environment === 'sandbox' ? rawUrl.trim() : undefined;
+    }
+    // 2. Official DOKU checkout URL validation:
+    // Must strictly be HTTPS protocol
+    if (parsed.protocol !== 'https:') return undefined;
+
+    // Must be doku.com or subdomain (e.g. checkout-sandbox.doku.com or checkout.doku.com)
+    const isDokuDomain = parsed.hostname === 'doku.com' || parsed.hostname.endsWith('.doku.com');
+    if (!isDokuDomain) return undefined;
+
+    // Environment isolation: In production, strictly reject sandbox gateway URLs
+    if (environment === 'production' && parsed.hostname.includes('sandbox')) {
+      return undefined;
+    }
+
+    return rawUrl.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Server-Side Order Status & Verification API
  * Endpoint: POST /api/vendor/billing/verify-order
  *
@@ -208,6 +242,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. Case C: Order is PENDING in Database -> Query DOKU API Server-Side
+    const resumablePaymentUrl = getValidatedPaymentUrl(paymentRecord.payment_link_url, dokuConfig.environment);
     const dokuInquiry = await checkDokuOrderStatus(cleanOrderId);
 
     if (!dokuInquiry.success) {
@@ -223,6 +258,7 @@ export async function POST(req: NextRequest) {
             orderId: paymentRecord.order_id,
             planTier: paymentRecord.plan_tier,
             amountIdr: Number(paymentRecord.amount_idr),
+            paymentUrl: resumablePaymentUrl,
           },
           message: 'Payment verification in progress; gateway status pending or retryable',
         },
@@ -347,6 +383,7 @@ export async function POST(req: NextRequest) {
           orderId: cleanOrderId,
           planTier: paymentRecord.plan_tier,
           amountIdr: Number(paymentRecord.amount_idr),
+          paymentUrl: resumablePaymentUrl,
         },
         message: 'Awaiting payment confirmation from DOKU',
       },

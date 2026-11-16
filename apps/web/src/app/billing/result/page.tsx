@@ -35,6 +35,7 @@ interface VerificationResult {
     paidAt?: string;
     providerTransactionId?: string;
     paymentMethod?: string;
+    paymentUrl?: string;
   };
   organization?: {
     id: string;
@@ -421,10 +422,24 @@ function PaymentResultContent() {
           )}
 
           <div className="mt-8 flex flex-col sm:flex-row items-center gap-3">
+            {data?.order?.paymentUrl && (
+              <a
+                href={data.order.paymentUrl}
+                className="h-11 px-6 rounded-xl bg-mb-accent hover:brightness-95 text-mb-accent-ink font-heading font-bold text-sm flex items-center gap-2 shadow-md transition-all active:scale-95"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>Lanjutkan Pembayaran di DOKU</span>
+                <ArrowRight className="w-4 h-4" />
+              </a>
+            )}
             <button
               onClick={() => verifyOrder(true)}
               disabled={isRefreshing}
-              className="h-11 px-6 rounded-xl bg-mb-accent hover:brightness-95 disabled:opacity-50 text-mb-accent-ink font-heading font-bold text-sm flex items-center gap-2 shadow-md transition-all active:scale-95"
+              className={`h-11 px-6 rounded-xl border border-mb-line font-heading font-bold text-sm flex items-center gap-2 transition-all active:scale-95 ${
+                data?.order?.paymentUrl
+                  ? 'bg-mb-surface hover:bg-neutral-100 dark:hover:bg-neutral-800 text-mb-ink'
+                  : 'bg-mb-accent hover:brightness-95 disabled:opacity-50 text-mb-accent-ink shadow-md'
+              }`}
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span>{isRefreshing ? 'Memeriksa...' : 'Cek Status Sekarang'}</span>

@@ -286,12 +286,17 @@ export function getDokuBaseUrl(environment?: 'sandbox' | 'production'): string {
     : 'https://api-sandbox.doku.com';
 }
 
+export const OFFICIAL_PRODUCTION_URL = 'https://www.minglebooth.id';
+
 /**
  * Returns the explicit canonical application URL with HTTPS protocol.
  * In Vercel Preview environments, prioritizes the stable Git branch URL
  * or active Vercel preview deployment host to guarantee that callbacks
  * and return URLs always point to the active preview deployment instead of
  * stale deployments or production.
+ *
+ * In Production, strictly enforces the official production domain
+ * https://www.minglebooth.id to prevent origin leakage or session loss.
  */
 export function getCanonicalAppUrl(env: NodeJS.ProcessEnv = process.env): string {
   const isPreview =
@@ -318,18 +323,27 @@ export function getCanonicalAppUrl(env: NodeJS.ProcessEnv = process.env): string
     }
   }
 
-  // 3. Explicit production or local NEXT_PUBLIC_APP_URL
+  // 3. Vercel Production Environment: Always strictly enforce official production domain
+  const isVercelProduction = env.VERCEL_ENV === 'production' || env.NEXT_PUBLIC_VERCEL_ENV === 'production';
+  if (isVercelProduction) {
+    if (env.NEXT_PUBLIC_APP_URL && env.NEXT_PUBLIC_APP_URL.includes('www.minglebooth.id')) {
+      return env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
+    }
+    return OFFICIAL_PRODUCTION_URL;
+  }
+
+  // 4. Explicit production or local NEXT_PUBLIC_APP_URL
   if (env.NEXT_PUBLIC_APP_URL) {
     return env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
   }
 
-  // 4. Fallback to Vercel production project URL
+  // 5. Fallback to Vercel production project URL
   if (env.VERCEL_PROJECT_PRODUCTION_URL) {
     const host = env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, '').replace(/\/+$/, '');
     return `https://${host}`;
   }
 
-  // 5. Default local development URL
+  // 6. Default local development URL
   return 'http://localhost:3000';
 }
 
@@ -615,7 +629,7 @@ export async function createDokuCheckoutSession(
     const callbackUrl =
       params.callbackUrl || `${appBaseUrl}/billing/result?orderId=${encodeURIComponent(params.orderId)}`;
     const callbackBackUrl =
-      params.callbackBackUrl || `${appBaseUrl}/billing?payment=cancelled`;
+      params.callbackBackUrl || `${appBaseUrl}/billing?payment=cancelled&orderId=${encodeURIComponent(params.orderId)}`;
 
     const payload = {
       order: {
