@@ -93,6 +93,23 @@ export default function BillingPage() {
 
       if (res.ok) {
         const data = await res.json();
+        if (data.token) {
+          localStorage.setItem('mb_web_token', data.token);
+          // Sync stored user org if cached
+          const storedUser = localStorage.getItem('mb_web_user');
+          if (storedUser) {
+            try {
+              const u = JSON.parse(storedUser);
+              if (data.order?.organizationId && (!u.org || u.org.id !== data.order.organizationId)) {
+                u.organizationId = data.order.organizationId;
+                if (u.org) u.org.id = data.order.organizationId;
+                localStorage.setItem('mb_web_user', JSON.stringify(u));
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
         if (data.paymentUrl) {
           // Direct vendor to payment checkout gateway
           window.location.href = data.paymentUrl;

@@ -112,14 +112,16 @@ export function generateDokuOrderId(environment?: 'sandbox' | 'production'): str
  * Preserved for backward compatibility.
  */
 export const INTERNAL_QA_ORG_ID = 'f9077b0e-0486-4749-820a-a025ceb010b6';
+export const HQ_ORG_ID = '7cf7c432-4013-4cfb-a88c-d1d9bb9ac649';
 
 /**
  * Static baseline of explicitly approved QA organization UUIDs.
- * Only known, audited internal QA organizations are included.
+ * Only known, audited internal QA and platform administrative organizations are included.
  * Future QA organization UUIDs must be explicitly added after formal approval.
  */
 export const STATIC_INTERNAL_QA_ORG_IDS: readonly string[] = Object.freeze([
   INTERNAL_QA_ORG_ID,
+  HQ_ORG_ID,
 ]);
 
 /**

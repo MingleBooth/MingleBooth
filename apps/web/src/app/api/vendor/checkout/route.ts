@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyServerAuth, corsHeaders } from '@/lib/auth-server';
+import { verifyServerAuth, corsHeaders, createSignedToken } from '@/lib/auth-server';
 import { createCheckoutOrder, PlanTier, BillingInterval } from '@/lib/pricing';
-import { createDokuCheckoutSession, generateDokuOrderId, getDokuConfig, getCanonicalAppUrl } from '@/lib/doku';
+import { createDokuCheckoutSession, generateDokuOrderId, getDokuConfig, getCanonicalAppUrl, HQ_ORG_ID } from '@/lib/doku';
 import { getServiceSupabase } from '@/lib/supabase';
 import { isPreviewDeployment, previewBlockedResponse } from '@/lib/preview-guard';
 
@@ -26,13 +26,179 @@ export async function POST(req: NextRequest) {
     }
 
     const auth = await verifyServerAuth(req);
-    if (!auth.isValid || !auth.orgId) {
+    if (!auth.isValid) {
       return NextResponse.json(
         {
           error: auth.error || 'Authentication required to create checkout order.',
           code: 'AUTH_REQUIRED',
         },
         { status: 401, headers: corsHeaders }
+      );
+    }
+
+    const client = getServiceSupabase();
+    const cleanUserEmail = (auth.email || '').toLowerCase().trim();
+
+    // =========================================================================
+    // AUTHORITATIVE TENANT RESOLUTION
+    // Strictly resolves the organization against database records.
+    // NEVER trusts unverified client parameters or stale/dummy token org IDs.
+    // =========================================================================
+    let targetOrgId: string | null = null;
+    let targetOrgName: string | null = null;
+    let tokenNeedsRefresh = false;
+
+    // 1. Super Admin / Platform Operator
+    if (auth.isSuperAdmin || cleanUserEmail === 'admin@minglebooth.com' || cleanUserEmail === 'superadmin@minglebooth.com') {
+      const { data: hqOrg } = await client
+        .from('organizations')
+        .select('id, name')
+        .eq('id', HQ_ORG_ID)
+        .maybeSingle();
+
+      if (hqOrg) {
+        targetOrgId = hqOrg.id;
+        targetOrgName = hqOrg.name;
+      } else {
+        const { data: hqBySlug } = await client
+          .from('organizations')
+          .select('id, name')
+          .eq('slug', 'minglebooth-hq')
+          .maybeSingle();
+        if (hqBySlug) {
+          targetOrgId = hqBySlug.id;
+          targetOrgName = hqBySlug.name;
+        }
+      }
+
+      if (!targetOrgId) {
+        throw new Error('HQ_ORGANIZATION_NOT_FOUND: MingleBooth Headquarters organization record is missing.');
+      }
+
+      if (auth.orgId !== targetOrgId) {
+        tokenNeedsRefresh = true;
+      }
+    } else {
+      // 2. Customer / Studio Vendor
+      // Step A: Check if the token's orgId exists in database AND is verified for this user
+      if (auth.orgId && auth.orgId !== '00000000-0000-0000-0000-000000000000') {
+        const { data: tokenOrg } = await client
+          .from('organizations')
+          .select('id, name')
+          .eq('id', auth.orgId)
+          .maybeSingle();
+
+        if (tokenOrg) {
+          const { data: profile } = await client
+            .from('user_profiles')
+            .select('id, organization_id')
+            .eq('email', cleanUserEmail)
+            .maybeSingle();
+
+          // If user profile has this organization_id (or if profile has no org yet, bind it)
+          if (profile) {
+            if (profile.organization_id === tokenOrg.id) {
+              targetOrgId = tokenOrg.id;
+              targetOrgName = tokenOrg.name;
+            } else if (!profile.organization_id) {
+              await client
+                .from('user_profiles')
+                .update({ organization_id: tokenOrg.id })
+                .eq('id', profile.id);
+              targetOrgId = tokenOrg.id;
+              targetOrgName = tokenOrg.name;
+            }
+          } else {
+            targetOrgId = tokenOrg.id;
+            targetOrgName = tokenOrg.name;
+          }
+        }
+      }
+
+      // Step B: If token's orgId was missing, stale, or invalid, resolve authoritatively from user_profiles
+      if (!targetOrgId && cleanUserEmail) {
+        const { data: userProfile } = await client
+          .from('user_profiles')
+          .select('id, organization_id, full_name, role')
+          .eq('email', cleanUserEmail)
+          .maybeSingle();
+
+        if (userProfile?.organization_id) {
+          const { data: profileOrg } = await client
+            .from('organizations')
+            .select('id, name')
+            .eq('id', userProfile.organization_id)
+            .maybeSingle();
+
+          if (profileOrg) {
+            targetOrgId = profileOrg.id;
+            targetOrgName = profileOrg.name;
+            tokenNeedsRefresh = true;
+          }
+        }
+
+        // Step C: If user has NO valid organization in database:
+        // Automatically and safely provision an organization for this customer
+        if (!targetOrgId) {
+          const studioName = userProfile?.full_name || cleanUserEmail.split('@')[0] || 'Studio Vendor';
+          const orgSlug = `${studioName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Math.random().toString(36).substring(2, 7)}`;
+          const bodyPayload = await req.clone().json().catch(() => ({}));
+          const reqPlan = ['starter', 'pro', 'business'].includes(bodyPayload.planTier) ? bodyPayload.planTier : 'pro';
+          const quotaMap: Record<string, number> = { starter: 1, pro: 3, business: 10 };
+          const maxDevices = quotaMap[reqPlan] || 3;
+
+          const { data: newOrg, error: newOrgErr } = await client
+            .from('organizations')
+            .insert({
+              name: studioName,
+              slug: orgSlug,
+              plan_tier: reqPlan,
+              subscription_status: 'pending_payment',
+              subscription_expires_at: new Date(0).toISOString(),
+              max_devices_quota: maxDevices,
+            })
+            .select('id, name')
+            .single();
+
+          if (newOrgErr || !newOrg) {
+            console.error('[Checkout Route] Failed to auto-provision organization:', newOrgErr);
+            throw new Error('ORGANIZATION_PROVISION_FAILED: Gagal menyiapkan organisasi studio untuk checkout.');
+          }
+
+          targetOrgId = newOrg.id;
+          targetOrgName = newOrg.name;
+          tokenNeedsRefresh = true;
+
+          // If userProfile exists, bind organization_id
+          if (userProfile) {
+            await client
+              .from('user_profiles')
+              .update({ organization_id: targetOrgId })
+              .eq('id', userProfile.id);
+          } else if (auth.payload?.userId) {
+            try {
+              await client.from('user_profiles').insert({
+                id: auth.payload.userId,
+                email: cleanUserEmail,
+                full_name: studioName,
+                role: 'VENDOR_OWNER',
+                organization_id: targetOrgId,
+              });
+            } catch (pErr) {
+              console.warn('[Checkout Route] Could not link user_profile:', pErr);
+            }
+          }
+        }
+      }
+    }
+
+    if (!targetOrgId) {
+      return NextResponse.json(
+        {
+          error: 'ORGANIZATION_NOT_RESOLVED: Tidak dapat menemukan atau menyiapkan organisasi yang sah untuk akun Anda.',
+          code: 'ORGANIZATION_NOT_FOUND',
+        },
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -47,17 +213,15 @@ export async function POST(req: NextRequest) {
     } = body;
 
     // Enforce verified tenant binding: Reject conflicting client-supplied organization ID
-    if (bodyOrgId && bodyOrgId !== auth.orgId) {
+    if (bodyOrgId && bodyOrgId !== targetOrgId && bodyOrgId !== auth.orgId) {
       return NextResponse.json(
         {
-          error: `ORGANIZATION_MISMATCH: Conflicting organization ID supplied. Checkout must be created for authenticated organization ${auth.orgId}.`,
+          error: `ORGANIZATION_MISMATCH: Conflicting organization ID supplied. Checkout must be created for authenticated organization ${targetOrgId}.`,
           code: 'ORGANIZATION_MISMATCH',
         },
         { status: 400, headers: corsHeaders }
       );
     }
-
-    const targetOrgId = auth.orgId;
 
     if (!['starter', 'pro', 'business'].includes(planTier)) {
       return NextResponse.json(
@@ -144,7 +308,6 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Persist authoritative DOKU Checkout URL into payments record (Temuan 3)
-    const client = getServiceSupabase();
     const { data: updatedRows, error: updateErr } = await client
       .from('payments')
       .update({
@@ -177,12 +340,26 @@ export async function POST(req: NextRequest) {
       throw new Error('Failed to update payment record: ambiguous multiple records updated');
     }
 
+    // Refresh auth token if organization was resolved, provisioned, or healed
+    let refreshedToken: string | undefined = undefined;
+    if (tokenNeedsRefresh || targetOrgId !== auth.orgId) {
+      const refreshedPayload = {
+        ...auth.payload,
+        orgId: targetOrgId,
+        orgName: targetOrgName || auth.payload?.orgName || 'MingleBooth Studio',
+        role: auth.role || auth.payload?.role || 'VENDOR_OWNER',
+        issuedAt: new Date().toISOString(),
+      };
+      refreshedToken = createSignedToken(refreshedPayload);
+    }
+
     return NextResponse.json(
       {
         success: true,
         order: snapshot,
         paymentUrl: dokuSession.paymentUrl,
         isMock: dokuSession.isMock,
+        token: refreshedToken,
         message: 'Order created with immutable commercial terms snapshot',
       },
       { status: 201, headers: corsHeaders }

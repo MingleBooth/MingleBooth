@@ -18,13 +18,14 @@ export async function POST(req: NextRequest) {
 
     // 1. Check if Superadmin by email or role
     if (cleanEmail === 'superadmin@minglebooth.com' || cleanEmail === 'admin@minglebooth.com') {
+      const hqOrgId = '7cf7c432-4013-4cfb-a88c-d1d9bb9ac649';
       const adminPayload = {
         userId: '00000000-0000-0000-0000-000000000001',
         email: cleanEmail,
         fullName: 'Super Administrator',
         role: 'SUPER_ADMIN',
-        orgId: '00000000-0000-0000-0000-000000000000',
-        orgName: 'MingleBooth HQ',
+        orgId: hqOrgId,
+        orgName: 'MingleBooth Headquarters',
         issuedAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       };
@@ -38,6 +39,11 @@ export async function POST(req: NextRequest) {
           email: cleanEmail,
           fullName: 'Super Administrator',
           role: 'SUPER_ADMIN',
+          org: {
+            id: hqOrgId,
+            name: 'MingleBooth Headquarters',
+            slug: 'minglebooth-hq',
+          },
         },
         redirectUrl: '/admin',
       });
