@@ -69,6 +69,9 @@ export default function SuperAdminPortalPage() {
   // Action Menu Dropdown State
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
+  // Main Navigation Tab (Separated Customer Accounts, Devices, Payments)
+  const [mainTab, setMainTab] = useState<'paid_customers' | 'devices' | 'unpaid_customers' | 'studios'>('paid_customers');
+
   // In-Page Admin Login (jika belum login)
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -377,6 +380,45 @@ export default function SuperAdminPortalPage() {
     });
   }, [data?.vendors, searchQuery, statusFilter]);
 
+  // Filtered Paid Customers (Requirement C.5)
+  const filteredPaidCustomers = useMemo(() => {
+    const list: any[] = data?.paidCustomersList || [];
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return list;
+    return list.filter((p: any) =>
+      p.email?.toLowerCase().includes(q) ||
+      p.studioName?.toLowerCase().includes(q) ||
+      p.planTier?.toLowerCase().includes(q) ||
+      p.latestOrderId?.toLowerCase().includes(q)
+    );
+  }, [data?.paidCustomersList, searchQuery]);
+
+  // Filtered Devices (Requirement C.6)
+  const filteredDevices = useMemo(() => {
+    const list: any[] = data?.customerDevicesList || [];
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return list;
+    return list.filter((d: any) =>
+      d.ownerEmail?.toLowerCase().includes(q) ||
+      d.studioName?.toLowerCase().includes(q) ||
+      d.deviceName?.toLowerCase().includes(q) ||
+      d.platform?.toLowerCase().includes(q) ||
+      d.fingerprint?.toLowerCase().includes(q)
+    );
+  }, [data?.customerDevicesList, searchQuery]);
+
+  // Filtered Unpaid Customers (Requirement C.4)
+  const filteredUnpaidCustomers = useMemo(() => {
+    const list: any[] = data?.unpaidCustomersList || [];
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return list;
+    return list.filter((u: any) =>
+      u.email?.toLowerCase().includes(q) ||
+      u.studioName?.toLowerCase().includes(q) ||
+      u.planTier?.toLowerCase().includes(q)
+    );
+  }, [data?.unpaidCustomersList, searchQuery]);
+
   if (!mounted) {
     return (
       <div className="min-h-screen bg-[#0B0B0D] text-white flex items-center justify-center font-sans text-sm">
@@ -546,47 +588,419 @@ export default function SuperAdminPortalPage() {
           </div>
         )}
 
-        {/* 3 Kartu Ringkasan Sederhana */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* 4 Kartu Ringkasan Pemisahan Akun, Perangkat & Pembayaran */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: Total Akun Terdaftar */}
           <div className="p-5 rounded-2xl bg-[#14161B] border border-white/10 flex items-center justify-between">
             <div>
-              <span className="text-xs text-neutral-400">Total Pelanggan Studio</span>
+              <span className="text-[11px] text-neutral-400 block font-medium">Total Akun Terdaftar</span>
               <div className="text-2xl font-extrabold text-white mt-1">
-                {data?.vendors?.length || 1} Studio
+                {data?.metrics?.totalRegisteredAccounts ?? (data?.vendors?.length || 0)} Akun
               </div>
+              <span className="text-[10px] text-neutral-500 mt-0.5 block font-mono">1 Email = 1 Pelanggan</span>
             </div>
             <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white">
-              <Users className="w-5 h-5 text-[#FFD21F]" />
+              <Mail className="w-5 h-5 text-[#FFD21F]" />
             </div>
           </div>
 
+          {/* Card 2: Total Perangkat Login */}
           <div className="p-5 rounded-2xl bg-[#14161B] border border-white/10 flex items-center justify-between">
             <div>
-              <span className="text-xs text-neutral-400">Lisensi Aktif</span>
-              <div className="text-2xl font-extrabold text-emerald-400 mt-1">
-                {(data?.vendors || []).filter((v: any) => v.subscriptionStatus === 'active').length} Studio
+              <span className="text-[11px] text-neutral-400 block font-medium">Total Perangkat Login</span>
+              <div className="text-2xl font-extrabold text-blue-400 mt-1">
+                {data?.metrics?.totalLoggedInDevices ?? 0} Unit
               </div>
+              <span className="text-[10px] text-neutral-500 mt-0.5 block font-mono">Laptop &amp; Tablet Terhubung</span>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
+              <Laptop className="w-5 h-5" />
+            </div>
+          </div>
+
+          {/* Card 3: Total Pelanggan Berbayar */}
+          <div className="p-5 rounded-2xl bg-[#14161B] border border-white/10 flex items-center justify-between">
+            <div>
+              <span className="text-[11px] text-neutral-400 block font-medium">Pelanggan Berbayar</span>
+              <div className="text-2xl font-extrabold text-emerald-400 mt-1">
+                {data?.metrics?.totalPaidCustomers ?? 0} Akun
+              </div>
+              <span className="text-[10px] text-emerald-500/80 mt-0.5 block font-mono">Transaksi PAID Terkonfirmasi</span>
             </div>
             <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
               <CheckCircle2 className="w-5 h-5" />
             </div>
           </div>
 
+          {/* Card 4: Pelanggan Belum Membayar */}
           <div className="p-5 rounded-2xl bg-[#14161B] border border-white/10 flex items-center justify-between">
             <div>
-              <span className="text-xs text-neutral-400">Total Pembayaran Masuk</span>
-              <div className="text-2xl font-extrabold text-white mt-1">
-                {formatRupiah(data?.metrics?.totalRevenueIdr || 4498000)}
+              <span className="text-[11px] text-neutral-400 block font-medium">Pelanggan Belum Bayar</span>
+              <div className="text-2xl font-extrabold text-amber-400 mt-1">
+                {data?.metrics?.totalUnpaidCustomers ?? 0} Akun
               </div>
+              <span className="text-[10px] text-amber-500/80 mt-0.5 block font-mono">Menunggu Transaksi</span>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-[#FFD21F]">
-              <CreditCard className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400">
+              <Users className="w-5 h-5" />
             </div>
           </div>
         </div>
 
-        {/* Bagian Daftar Pelanggan */}
-        <div className="bg-[#14161B] border border-white/10 rounded-3xl p-6 flex flex-col gap-5">
+        {/* Navigation Tabs (Pemisahan Informasi Sesuai Spesifikasi) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-[#14161B] border border-white/10 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setMainTab('paid_customers')}
+              className={`px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition-all ${
+                mainTab === 'paid_customers'
+                  ? 'bg-[#FFD21F] text-[#0B0B0D] shadow-sm'
+                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Daftar Pelanggan Berbayar ({data?.metrics?.totalPaidCustomers ?? 0})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMainTab('devices')}
+              className={`px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition-all ${
+                mainTab === 'devices'
+                  ? 'bg-[#FFD21F] text-[#0B0B0D] shadow-sm'
+                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Laptop className="w-4 h-4" />
+              <span>Daftar Perangkat Login ({data?.metrics?.totalLoggedInDevices ?? 0})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMainTab('unpaid_customers')}
+              className={`px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition-all ${
+                mainTab === 'unpaid_customers'
+                  ? 'bg-[#FFD21F] text-[#0B0B0D] shadow-sm'
+                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Pelanggan Belum Bayar ({data?.metrics?.totalUnpaidCustomers ?? 0})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMainTab('studios')}
+              className={`px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition-all ${
+                mainTab === 'studios'
+                  ? 'bg-[#FFD21F] text-[#0B0B0D] shadow-sm'
+                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Shield className="w-4 h-4" />
+              <span>Semua Studio &amp; Lisensi ({data?.vendors?.length ?? 0})</span>
+            </button>
+          </div>
+
+          <div className="text-[11px] text-neutral-400 font-mono px-3 py-1 bg-white/5 rounded-xl border border-white/5">
+            Total Revenue: <strong className="text-emerald-400">{formatRupiah(data?.metrics?.totalRevenueIdr || 0)}</strong>
+          </div>
+        </div>
+
+        {/* TAB 1: DAFTAR PELANGGAN BERBAYAR (Requirement C.5) */}
+        {mainTab === 'paid_customers' && (
+          <div className="bg-[#14161B] border border-white/10 rounded-3xl p-6 flex flex-col gap-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  <span>Daftar Email Pelanggan Berbayar</span>
+                </h2>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Satu email hanya dihitung satu kali dalam total pelanggan berbayar, meskipun memiliki banyak perangkat atau riwayat perpanjangan.
+                </p>
+              </div>
+
+              <div className="relative w-full md:w-72">
+                <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Cari email atau studio..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#0C0E12] border border-white/10 text-xs text-white placeholder-neutral-500 outline-none focus:border-[#FFD21F]"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-white/10 text-neutral-400 font-semibold uppercase tracking-wider text-[11px]">
+                    <th className="pb-3 pl-2">Email Akun Pelanggan</th>
+                    <th className="pb-3">Nama Studio</th>
+                    <th className="pb-3">Paket Lisensi</th>
+                    <th className="pb-3">Nominal Terkonfirmasi</th>
+                    <th className="pb-3">Tanggal Pembayaran</th>
+                    <th className="pb-3">Status Lisensi</th>
+                    <th className="pb-3 pr-2 text-right">Perangkat Terhubung</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {filteredPaidCustomers.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-neutral-500">
+                        Tidak ada pelanggan berbayar yang cocok.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredPaidCustomers.map((p: any, idx: number) => (
+                      <tr key={p.email || idx} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-4 pl-2">
+                          <div className="font-bold text-white text-xs flex items-center gap-1.5">
+                            <Mail className="w-3.5 h-3.5 text-[#FFD21F]" />
+                            <span>{p.email}</span>
+                          </div>
+                          <div className="text-[10px] text-neutral-500 font-mono mt-0.5">Order: {p.latestOrderId}</div>
+                        </td>
+                        <td className="py-4 font-medium text-white">{p.studioName}</td>
+                        <td className="py-4">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-white/10 text-neutral-200 border border-white/10">
+                            {p.planTier}
+                          </span>
+                        </td>
+                        <td className="py-4 font-bold text-emerald-400">
+                          {formatRupiah(p.totalPaidAmount)}
+                        </td>
+                        <td className="py-4 text-neutral-300 font-mono text-[11px]">
+                          {p.latestPaymentDate ? new Date(p.latestPaymentDate).toLocaleDateString('id-ID', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                          }) : '-'}
+                        </td>
+                        <td className="py-4">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                            Aktif
+                          </span>
+                        </td>
+                        <td className="py-4 pr-2 text-right font-mono text-neutral-300">
+                          <span className="inline-flex items-center gap-1">
+                            <Laptop className="w-3.5 h-3.5 text-blue-400" />
+                            <span>{p.devicesCount} Unit</span>
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: DAFTAR PERANGKAT LOGIN (Requirement C.6) */}
+        {mainTab === 'devices' && (
+          <div className="bg-[#14161B] border border-white/10 rounded-3xl p-6 flex flex-col gap-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Laptop className="w-5 h-5 text-blue-400" />
+                  <span>Daftar Seluruh Perangkat Login Pelanggan</span>
+                </h2>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Setiap laptop atau tablet terhubung secara eksklusif ke satu akun email pemilik studio.
+                </p>
+              </div>
+
+              <div className="relative w-full md:w-72">
+                <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Cari email, perangkat, HWID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#0C0E12] border border-white/10 text-xs text-white placeholder-neutral-500 outline-none focus:border-[#FFD21F]"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-white/10 text-neutral-400 font-semibold uppercase tracking-wider text-[11px]">
+                    <th className="pb-3 pl-2">Email Pemilik Akun</th>
+                    <th className="pb-3">Nama Studio</th>
+                    <th className="pb-3">Nama Perangkat</th>
+                    <th className="pb-3">Platform / OS</th>
+                    <th className="pb-3">Hardware ID (HWID)</th>
+                    <th className="pb-3">Login Terakhir</th>
+                    <th className="pb-3 pr-2 text-right">Status Koneksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {filteredDevices.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-neutral-500">
+                        Tidak ada perangkat terhubung yang cocok.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredDevices.map((d: any, idx: number) => (
+                      <tr key={d.id || idx} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-4 pl-2">
+                          <span className="font-bold text-white text-xs flex items-center gap-1.5">
+                            <Mail className="w-3.5 h-3.5 text-[#FFD21F]" />
+                            <span>{d.ownerEmail}</span>
+                          </span>
+                        </td>
+                        <td className="py-4 text-neutral-200 font-medium">{d.studioName}</td>
+                        <td className="py-4 text-white font-bold">{d.deviceName}</td>
+                        <td className="py-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                            d.platform === 'android'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                          }`}>
+                            {d.platform}
+                          </span>
+                        </td>
+                        <td className="py-4 text-neutral-400 font-mono text-[11px]">
+                          {d.fingerprint || 'Hardware Locked'}
+                        </td>
+                        <td className="py-4 text-neutral-300 font-mono text-[11px]">
+                          {d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString('id-ID', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          }) : '-'}
+                        </td>
+                        <td className="py-4 pr-2 text-right">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            d.isActive
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-neutral-500/15 text-neutral-400 border border-neutral-500/30'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${d.isActive ? 'bg-emerald-400' : 'bg-neutral-500'}`} />
+                            {d.isActive ? 'Aktif' : 'Nonaktif'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: PELANGGAN BELUM MEMBAYAR (Requirement C.4) */}
+        {mainTab === 'unpaid_customers' && (
+          <div className="bg-[#14161B] border border-white/10 rounded-3xl p-6 flex flex-col gap-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-400" />
+                  <span>Daftar Pelanggan Belum Membayar</span>
+                </h2>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Akun pelanggan yang sudah mendaftar namun belum memiliki transaksi pembayaran berhasil.
+                </p>
+              </div>
+
+              <div className="relative w-full md:w-72">
+                <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Cari email atau studio..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#0C0E12] border border-white/10 text-xs text-white placeholder-neutral-500 outline-none focus:border-[#FFD21F]"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-white/10 text-neutral-400 font-semibold uppercase tracking-wider text-[11px]">
+                    <th className="pb-3 pl-2">Email Akun Pelanggan</th>
+                    <th className="pb-3">Nama Studio</th>
+                    <th className="pb-3">Pilihan Paket</th>
+                    <th className="pb-3">Tanggal Pendaftaran</th>
+                    <th className="pb-3">Status Tagihan</th>
+                    <th className="pb-3 pr-2 text-right">Aksi Cepat</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {filteredUnpaidCustomers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-neutral-500">
+                        Semua pelanggan terdaftar sudah melakukan pembayaran.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredUnpaidCustomers.map((u: any, idx: number) => (
+                      <tr key={u.email || idx} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-4 pl-2 font-bold text-white text-xs">
+                          <span className="flex items-center gap-1.5">
+                            <Mail className="w-3.5 h-3.5 text-amber-400" />
+                            <span>{u.email}</span>
+                          </span>
+                        </td>
+                        <td className="py-4 text-neutral-200 font-medium">{u.studioName}</td>
+                        <td className="py-4">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-white/5 text-neutral-300 border border-white/10">
+                            {u.planTier}
+                          </span>
+                        </td>
+                        <td className="py-4 text-neutral-400 font-mono text-[11px]">
+                          {u.registeredAt ? new Date(u.registeredAt).toLocaleDateString('id-ID', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                          }) : '-'}
+                        </td>
+                        <td className="py-4">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                            Belum Bayar
+                          </span>
+                        </td>
+                        <td className="py-4 pr-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const vMatch = (data?.vendors || []).find((v: any) => v.ownerEmail === u.email || v.name === u.studioName);
+                              if (vMatch) {
+                                setTargetVendor(vMatch);
+                                setSelectedPlan(vMatch.planTier || 'pro');
+                                setIsActivateModalOpen(true);
+                              } else {
+                                alert('Data studio tidak ditemukan.');
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-[#FFD21F] text-[#0B0B0D] font-bold text-xs hover:brightness-105 active:scale-95 transition-all shadow-sm"
+                          >
+                            Aktifkan Lisensi
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: KELOLA SEMUA STUDIO & LISENSI */}
+        {mainTab === 'studios' && (
+          <div className="bg-[#14161B] border border-white/10 rounded-3xl p-6 flex flex-col gap-5">
           {/* Baris Atas: Judul & Tambah Pelanggan */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -958,6 +1372,8 @@ export default function SuperAdminPortalPage() {
             </table>
           </div>
         </div>
+
+        )}
       </main>
 
       {/* MODAL 1: AKTIVASI LISENSI */}
