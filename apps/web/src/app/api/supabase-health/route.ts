@@ -18,10 +18,21 @@ export async function GET(req: NextRequest) {
       }, { status: 400 });
     }
 
+    let keyRef = 'unknown';
+    try {
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+      const payloadPart = key.split('.')[1];
+      if (payloadPart) {
+        const parsed = JSON.parse(Buffer.from(payloadPart, 'base64').toString());
+        keyRef = parsed.ref;
+      }
+    } catch {}
+
     return NextResponse.json({
       connected: true,
       status: 'ONLINE',
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      keyRef,
       organizationsCount: orgs?.length ?? 0,
       timestamp: new Date().toISOString(),
     });
