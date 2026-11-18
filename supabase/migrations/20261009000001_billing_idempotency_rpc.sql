@@ -20,6 +20,9 @@
 --    and authenticated vendor tokens.
 -- 6. Safe Re-execution: Idempotent DDL (CREATE OR REPLACE, GRANT/REVOKE) safe to run
 --    multiple times without data loss.
+-- 7. FOUND-based Record Presence: In PL/pgSQL, composite RECORD IS NOT NULL yields
+--    FALSE if any column is NULL (e.g. paid_at IS NULL on pending payments).
+--    Record presence is tracked authoritatively using FOUND immediately after SELECT INTO.
 -- ==============================================================================
 
 CREATE OR REPLACE FUNCTION public.process_payment_entitlement(
@@ -38,7 +41,9 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_existing_pay RECORD;
+    v_pay_found BOOLEAN := FALSE;
     v_org RECORD;
+    v_org_found BOOLEAN := FALSE;
     v_target_org_id UUID;
     v_final_plan TEXT;
     v_max_devices INTEGER;
@@ -72,8 +77,10 @@ BEGIN
     WHERE order_id = p_order_id
     FOR UPDATE;
 
+    v_pay_found := FOUND;
+
     -- 2. Idempotency Check: If already PAID, handle duplicate delivery safely
-    IF v_existing_pay IS NOT NULL AND v_existing_pay.payment_status = 'PAID' THEN
+    IF v_pay_found AND v_existing_pay.payment_status = 'PAID' THEN
         -- Cross-tenant validation on duplicate deliveries:
         IF p_org_id IS NOT NULL AND v_existing_pay.organization_id IS NOT NULL AND p_org_id <> v_existing_pay.organization_id THEN
             RAISE EXCEPTION 'ORGANIZATION_MISMATCH: Order % is bound to % but requested %',
@@ -84,6 +91,8 @@ BEGIN
         FROM public.organizations
         WHERE id = v_existing_pay.organization_id
         FOR UPDATE;
+
+        v_org_found := FOUND;
 
         -- Authoritative plan is derived ONLY from the trusted payment record, NEVER untrusted incoming data
         v_final_plan := COALESCE(v_existing_pay.plan_tier, v_org.plan_tier, 'pro');
@@ -99,7 +108,7 @@ BEGIN
         -- Self-healing check: Only recover if organization was left in 'pending_payment' or missing expiry
         -- (i.e. payment was recorded as PAID but initial entitlement activation never completed).
         -- Must NOT override valid existing expiration timestamp or grant fresh time on expired subscriptions!
-        IF v_org IS NOT NULL AND (v_org.subscription_status = 'pending_payment' OR v_org.subscription_expires_at IS NULL) THEN
+        IF v_org_found AND (v_org.subscription_status = 'pending_payment' OR v_org.subscription_expires_at IS NULL) THEN
             v_new_expiry := NOW() + (p_duration_days || ' days')::INTERVAL;
 
             UPDATE public.organizations
@@ -153,7 +162,7 @@ BEGIN
     END IF;
 
     -- 4. Authoritative Order Validation against Pre-registered Order (if existing order found)
-    IF v_existing_pay IS NOT NULL THEN
+    IF v_pay_found THEN
         -- a. Validate Organization Binding
         IF v_existing_pay.organization_id IS NOT NULL THEN
             v_target_org_id := v_existing_pay.organization_id;
@@ -219,7 +228,7 @@ BEGIN
     WHERE id = v_target_org_id
     FOR UPDATE;
 
-    IF v_org IS NULL THEN
+    IF NOT FOUND THEN
         RAISE EXCEPTION 'ORGANIZATION_NOT_FOUND: Organization % does not exist', v_target_org_id;
     END IF;
 
@@ -255,7 +264,7 @@ BEGIN
     WHERE id = v_target_org_id;
 
     -- 9. Insert or Transition Payment Record to PAID
-    IF v_existing_pay IS NOT NULL THEN
+    IF v_pay_found THEN
         UPDATE public.payments
         SET payment_status = 'PAID',
             paid_at = NOW(),

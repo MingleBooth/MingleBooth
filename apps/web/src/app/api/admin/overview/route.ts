@@ -175,63 +175,82 @@ export async function GET(req: NextRequest) {
 
     const superAdmins = (users || []).filter((u: any) => u.role === 'SUPER_ADMIN');
 
-    return NextResponse.json({
-      success: true,
-      metrics: {
-        totalRevenueIdr,
-        testingRevenueIdr,
-        totalRegisteredAccounts,
-        totalLoggedInDevices,
-        totalPaidCustomers,
-        totalUnpaidCustomers,
-        totalActiveVendors: (cleanOrgs || []).filter(
-          (o: any) => o.subscription_status === 'active' || o.subscription_status === 'dev_mode'
-        ).length,
-        totalActiveDevices: cleanDevices.filter((d: any) => d.is_active).length,
-        totalEvents: (cleanOrgs || []).reduce((sum: number, o: any) => sum + (o.events?.length || 0), 0),
-        totalUsersCount: totalRegisteredAccounts,
+    return NextResponse.json(
+      {
+        success: true,
+        metrics: {
+          totalRevenueIdr,
+          testingRevenueIdr,
+          totalRegisteredAccounts,
+          totalLoggedInDevices,
+          totalPaidCustomers,
+          totalUnpaidCustomers,
+          totalActiveVendors: (cleanOrgs || []).filter(
+            (o: any) => o.subscription_status === 'active' || o.subscription_status === 'dev_mode'
+          ).length,
+          totalActiveDevices: cleanDevices.filter((d: any) => d.is_active).length,
+          totalEvents: (cleanOrgs || []).reduce((sum: number, o: any) => sum + (o.events?.length || 0), 0),
+          totalUsersCount: totalRegisteredAccounts,
+        },
+        paidCustomersList,
+        unpaidCustomersList,
+        customerDevicesList,
+        superAdmins,
+        users: cleanUsers,
+        vendors: (cleanOrgs || []).map((o: any) => {
+          const orgUsers = (cleanUsers || []).filter((u: any) => u.organization_id === o.id);
+          const owner = orgUsers.find((u: any) => u.role === 'VENDOR_OWNER') || orgUsers[0];
+          return {
+            id: o.id,
+            name: o.name,
+            slug: o.slug,
+            ownerEmail: owner?.email || null,
+            ownerName: owner?.full_name || null,
+            accounts: orgUsers.map((u: any) => ({
+              id: u.id,
+              email: u.email,
+              name: u.full_name || 'Staff',
+              role: u.role || 'VENDOR_STAFF',
+              createdAt: u.created_at,
+            })),
+            devices: (o.devices || []).map((d: any) => ({
+              id: d.id,
+              name: d.device_name || d.deviceName || 'Laptop Operator',
+              isActive: d.is_active,
+              lastSeenAt: d.last_seen_at || d.updated_at,
+              fingerprint: d.hardware_fingerprint ? d.hardware_fingerprint.substring(0, 12) + '...' : null,
+            })),
+            planTier: o.plan_tier,
+            subscriptionStatus: o.subscription_status,
+            subscriptionExpiresAt: o.subscription_expires_at,
+            maxDevicesQuota: o.max_devices_quota,
+            activeDevicesCount: o.devices?.filter((d: any) => d.is_active)?.length || 0,
+            totalEventsCount: o.events?.length || 0,
+            createdAt: o.created_at,
+          };
+        }),
+        recentTransactions: (payments && payments.length > 0) ? payments : []
       },
-      paidCustomersList,
-      unpaidCustomersList,
-      customerDevicesList,
-      superAdmins,
-      users: cleanUsers,
-      vendors: (cleanOrgs || []).map((o: any) => {
-        const orgUsers = (cleanUsers || []).filter((u: any) => u.organization_id === o.id);
-        const owner = orgUsers.find((u: any) => u.role === 'VENDOR_OWNER') || orgUsers[0];
-        return {
-          id: o.id,
-          name: o.name,
-          slug: o.slug,
-          ownerEmail: owner?.email || null,
-          ownerName: owner?.full_name || null,
-          accounts: orgUsers.map((u: any) => ({
-            id: u.id,
-            email: u.email,
-            name: u.full_name || 'Staff',
-            role: u.role || 'VENDOR_STAFF',
-            createdAt: u.created_at,
-          })),
-          devices: (o.devices || []).map((d: any) => ({
-            id: d.id,
-            name: d.device_name || d.deviceName || 'Laptop Operator',
-            isActive: d.is_active,
-            lastSeenAt: d.last_seen_at || d.updated_at,
-            fingerprint: d.hardware_fingerprint ? d.hardware_fingerprint.substring(0, 12) + '...' : null,
-          })),
-          planTier: o.plan_tier,
-          subscriptionStatus: o.subscription_status,
-          subscriptionExpiresAt: o.subscription_expires_at,
-          maxDevicesQuota: o.max_devices_quota,
-          activeDevicesCount: o.devices?.filter((d: any) => d.is_active)?.length || 0,
-          totalEventsCount: o.events?.length || 0,
-          createdAt: o.created_at,
-        };
-      }),
-      recentTransactions: (payments && payments.length > 0) ? payments : []
-    });
+      {
+        status: 200,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          Pragma: 'no-cache',
+          Expires: '0',
+          'Surrogate-Control': 'no-store',
+        },
+      }
+    );
   } catch (err: any) {
     console.error('[Admin Overview Error]:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message },
+      {
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        },
+      }
+    );
   }
 }
