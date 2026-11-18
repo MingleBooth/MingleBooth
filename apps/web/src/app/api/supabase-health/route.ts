@@ -19,8 +19,10 @@ export async function GET(req: NextRequest) {
     }
 
     let keyRef = 'unknown';
+    let keyHash = 'none';
     try {
       const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+      keyHash = `${key.slice(0, 10)}...${key.slice(-10)} (len=${key.length})`;
       const payloadPart = key.split('.')[1];
       if (payloadPart) {
         const parsed = JSON.parse(Buffer.from(payloadPart, 'base64').toString());
@@ -33,6 +35,7 @@ export async function GET(req: NextRequest) {
       status: 'ONLINE',
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
       keyRef,
+      keyHash,
       organizationsCount: orgs?.length ?? 0,
       timestamp: new Date().toISOString(),
     });
