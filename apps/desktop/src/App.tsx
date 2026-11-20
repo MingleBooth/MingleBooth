@@ -48,6 +48,7 @@ import {
 } from 'lucide-react';
 import { FrameHoleDetector, DetectedCutout } from '@minglebooth/template-engine';
 import { GifComposer } from '@minglebooth/gif-engine';
+import { uploadSessionWithFallback } from '@minglebooth/sync-engine';
 import {
   saveOfflineCapture,
   getOfflineCaptures,
@@ -1330,93 +1331,38 @@ const TabletStudioContent: React.FC<TabletStudioContentProps> = ({
       console.log(`[Cloud Sync] SYNC_START: Uploading session ${photoId}...`);
       await updateOfflineCaptureSyncStatus(photoId, 'uploading');
 
-      // Step 1: Upload main composite photo (< 1.2MB, creates Supabase photos record & storage file)
-      const photoRes = await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
+      // Generate optimized thumbnail (< 150KB) for fast gallery loading
+      let thumbnailDataUrl: string | null = null;
+      try {
+        thumbnailDataUrl = await compressDataUrl(compositeDataUrl, 600, 0.82);
+      } catch (thumbErr) {
+        console.warn('[Cloud Sync] Thumbnail generation notice:', thumbErr);
+      }
+
+      // Execute Direct Upload (R2 3-step pipeline with graceful fallback to legacy Supabase)
+      const syncResult = await uploadSessionWithFallback({
+        backendUrl: API_BASE_URL,
+        authToken: token,
+        payload: {
           photoId,
           eventId,
-          fileDataUrl: compositeDataUrl,
-          type: 'photo',
-        }),
+          compositeDataUrl,
+          thumbnailDataUrl,
+          gifDataUrl,
+          rawShots: rawPhotos,
+        },
+        onProgress: (assetType, idx, percent) => {
+          console.log(`[Cloud Sync Progress] ${photoId} ${assetType}${idx ? ' #' + idx : ''}: ${percent}%`);
+        },
       });
 
-      if (!photoRes.ok) {
-        const errJson = await photoRes.json().catch(() => ({}));
-        const errMessage = errJson?.error || photoRes.statusText || 'Photo upload failed';
-        console.warn(`[Cloud Sync Warning]: Composite upload failed for ${photoId}:`, errMessage);
-        await updateOfflineCaptureSyncStatus(photoId, 'failed', errMessage);
-        return false;
+      if (!syncResult.success) {
+        throw new Error(syncResult.error || 'Upload failed');
       }
 
-      console.log('[Cloud Sync] Composite photo synced for', photoId);
-
-      // Step 2: Upload GIF Boomerang if available (< 1.5MB)
-      if (gifDataUrl) {
-        try {
-          const uploadGifOnce = async () => {
-            return await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                photoId,
-                eventId,
-                fileDataUrl: gifDataUrl,
-                type: 'gif',
-              }),
-            });
-          };
-
-          let gifRes = await uploadGifOnce();
-          if (!gifRes.ok) {
-            console.warn('[Cloud Sync Warning]: GIF sync attempt 1 failed, retrying in 1s...', gifRes.status);
-            await new Promise((r) => setTimeout(r, 1000));
-            gifRes = await uploadGifOnce();
-          }
-
-          if (gifRes.ok) {
-            console.log('[Cloud Sync] GIF boomerang synced for', photoId);
-          } else {
-            console.warn('[Cloud Sync Warning]: GIF sync failed with status:', gifRes.status);
-          }
-        } catch (gifErr) {
-          console.warn('[Cloud Sync Warning]: GIF sync error:', gifErr);
-        }
-      }
-
-      // Step 3: Upload raw camera shots sequentially (each pose individually < 1.5MB)
-      if (Array.isArray(rawPhotos) && rawPhotos.length > 0) {
-        for (let i = 0; i < rawPhotos.length; i++) {
-          const rawShot = rawPhotos[i];
-          if (!rawShot) continue;
-          try {
-            const compressedRaw = await compressDataUrl(rawShot, 2048, 0.88);
-            const rawRes = await fetch(`${API_BASE_URL}/api/sync/upload-capture`, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                photoId,
-                eventId,
-                fileDataUrl: compressedRaw,
-                type: 'raw',
-                rawIndex: i + 1,
-              }),
-            });
-            if (rawRes.ok) {
-              console.log(`[Cloud Sync] Raw shot ${i + 1} synced for ${photoId}`);
-            } else {
-              console.warn(`[Cloud Sync Warning]: Raw shot ${i + 1} sync status: ${rawRes.status}`);
-            }
-          } catch (rErr) {
-            console.warn(`[Cloud Sync Notice]: Raw shot ${i + 1} upload notice:`, rErr);
-          }
-        }
-      }
-
-      // Mark session as successfully synced in local IndexedDB
+      // Mark session as successfully synced in local IndexedDB only AFTER confirmation
       await updateOfflineCaptureSyncStatus(photoId, 'synced');
-      console.log(`[Cloud Sync] SYNC_SUCCESS: Session ${photoId} fully synced to cloud.`);
+      console.log(`[Cloud Sync] SYNC_SUCCESS: Session ${photoId} fully synced to cloud via ${syncResult.provider}.`);
       return true;
     } catch (err: any) {
       const errMsg = err?.message || 'Network error';

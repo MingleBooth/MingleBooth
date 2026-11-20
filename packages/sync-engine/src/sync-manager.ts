@@ -3,11 +3,29 @@ import {
   SyncQueueStats,
   UniversalEventEmitter,
 } from '@minglebooth/shared';
+import { uploadSingleAssetDirectToR2, AssetType } from './r2-uploader';
 
 export type UploadHandler = (
   item: SyncQueueItem,
   onProgress: (percent: number) => void
 ) => Promise<{ cloudUrl: string }>;
+
+/**
+ * Creates an R2 Direct Upload handler for SyncManager queue items.
+ */
+export function createR2SyncUploadHandler(backendUrl: string, authToken: string): UploadHandler {
+  return async (item: SyncQueueItem, onProgress: (percent: number) => void) => {
+    const assetType: AssetType = item.type === 'gif' ? 'gif' : 'photo';
+    const result = await uploadSingleAssetDirectToR2(backendUrl, authToken, {
+      eventId: item.eventId,
+      sessionPhotoId: item.entityId,
+      assetType,
+      data: item.filePath,
+      onProgress,
+    });
+    return { cloudUrl: result.cloudUrl || result.objectKey };
+  };
+}
 
 export class SyncManager extends UniversalEventEmitter {
   private queue: Map<string, SyncQueueItem> = new Map();

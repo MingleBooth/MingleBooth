@@ -5,6 +5,7 @@ import path from 'path';
 const archiver = require('archiver');
 import { PassThrough, Readable } from 'stream';
 import { getServiceSupabase } from '@/lib/supabase';
+import { getR2Storage } from '@/lib/storage/storage-provider';
 
 export const dynamic = 'force-dynamic';
 
@@ -182,8 +183,8 @@ Layanan Photobooth Profesional: https://minglebooth.id
           archive.file(item.sourcePath, { name: item.archivePath });
         }
 
-        // If filesToArchive is empty (e.g. on Vercel), download directly from Supabase Storage
-        if (filesToArchive.length === 0 && client && matchedEventId) {
+        // If filesToArchive is empty (e.g. on Vercel) or partial, download cloud assets from Supabase Storage / R2
+        if (client && matchedEventId) {
           const isUuid = (str: string) =>
             /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
@@ -192,19 +193,41 @@ Layanan Photobooth Profesional: https://minglebooth.id
             if (requestedType === 'all' || requestedType === 'framed') {
               const { data: dbPhotos } = await client
                 .from('photos')
-                .select('cloud_storage_path')
-                .eq('event_id', matchedEventId);
+                .select('cloud_storage_path, storage_provider, upload_status, is_cloud_deleted')
+                .eq('event_id', matchedEventId)
+                .eq('is_cloud_deleted', false);
 
               if (dbPhotos) {
                 for (const p of dbPhotos) {
                   if (!p.cloud_storage_path) continue;
-                  const { data: blob } = await client.storage
-                    .from('minglebooth-storage')
-                    .download(p.cloud_storage_path);
-                  if (blob) {
-                    const buf = Buffer.from(await blob.arrayBuffer());
-                    const fName = path.basename(p.cloud_storage_path);
-                    archive.append(buf, { name: `Foto_Berbingkai/${fName}` });
+                  const isReady = !p.upload_status || p.upload_status === 'READY' || p.upload_status === 'UPLOADED';
+                  if (!isReady) continue;
+
+                  const fName = path.basename(p.cloud_storage_path);
+                  const archivePath = `Foto_Berbingkai/${fName}`;
+                  if (addedArchivePaths.has(archivePath)) continue;
+
+                  const provider = p.storage_provider || 'supabase';
+                  if (provider === 'r2') {
+                    try {
+                      const r2 = getR2Storage();
+                      const r2Obj = await r2.getObject(p.cloud_storage_path, true);
+                      if (r2Obj.buffer) {
+                        archive.append(r2Obj.buffer, { name: archivePath });
+                        addedArchivePaths.add(archivePath);
+                      }
+                    } catch (r2Err: any) {
+                      console.warn(`[ZIP R2 Photo Warn] ${p.cloud_storage_path}:`, r2Err?.message);
+                    }
+                  } else {
+                    const { data: blob } = await client.storage
+                      .from('minglebooth-storage')
+                      .download(p.cloud_storage_path);
+                    if (blob) {
+                      const buf = Buffer.from(await blob.arrayBuffer());
+                      archive.append(buf, { name: archivePath });
+                      addedArchivePaths.add(archivePath);
+                    }
                   }
                 }
               }
@@ -214,19 +237,38 @@ Layanan Photobooth Profesional: https://minglebooth.id
             if (requestedType === 'all' || requestedType === 'gif') {
               const { data: dbGifs } = await client
                 .from('gifs')
-                .select('cloud_storage_path')
-                .eq('event_id', matchedEventId);
+                .select('cloud_storage_path, storage_provider, is_cloud_deleted')
+                .eq('event_id', matchedEventId)
+                .eq('is_cloud_deleted', false);
 
               if (dbGifs) {
                 for (const g of dbGifs) {
                   if (!g.cloud_storage_path) continue;
-                  const { data: blob } = await client.storage
-                    .from('minglebooth-storage')
-                    .download(g.cloud_storage_path);
-                  if (blob) {
-                    const buf = Buffer.from(await blob.arrayBuffer());
-                    const fName = path.basename(g.cloud_storage_path);
-                    archive.append(buf, { name: `Animasi_GIF/${fName}` });
+                  const fName = path.basename(g.cloud_storage_path);
+                  const archivePath = `Animasi_GIF/${fName}`;
+                  if (addedArchivePaths.has(archivePath)) continue;
+
+                  const provider = g.storage_provider || 'supabase';
+                  if (provider === 'r2') {
+                    try {
+                      const r2 = getR2Storage();
+                      const r2Obj = await r2.getObject(g.cloud_storage_path, true);
+                      if (r2Obj.buffer) {
+                        archive.append(r2Obj.buffer, { name: archivePath });
+                        addedArchivePaths.add(archivePath);
+                      }
+                    } catch (r2Err: any) {
+                      console.warn(`[ZIP R2 GIF Warn] ${g.cloud_storage_path}:`, r2Err?.message);
+                    }
+                  } else {
+                    const { data: blob } = await client.storage
+                      .from('minglebooth-storage')
+                      .download(g.cloud_storage_path);
+                    if (blob) {
+                      const buf = Buffer.from(await blob.arrayBuffer());
+                      archive.append(buf, { name: archivePath });
+                      addedArchivePaths.add(archivePath);
+                    }
                   }
                 }
               }
@@ -234,20 +276,73 @@ Layanan Photobooth Profesional: https://minglebooth.id
 
             // 3. Raw shots
             if (requestedType === 'all' || requestedType === 'raw') {
-              const { data: rawList } = await client.storage
-                .from('minglebooth-storage')
-                .list(`events/${matchedEventId}/raw`);
+              // First, check raw_files array from photos
+              const { data: dbPhotosWithRaw } = await client
+                .from('photos')
+                .select('raw_files, is_cloud_deleted')
+                .eq('event_id', matchedEventId)
+                .eq('is_cloud_deleted', false);
 
-              if (rawList && rawList.length > 0) {
-                for (const rf of rawList) {
-                  const { data: blob } = await client.storage
-                    .from('minglebooth-storage')
-                    .download(`events/${matchedEventId}/raw/${rf.name}`);
-                  if (blob) {
-                    const buf = Buffer.from(await blob.arrayBuffer());
-                    archive.append(buf, { name: `Foto_Mentahan/${rf.name}` });
+              if (dbPhotosWithRaw) {
+                for (const p of dbPhotosWithRaw) {
+                  if (p.raw_files && Array.isArray(p.raw_files)) {
+                    for (const rf of p.raw_files) {
+                      if (!rf.storage_path) continue;
+                      const fName = path.basename(rf.storage_path);
+                      const archivePath = `Foto_Mentahan/${fName}`;
+                      if (addedArchivePaths.has(archivePath)) continue;
+
+                      const rfProvider = rf.storage_provider || 'supabase';
+                      if (rfProvider === 'r2') {
+                        try {
+                          const r2 = getR2Storage();
+                          const r2Obj = await r2.getObject(rf.storage_path, true);
+                          if (r2Obj.buffer) {
+                            archive.append(r2Obj.buffer, { name: archivePath });
+                            addedArchivePaths.add(archivePath);
+                          }
+                        } catch (r2Err: any) {
+                          console.warn(`[ZIP R2 RAW Warn] ${rf.storage_path}:`, r2Err?.message);
+                        }
+                      } else {
+                        const { data: blob } = await client.storage
+                          .from('minglebooth-storage')
+                          .download(rf.storage_path);
+                        if (blob) {
+                          const buf = Buffer.from(await blob.arrayBuffer());
+                          archive.append(buf, { name: archivePath });
+                          addedArchivePaths.add(archivePath);
+                        }
+                      }
+                    }
                   }
                 }
+              }
+
+              // Also scan legacy raw folder in Supabase Storage if any
+              try {
+                const { data: rawList } = await client.storage
+                  .from('minglebooth-storage')
+                  .list(`events/${matchedEventId}/raw`);
+
+                if (rawList && rawList.length > 0) {
+                  for (const rf of rawList) {
+                    const rawPath = `events/${matchedEventId}/raw/${rf.name}`;
+                    const archivePath = `Foto_Mentahan/${rf.name}`;
+                    if (addedArchivePaths.has(archivePath)) continue;
+
+                    const { data: blob } = await client.storage
+                      .from('minglebooth-storage')
+                      .download(rawPath);
+                    if (blob) {
+                      const buf = Buffer.from(await blob.arrayBuffer());
+                      archive.append(buf, { name: archivePath });
+                      addedArchivePaths.add(archivePath);
+                    }
+                  }
+                }
+              } catch {
+                // Ignore raw legacy scan failure
               }
             }
           }

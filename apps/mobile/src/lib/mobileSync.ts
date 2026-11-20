@@ -4,7 +4,7 @@ import {
   getMobileCaptureById,
   MobileSyncStatus,
 } from './mobileStorage';
-import { safeApiFetch } from './networkGuard';
+import { uploadSessionWithFallback } from '@minglebooth/sync-engine';
 
 export interface MobileSyncResult {
   totalPending: number;
@@ -74,75 +74,29 @@ export async function syncPendingCaptures(
       try {
         await updateMobileCaptureSyncStatus(item.photoId, 'uploading');
 
-        // Step 1: Upload main composite photo
-        const photoPayload = {
-          photoId: item.photoId,
-          eventId: item.eventId,
-          fileDataUrl: item.photoDataUrl,
-          type: 'photo' as const,
-        };
-
-        const res = await safeApiFetch(`${baseUrl}/api/sync/upload-capture`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(photoPayload),
+        // Execute Direct Upload (R2 binary streaming with automatic fallback to legacy Supabase)
+        const uploadRes = await uploadSessionWithFallback({
+          backendUrl: baseUrl,
+          authToken,
+          payload: {
+            photoId: item.photoId,
+            eventId: item.eventId,
+            compositeDataUrl: item.photoDataUrl,
+            gifDataUrl: item.gifDataUrl,
+            rawShots: item.rawShots,
+          },
+          onProgress: (assetType: string, idx: number, percent: number) => {
+            console.log(`[MobileSync] ${item.photoId} ${assetType}${idx ? ' #' + idx : ''}: ${percent}%`);
+          },
         });
 
-        if (!res.ok) {
-          const errorBody = await res.json().catch(() => ({ message: res.statusText }));
-          throw new Error(errorBody.message || errorBody.error || `HTTP ${res.status}`);
+        if (!uploadRes.success) {
+          throw new Error(uploadRes.error || 'Mobile upload failed');
         }
 
-        // Step 2: Upload Boomerang GIF jika tersedia
-        if (item.gifDataUrl) {
-          try {
-            const gifPayload = {
-              photoId: item.photoId,
-              eventId: item.eventId,
-              fileDataUrl: item.gifDataUrl,
-              type: 'gif' as const,
-            };
-            const gifRes = await safeApiFetch(`${baseUrl}/api/sync/upload-capture`, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify(gifPayload),
-            });
-            if (!gifRes.ok) {
-              console.warn(`[MobileSync] Warning upload GIF photoId=${item.photoId}: HTTP ${gifRes.status}`);
-            }
-          } catch (gifErr) {
-            console.warn(`[MobileSync] GIF upload notice for photoId=${item.photoId}:`, gifErr);
-          }
-        }
-
-        // Step 3: Upload all original raw shots for desktop parity
-        if (item.rawShots && item.rawShots.length > 0) {
-          for (let i = 0; i < item.rawShots.length; i++) {
-            const shot = item.rawShots[i];
-            if (!shot || !shot.dataUrl) continue;
-            try {
-              const rawPayload = {
-                photoId: item.photoId,
-                eventId: item.eventId,
-                fileDataUrl: shot.dataUrl,
-                type: 'raw' as const,
-                rawIndex: shot.index !== undefined ? shot.index + 1 : i + 1,
-              };
-              const rawRes = await safeApiFetch(`${baseUrl}/api/sync/upload-capture`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(rawPayload),
-              });
-              if (!rawRes.ok) {
-                console.warn(`[MobileSync] Warning upload raw shot ${i + 1} photoId=${item.photoId}: HTTP ${rawRes.status}`);
-              }
-            } catch (rawErr) {
-              console.warn(`[MobileSync] Raw shot ${i + 1} notice for photoId=${item.photoId}:`, rawErr);
-            }
-          }
-        }
-
+        // Only transition local status to 'synced' AFTER backend confirmation succeeds
         await updateMobileCaptureSyncStatus(item.photoId, 'synced');
+        console.log(`[MobileSync] PhotoId=${item.photoId} successfully synced via ${uploadRes.provider}.`);
         result.syncedCount++;
       } catch (err: any) {
         console.warn(`[MobileSync] Gagal upload photoId=${item.photoId}:`, err);

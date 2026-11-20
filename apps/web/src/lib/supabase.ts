@@ -9,12 +9,22 @@ export const supabase = createClient(
   supabaseAnonKey || 'placeholder-anon-key'
 );
 
+let serviceSupabaseOverride: any = null;
+
+export function setServiceSupabaseOverride(client: any) {
+  serviceSupabaseOverride = client;
+}
+
 /**
  * Server-only service-role client.
  * Fail-closed: Requires explicit NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
  * Never falls back silently to hardcoded production credentials.
  */
 export function getServiceSupabase() {
+  if (serviceSupabaseOverride) {
+    return serviceSupabaseOverride;
+  }
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 

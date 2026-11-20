@@ -168,47 +168,73 @@ export async function GET(
       try {
         const { data: dbPhotos, error: photoErr } = await client
           .from('photos')
-          .select('id, cloud_storage_path, captured_at, qr_url')
+          .select('id, session_photo_id, cloud_storage_path, thumbnail_storage_path, storage_provider, raw_files, captured_at, qr_url, upload_status, is_cloud_deleted')
           .eq('event_id', matchedEventId)
+          .eq('is_cloud_deleted', false)
           .order('captured_at', { ascending: false });
 
         if (photoErr) {
           console.warn('Supabase fetch photos notice:', photoErr.message);
         } else if (dbPhotos) {
           for (const p of dbPhotos) {
+            // Only show photos that are ready
+            const isReady = !p.upload_status || p.upload_status === 'READY' || p.upload_status === 'UPLOADED';
+            if (!isReady) continue;
+
             const pathParts = (p.cloud_storage_path || '').split('/');
             const fileName = pathParts[pathParts.length - 1] || p.id;
-            const pid = fileName.replace(/\.[^/.]+$/, '') || p.id;
+            const pid = p.session_photo_id || fileName.replace(/\.[^/.]+$/, '') || p.id;
 
-            let fileUrl = `/api/gallery/${pid}?type=photo`;
-            if (p.cloud_storage_path) {
+            const provider = p.storage_provider || 'supabase';
+            let fullUrl = `/api/gallery/${pid}?type=photo&eventId=${encodeURIComponent(matchedEventId)}`;
+            let thumbUrl = `/api/gallery/${pid}?type=thumbnail&eventId=${encodeURIComponent(matchedEventId)}`;
+
+            if (provider === 'supabase' && p.cloud_storage_path) {
               const { data: pubData } = client.storage
                 .from('minglebooth-storage')
                 .getPublicUrl(p.cloud_storage_path);
               if (pubData?.publicUrl) {
-                fileUrl = pubData.publicUrl;
+                fullUrl = pubData.publicUrl;
+                thumbUrl = pubData.publicUrl;
               }
+            }
+
+            // Extract raw shots if available
+            let rawShots: Array<{ index: number; url: string }> = [];
+            if (p.raw_files && Array.isArray(p.raw_files) && p.raw_files.length > 0) {
+              rawShots = p.raw_files.map((rf: any) => ({
+                index: rf.index,
+                url: `/api/gallery/${pid}?type=raw&index=${rf.index}&eventId=${encodeURIComponent(matchedEventId)}`,
+              })).sort((a: any, b: any) => a.index - b.index);
             }
 
             if (!photoMap.has(pid)) {
               photoMap.set(pid, {
                 photoId: pid,
-                thumbUrl: fileUrl,
-                fullUrl: fileUrl,
+                thumbUrl,
+                fullUrl,
                 gifUrl: null,
                 hasGif: false,
-                rawShots: [],
+                rawShots,
                 url: `/p/${pid}`,
                 createdAt: p.captured_at || new Date().toISOString(),
               });
+            } else {
+              const existing = photoMap.get(pid)!;
+              existing.thumbUrl = thumbUrl;
+              existing.fullUrl = fullUrl;
+              if (rawShots.length > 0 && existing.rawShots.length === 0) {
+                existing.rawShots = rawShots;
+              }
             }
           }
         }
 
         const { data: dbGifs, error: gifErr } = await client
           .from('gifs')
-          .select('id, cloud_storage_path, captured_at')
+          .select('id, session_photo_id, cloud_storage_path, storage_provider, captured_at, is_cloud_deleted')
           .eq('event_id', matchedEventId)
+          .eq('is_cloud_deleted', false)
           .order('captured_at', { ascending: false });
 
         if (gifErr) {
@@ -217,10 +243,12 @@ export async function GET(
           for (const g of dbGifs) {
             const pathParts = (g.cloud_storage_path || '').split('/');
             const fileName = pathParts[pathParts.length - 1] || g.id;
-            const pid = fileName.replace(/\.[^/.]+$/, '') || g.id;
+            const pid = g.session_photo_id || fileName.replace(/\.[^/.]+$/, '') || g.id;
 
-            let gifUrl = `/api/gallery/${pid}?type=gif`;
-            if (g.cloud_storage_path) {
+            const provider = g.storage_provider || 'supabase';
+            let gifUrl = `/api/gallery/${pid}?type=gif&eventId=${encodeURIComponent(matchedEventId)}`;
+
+            if (provider === 'supabase' && g.cloud_storage_path) {
               const { data: pubData } = client.storage
                 .from('minglebooth-storage')
                 .getPublicUrl(g.cloud_storage_path);

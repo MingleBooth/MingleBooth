@@ -305,3 +305,4 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.process_payment_entitlement(TEXT, UUID, TEXT, BIGINT, INTEGER, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.process_payment_entitlement(TEXT, UUID, TEXT, BIGINT, INTEGER, TEXT, TEXT) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.process_payment_entitlement(TEXT, UUID, TEXT, BIGINT, INTEGER, TEXT, TEXT) TO service_role;
+
