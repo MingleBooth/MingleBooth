@@ -201,12 +201,12 @@ export default function TabletStudioPage() {
                       <Laptop className="w-6 h-6" />
                     </div>
                     <span className="text-[10px] font-bold text-mb-muted uppercase tracking-wider bg-black/5 dark:bg-white/10 px-2.5 py-1 rounded-md border border-mb-line font-mono">
-                      131.72 MB · 64-bit
+                      EXE · Windows
                     </span>
                   </div>
                   <h2 className="text-base font-heading font-extrabold text-mb-ink mb-1.5">Windows (.exe)</h2>
                   <p className="text-xs text-mb-muted mb-6 leading-relaxed">
-                    Installer resmi untuk Windows 10 &amp; 11. Driver printer DNP, Citizen, HiTi, dan Sony Alpha Camera.
+                    Installer resmi dengan driver printer DNP, Citizen, HiTi, dan kamera Sony Alpha.
                   </p>
                 </div>
 
@@ -229,12 +229,12 @@ export default function TabletStudioPage() {
                       <Monitor className="w-6 h-6" />
                     </div>
                     <span className="text-[10px] font-bold text-mb-muted uppercase tracking-wider bg-black/5 dark:bg-white/10 px-2.5 py-1 rounded-md border border-mb-line font-mono">
-                      143.23 MB · Universal
+                      DMG · macOS
                     </span>
                   </div>
                   <h2 className="text-base font-heading font-extrabold text-mb-ink mb-1.5">macOS (.dmg)</h2>
                   <p className="text-xs text-mb-muted mb-6 leading-relaxed">
-                    Installer disk image untuk Mac. Kompatibel Apple Silicon (M1/M2/M3/M4) dan prosesor Intel.
+                    Installer disk image universal untuk Apple Silicon (M-series) dan prosesor Intel.
                   </p>
                 </div>
 
@@ -257,12 +257,12 @@ export default function TabletStudioPage() {
                       <Smartphone className="w-6 h-6" />
                     </div>
                     <span className="text-[10px] font-bold text-mb-muted uppercase tracking-wider bg-black/5 dark:bg-white/10 px-2.5 py-1 rounded-md border border-mb-line font-mono">
-                      6.61 MB · Tablet
+                      APK · Android
                     </span>
                   </div>
                   <h2 className="text-base font-heading font-extrabold text-mb-ink mb-1.5">Android (.apk)</h2>
                   <p className="text-xs text-mb-muted mb-6 leading-relaxed">
-                    Paket instalasi Android 8.0+. Siap untuk tablet layar sentuh kiosk dan Sony PC Remote PTP via OTG.
+                    Paket instalasi tablet layar sentuh kiosk dan Sony PC Remote PTP via OTG.
                   </p>
                 </div>
 

@@ -462,13 +462,13 @@ export default function DashboardPage() {
                     <Laptop className="w-5 h-5 text-mb-ink" />
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-black/5 dark:bg-white/10 text-mb-muted border border-mb-line font-mono">
-                    131.72 MB · 64-bit
+                    EXE · Windows
                   </span>
                 </div>
                 <div>
                   <h3 className="font-heading font-bold text-sm text-mb-ink">Windows (.exe)</h3>
                   <p className="text-xs text-mb-muted mt-1 leading-relaxed">
-                    Windows 10 &amp; 11. Driver kamera Sony mirrorless USB SDK &amp; printer thermal/dye-sub DNP.
+                    Driver kamera Sony mirrorless USB SDK &amp; printer thermal/dye-sub DNP.
                   </p>
                 </div>
               </div>
@@ -491,13 +491,13 @@ export default function DashboardPage() {
                     <Monitor className="w-5 h-5 text-mb-ink" />
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-black/5 dark:bg-white/10 text-mb-muted border border-mb-line font-mono">
-                    143.23 MB · Universal
+                    DMG · macOS
                   </span>
                 </div>
                 <div>
                   <h3 className="font-heading font-bold text-sm text-mb-ink">macOS (.dmg)</h3>
                   <p className="text-xs text-mb-muted mt-1 leading-relaxed">
-                    macOS 12+ (Monterey s/d Sequoia). Siap untuk Apple Silicon (M1/M2/M3/M4) &amp; Intel.
+                    Aplikasi photobooth universal untuk Apple Silicon (M1/M2/M3/M4) &amp; Intel.
                   </p>
                 </div>
               </div>
@@ -520,13 +520,13 @@ export default function DashboardPage() {
                     <Smartphone className="w-5 h-5 text-mb-ink" />
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-black/5 dark:bg-white/10 text-mb-muted border border-mb-line font-mono">
-                    6.61 MB · Tablet
+                    APK · Android
                   </span>
                 </div>
                 <div>
                   <h3 className="font-heading font-bold text-sm text-mb-ink">Android (.apk)</h3>
                   <p className="text-xs text-mb-muted mt-1 leading-relaxed">
-                    Android 8.0+. Mode Kiosk Tablet layar sentuh, remote operator nirkabel, &amp; USB OTG Sony.
+                    Mode Kiosk Tablet layar sentuh, remote operator nirkabel, &amp; USB OTG Sony.
                   </p>
                 </div>
               </div>

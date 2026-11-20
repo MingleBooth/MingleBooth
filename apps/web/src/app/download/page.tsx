@@ -6,8 +6,6 @@ import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import {
   Download,
-  Copy,
-  Check,
   Smartphone,
   Laptop,
   Monitor,
@@ -32,14 +30,7 @@ import {
 } from '@/lib/constants/downloads';
 
 export default function DownloadPage() {
-  const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'windows' | 'macos' | 'android'>('windows');
-
-  const handleCopyHash = (hash: string, id: string) => {
-    navigator.clipboard.writeText(hash);
-    setCopiedHash(id);
-    setTimeout(() => setCopiedHash(null), 2500);
-  };
 
   return (
     <div className="min-h-screen bg-mb-bg text-mb-ink flex flex-col font-sans antialiased selection:bg-[#FFD21F] selection:text-[#0B0B0D]">
@@ -91,7 +82,6 @@ export default function DownloadPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
               {DOWNLOAD_ASSETS_LIST.map((asset: DownloadAsset) => {
-                const isCopied = copiedHash === asset.id;
                 return (
                   <div
                     key={asset.id}
@@ -113,58 +103,13 @@ export default function DownloadPage() {
                       <h3 className="text-xl font-extrabold font-heading tracking-tight mb-2 text-mb-ink">
                         {asset.title}
                       </h3>
-                      <p className="text-mb-muted text-xs sm:text-sm leading-relaxed mb-4">
+                      <p className="text-mb-muted text-xs sm:text-sm leading-relaxed">
                         {asset.description}
                       </p>
-
-                      {/* Technical Specs Table */}
-                      <div className="space-y-2 py-3 border-y border-mb-line text-xs font-mono text-mb-muted">
-                        <div className="flex justify-between items-center gap-2">
-                          <span>File:</span>
-                          <span className="font-semibold text-mb-ink truncate max-w-[180px]" title={asset.filename}>
-                            {asset.filename}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center gap-2">
-                          <span>Ukuran:</span>
-                          <span className="font-semibold text-mb-ink">{asset.size}</span>
-                        </div>
-                        <div className="flex justify-between items-center gap-2">
-                          <span>Versi:</span>
-                          <span className="font-semibold text-mb-ink">{RELEASE_VERSION}</span>
-                        </div>
-                        <div className="flex justify-between items-center gap-2">
-                          <span>OS:</span>
-                          <span className="font-semibold text-mb-ink truncate max-w-[180px]" title={asset.targetOS}>
-                            {asset.targetOS}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Checksum SHA-256 Box */}
-                      <div className="mt-4 p-3 rounded-xl bg-mb-bg border border-mb-line flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <span className="block text-[10px] text-mb-muted uppercase font-bold tracking-wider">
-                            SHA-256 Checksum
-                          </span>
-                          <span className="font-mono text-[11px] text-mb-ink block truncate max-w-[190px]">
-                            {asset.sha256}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyHash(asset.sha256, asset.id)}
-                          className="p-1.5 rounded-lg border border-mb-line bg-mb-surface hover:bg-neutral-100 text-mb-ink transition-colors flex-shrink-0"
-                          title="Salin SHA-256"
-                          aria-label="Salin Checksum SHA-256"
-                        >
-                          {isCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                        </button>
-                      </div>
                     </div>
 
                     {/* Download CTA Button */}
-                    <div className="mt-6">
+                    <div className="mt-8">
                       <a
                         href={asset.downloadUrl}
                         target="_blank"
