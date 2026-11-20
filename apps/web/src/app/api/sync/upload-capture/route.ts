@@ -401,7 +401,7 @@ export async function POST(req: NextRequest) {
 
             // Self-healing: remove duplicate records if any exist
             if (existingGifs.length > 1) {
-              const duplicateIds = existingGifs.slice(1).map((g) => g.id);
+              const duplicateIds = existingGifs.slice(1).map((g: { id: string }) => g.id);
               await client.from('gifs').delete().in('id', duplicateIds);
               console.log(`[Cloud Sync] Pruned ${duplicateIds.length} duplicate GIF rows for ${photoId}`);
             }
@@ -446,7 +446,7 @@ export async function POST(req: NextRequest) {
 
             // Self-healing: remove duplicate records if any exist
             if (existingPhotos.length > 1) {
-              const duplicateIds = existingPhotos.slice(1).map((p) => p.id);
+              const duplicateIds = existingPhotos.slice(1).map((p: { id: string }) => p.id);
               await client.from('photos').delete().in('id', duplicateIds);
               console.log(`[Cloud Sync] Pruned ${duplicateIds.length} duplicate photo rows for ${photoId}`);
             }

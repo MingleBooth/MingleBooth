@@ -82,8 +82,12 @@ export async function GET(req: NextRequest) {
     });
 
     // 1. Total Akun Terdaftar: unique customer emails
-    const uniqueRegisteredEmails = Array.from(
-      new Set(cleanUsers.map((u: any) => (u.email || '').toLowerCase().trim()).filter(Boolean))
+    const uniqueRegisteredEmails: string[] = Array.from(
+      new Set(
+        cleanUsers
+          .map((u: any) => String(u.email || '').toLowerCase().trim())
+          .filter((email: string) => email.length > 0)
+      )
     );
     const totalRegisteredAccounts = uniqueRegisteredEmails.length;
 

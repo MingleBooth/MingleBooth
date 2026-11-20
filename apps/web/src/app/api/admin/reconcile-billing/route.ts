@@ -49,7 +49,19 @@ export async function GET(req: NextRequest) {
       .from('organizations')
       .select('id, name, slug, plan_tier, subscription_status, subscription_expires_at, max_devices_quota');
 
-    const orgMap = new Map((orgs || []).map((o) => [o.id, o]));
+    interface OrgRecord {
+      id: string;
+      name: string;
+      slug: string;
+      plan_tier: string;
+      subscription_status: string;
+      subscription_expires_at: string | null;
+      max_devices_quota: number | null;
+    }
+
+    const orgMap = new Map<string, OrgRecord>(
+      ((orgs as OrgRecord[] | null) || []).map((o: OrgRecord) => [o.id, o])
+    );
 
     // Discrepancy 1: Orphaned Payments (PAID status but organization subscription not active)
     const orphanedPayments: any[] = [];

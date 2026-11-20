@@ -311,7 +311,7 @@ export async function DELETE(req: NextRequest) {
         .list(`events/${eventId}/raw`);
 
       if (rawFiles && rawFiles.length > 0) {
-        const rawPaths = rawFiles.map((f) => `events/${eventId}/raw/${f.name}`);
+        const rawPaths = rawFiles.map((f: { name: string }) => `events/${eventId}/raw/${f.name}`);
         await client.storage.from('minglebooth-storage').remove(rawPaths);
       }
 
@@ -321,8 +321,8 @@ export async function DELETE(req: NextRequest) {
 
       if (mainFiles && mainFiles.length > 0) {
         const mainPaths = mainFiles
-          .filter((f) => f.name !== 'raw')
-          .map((f) => `events/${eventId}/${f.name}`);
+          .filter((f: { name: string }) => f.name !== 'raw')
+          .map((f: { name: string }) => `events/${eventId}/${f.name}`);
         if (mainPaths.length > 0) {
           await client.storage.from('minglebooth-storage').remove(mainPaths);
         }

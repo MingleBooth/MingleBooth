@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: orgErr.message }, { status: 500 });
     }
 
-    const formattedVendors = (orgs || []).map((o) => ({
+    const formattedVendors = (orgs || []).map((o: any) => ({
       id: o.id,
       name: o.name,
       slug: o.slug,
