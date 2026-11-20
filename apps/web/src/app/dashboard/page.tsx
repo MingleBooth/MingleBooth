@@ -33,10 +33,12 @@ import {
   Filter,
   ArrowRight,
   Monitor,
+  BookOpen,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { DOWNLOAD_ASSETS } from '@/lib/constants/downloads';
 
 /**
  * Format kuota perangkat secara dinamis sesuai ketentuan:
@@ -254,23 +256,9 @@ export default function DashboardPage() {
     !isSubscriptionActive && org?.subscription_status === 'expired'
   );
 
-  const winUrl =
-    process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
-    !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
-      ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-Setup-1.0.0-rc.4.exe';
-
-  const macUrl =
-    process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
-    !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
-      ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.dmg';
-
-  const apkUrl =
-    process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL &&
-    !process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL.includes('drive.google.com')
-      ? process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.apk';
+  const winUrl = DOWNLOAD_ASSETS.windows.downloadUrl;
+  const macUrl = DOWNLOAD_ASSETS.macos.downloadUrl;
+  const apkUrl = DOWNLOAD_ASSETS.android.downloadUrl;
 
   return (
     <div className="min-h-screen bg-mb-bg text-mb-ink flex flex-col font-sans select-none antialiased transition-colors">
@@ -444,7 +432,7 @@ export default function DashboardPage() {
                   <h2 className="text-lg font-heading font-extrabold text-mb-ink">
                     Software &amp; Aplikasi MingleBooth Studio
                   </h2>
-                  <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-neutral-200 dark:bg-neutral-800 text-mb-muted border border-mb-line uppercase tracking-wider">
+                  <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-[#FFD21F] text-[#0B0B0D] uppercase tracking-wider font-mono">
                     Versi v1.0.0-rc.4
                   </span>
                 </div>
@@ -453,6 +441,15 @@ export default function DashboardPage() {
                 </p>
               </div>
             </div>
+
+            <Link
+              href="/download#guide"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-mb-line bg-black/5 dark:bg-white/10 hover:bg-neutral-200 dark:hover:bg-neutral-800 text-xs font-heading font-bold text-mb-ink transition-colors flex-shrink-0"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-mb-muted" />
+              <span>Lihat Panduan Instalasi</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
 
           {/* 3 Platform Installer Cards (Windows, macOS, Android) */}
@@ -465,7 +462,7 @@ export default function DashboardPage() {
                     <Laptop className="w-5 h-5 text-mb-ink" />
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-black/5 dark:bg-white/10 text-mb-muted border border-mb-line font-mono">
-                    137 MB · 64-bit
+                    131.72 MB · 64-bit
                   </span>
                 </div>
                 <div>
@@ -494,7 +491,7 @@ export default function DashboardPage() {
                     <Monitor className="w-5 h-5 text-mb-ink" />
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-black/5 dark:bg-white/10 text-mb-muted border border-mb-line font-mono">
-                    155 MB · Universal
+                    143.23 MB · Universal
                   </span>
                 </div>
                 <div>
@@ -523,7 +520,7 @@ export default function DashboardPage() {
                     <Smartphone className="w-5 h-5 text-mb-ink" />
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-black/5 dark:bg-white/10 text-mb-muted border border-mb-line font-mono">
-                    10 MB · Tablet
+                    6.61 MB · Tablet
                   </span>
                 </div>
                 <div>
@@ -939,17 +936,18 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Link to full download page */}
+            {/* Link to full download page & installation guide */}
             <div className="flex items-center justify-between p-3.5 rounded-xl bg-neutral-100 dark:bg-neutral-900 border border-mb-line">
               <span className="text-xs text-mb-muted">
                 Periksa Checksum SHA-256 resmi &amp; panduan instalasi?
               </span>
               <Link
-                href="/download"
-                className="text-xs font-semibold text-mb-ink hover:underline flex items-center gap-1"
+                href="/download#guide"
+                onClick={() => setIsDownloadModalOpen(false)}
+                className="text-xs font-semibold text-mb-ink hover:underline flex items-center gap-1 font-heading"
               >
-                <span>Halaman Download</span>
-                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Lihat Panduan Instalasi</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
           </div>

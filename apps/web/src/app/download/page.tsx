@@ -12,104 +12,28 @@ import {
   Laptop,
   Monitor,
   ShieldCheck,
-  Terminal,
+  BookOpen,
+  Info,
+  AlertTriangle,
+  CheckCircle2,
+  ExternalLink,
+  ChevronRight,
+  ArrowRight,
+  Sparkles,
 } from 'lucide-react';
-
-interface SecondaryOption {
-  formatBadge: string;
-  filename: string;
-  size: string;
-  sha256: string;
-  downloadUrl: string;
-  label: string;
-}
-
-interface ReleaseAsset {
-  id: string;
-  platform: 'android' | 'macos' | 'windows';
-  title: string;
-  formatBadge: string;
-  filename: string;
-  size: string;
-  sha256: string;
-  downloadUrl: string;
-  targetOS: string;
-  notes: string;
-  buttonText: string;
-  secondaryOption?: SecondaryOption;
-}
-
-const RELEASE_VERSION = 'v1.0.0-rc.4';
-const RELEASE_DATE = '15 November 2026';
-
-const RELEASE_ASSETS: ReleaseAsset[] = [
-  {
-    id: 'android-apk',
-    platform: 'android',
-    title: 'MingleBooth Studio Android',
-    formatBadge: 'APK · Android 8.0+',
-    filename: 'MingleBooth-Studio-1.0.0-rc.4.apk',
-    size: '6.61 MB',
-    sha256: '81579cda6970e54a4d26e6745c13e0480ec29a70eb389b260d66948d5a7d76e1',
-    downloadUrl:
-      'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.apk',
-    targetOS: 'Android 8.0 Oreo ke atas (ARM64 & ARMv7, USB OTG Host Ready)',
-    buttonText: 'Unduh untuk Android (APK)',
-    notes:
-      'Mendukung Sony PC Remote PTP via USB OTG, Thermal Printing ESC/POS, dan Mode Demo Offline.',
-  },
-  {
-    id: 'macos-dmg',
-    platform: 'macos',
-    title: 'MingleBooth Studio macOS',
-    formatBadge: 'DMG · macOS 12.0+',
-    filename: 'MingleBooth-Studio-1.0.0-rc.4.dmg',
-    size: '143.23 MB',
-    sha256: '7d33e1e52bc92bfd33643225f3d48620dd46f0e3116a84e2bd71e1659736e921',
-    downloadUrl:
-      'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.dmg',
-    targetOS: 'macOS 12.0+ (Monterey, Ventura, Sonoma, Sequoia - Apple Silicon & Intel)',
-    buttonText: 'Unduh untuk macOS (DMG)',
-    notes:
-      'Installer universal disk image resmi dengan Universal Dynamic Camera SOP (Sony & Canon). Buka DMG lalu drag & drop ke folder Applications.',
-    secondaryOption: {
-      formatBadge: 'ZIP Universal',
-      filename: 'MingleBooth-Studio-1.0.0-rc.4.zip',
-      size: '138.17 MB',
-      sha256: '352db291add49a93ffc3e496e891144ecf2e48d9daad3eaa04a16e4b7fd0dcef',
-      downloadUrl:
-        'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.zip',
-      label: 'Unduh Alternatif ZIP (138.17 MB)',
-    },
-  },
-  {
-    id: 'windows-setup',
-    platform: 'windows',
-    title: 'MingleBooth Studio Windows',
-    formatBadge: 'EXE · Windows 10 & 11',
-    filename: 'MingleBooth-Studio-Setup-1.0.0-rc.4.exe',
-    size: '131.72 MB',
-    sha256: '17c32d95e1dd26e322ae26828e33f0f04fffb2d66dc0507a0e338b389af557c6',
-    downloadUrl:
-      'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-Setup-1.0.0-rc.4.exe',
-    targetOS: 'Windows 10 & Windows 11 (64-bit)',
-    buttonText: 'Unduh untuk Windows (Installer EXE)',
-    notes:
-      'Paket installer lengkap dengan driver USB Sony dan integrasi printer foto DNP/HiTi/Citizen.',
-    secondaryOption: {
-      formatBadge: 'Portable EXE',
-      filename: 'MingleBooth-Studio-1.0.0-rc.4-portable.exe',
-      size: '131.39 MB',
-      sha256: '98ea4498fecbafc4c5c47a66c16bdc6ce0a9fbbf8145da5b979e8c53572269c9',
-      downloadUrl:
-        'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4-portable.exe',
-      label: 'Unduh Portable EXE Tanpa Install (131.39 MB)',
-    },
-  },
-];
+import {
+  RELEASE_VERSION,
+  RELEASE_DATE,
+  DOWNLOAD_ASSETS,
+  DOWNLOAD_ASSETS_LIST,
+  INSTALLATION_STEPS,
+  LICENSE_TIERS,
+  DownloadAsset,
+} from '@/lib/constants/downloads';
 
 export default function DownloadPage() {
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'windows' | 'macos' | 'android'>('windows');
 
   const handleCopyHash = (hash: string, id: string) => {
     navigator.clipboard.writeText(hash);
@@ -124,172 +48,454 @@ export default function DownloadPage() {
       {/* Top Header Section (Dark) */}
       <section className="bg-[#0B0B0D] text-white border-b border-white/10 pt-10 pb-12 sm:pb-16">
         <div className="max-w-[1080px] mx-auto px-5">
-          <div className="eyebrow">DISTRIBUSI RESMI APLIKASI</div>
-          <h1 className="text-[34px] sm:text-[48px] font-extrabold font-heading tracking-heading leading-heading text-white max-w-[22ch]">
+          <div className="eyebrow text-[#FFD21F]">DISTRIBUSI RESMI APLIKASI</div>
+          <h1 className="text-[32px] sm:text-[46px] font-extrabold font-heading tracking-heading leading-tight text-white max-w-[24ch]">
             Unduh MingleBooth Studio
           </h1>
-          <p className="mt-4 mb-6 text-[#C9C9CE] text-lg sm:text-[19px] leading-relaxed max-w-[56ch]">
-            Instal aplikasi di laptop atau tablet untuk mengoperasikan photobooth offline-first, live view kamera, cetak instan, dan QR galeri tamu.
+          <p className="mt-4 mb-6 text-[#C9C9CE] text-base sm:text-[18px] leading-relaxed max-w-[58ch]">
+            Aplikasi resmi photobooth untuk laptop dan tablet. Mendukung live view kamera Sony, cetak instan ke printer thermal/dye-sub, serta sinkronisasi galeri QR otomatis.
           </p>
 
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 border border-white/15 text-sm font-mono text-[#E2E2E6]">
-            <ShieldCheck className="w-4 h-4 text-[#FFD21F]" />
-            <span>Versi Resmi: {RELEASE_VERSION} &middot; {RELEASE_DATE}</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 border border-white/15 text-xs sm:text-sm font-mono text-[#E2E2E6]">
+              <ShieldCheck className="w-4 h-4 text-[#FFD21F]" />
+              <span>Rilis Resmi: {RELEASE_VERSION} &middot; {RELEASE_DATE}</span>
+            </div>
+            <a
+              href="#guide"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-xs sm:text-sm text-neutral-300 hover:text-white transition-colors"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-[#FFD21F]" />
+              <span>Lihat Panduan Instalasi</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </a>
           </div>
         </div>
       </section>
 
-      {/* Main Download Grid */}
+      {/* Main Content Area */}
       <main className="flex-1 py-12">
-        <div className="max-w-[1080px] mx-auto px-5">
-          {/* Platform Cards (3-column layout) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch mb-16">
-            {RELEASE_ASSETS.map((asset) => {
-              const isCopied = copiedHash === asset.id;
-              return (
-                <div
-                  key={asset.id}
-                  className="bg-mb-surface border-2 border-mb-ink rounded-2xl p-7 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <div>
-                    {/* Header with Icon & Badge */}
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div className="w-12 h-12 rounded-2xl bg-mb-ink text-white flex items-center justify-center flex-shrink-0">
-                        {asset.platform === 'android' && <Smartphone className="w-6 h-6 text-[#FFD21F]" />}
-                        {asset.platform === 'macos' && <Laptop className="w-6 h-6 text-[#FFD21F]" />}
-                        {asset.platform === 'windows' && <Monitor className="w-6 h-6 text-[#FFD21F]" />}
-                      </div>
-                      <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#FFD21F] text-[#0B0B0D]">
-                        {asset.formatBadge}
-                      </span>
-                    </div>
-
-                    <h2 className="text-[22px] font-extrabold font-heading tracking-tight mb-2">
-                      {asset.title}
-                    </h2>
-                    <p className="text-mb-muted text-sm leading-relaxed mb-4">
-                      {asset.notes}
-                    </p>
-
-                    {/* Metadata Table */}
-                    <div className="space-y-2 py-3 border-y border-mb-line text-xs font-mono text-mb-muted">
-                      <div className="flex justify-between">
-                        <span>File:</span>
-                        <span className="font-semibold text-mb-ink truncate max-w-[180px]" title={asset.filename}>
-                          {asset.filename}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Ukuran:</span>
-                        <span className="font-semibold text-mb-ink">{asset.size}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>OS:</span>
-                        <span className="font-semibold text-mb-ink truncate max-w-[180px]" title={asset.targetOS}>
-                          {asset.targetOS}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Checksum SHA-256 Box */}
-                    <div className="mt-4 p-3 rounded-xl bg-mb-bg border border-mb-line flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <span className="block text-[10px] text-mb-muted uppercase font-bold tracking-wider">
-                          SHA-256 Checksum
-                        </span>
-                        <span className="font-mono text-[11px] text-mb-ink block truncate max-w-[190px]">
-                          {asset.sha256}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyHash(asset.sha256, asset.id)}
-                        className="p-1.5 rounded-lg border border-mb-line bg-mb-surface hover:bg-neutral-100 text-mb-ink transition-colors flex-shrink-0"
-                        title="Salin SHA-256"
-                      >
-                        {isCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Download Buttons Section */}
-                  <div className="mt-6 space-y-3">
-                    <a
-                      href={asset.downloadUrl}
-                      className="btn-primary w-full text-sm py-3"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>{asset.buttonText}</span>
-                    </a>
-
-                    {/* Secondary Option (Portable EXE or ZIP) */}
-                    {asset.secondaryOption && (
-                      <div className="pt-2.5 border-t border-mb-line/60">
-                        <a
-                          href={asset.secondaryOption.downloadUrl}
-                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-mb-line bg-mb-bg hover:bg-neutral-100 text-xs font-semibold text-mb-ink transition-colors"
-                        >
-                          <Download className="w-3.5 h-3.5 text-mb-muted" />
-                          <span>{asset.secondaryOption.label}</span>
-                        </a>
-                        <div className="mt-1.5 flex items-center justify-between text-[10px] text-mb-muted font-mono px-1">
-                          <span className="truncate max-w-[160px]" title={asset.secondaryOption.filename}>
-                            {asset.secondaryOption.filename}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleCopyHash(asset.secondaryOption!.sha256, `${asset.id}-sec`)
-                            }
-                            className="hover:text-mb-ink flex items-center gap-1"
-                            title="Salin SHA-256 Alternatif"
-                          >
-                            <span>SHA-256</span>
-                            {copiedHash === `${asset.id}-sec` ? (
-                              <Check className="w-3 h-3 text-emerald-600" />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Installation & Security Verification Guidance */}
-          <div className="p-8 rounded-2xl bg-mb-surface border border-mb-line">
-            <h3 className="text-xl font-bold font-heading mb-4 flex items-center gap-2">
-              <Terminal className="w-5 h-5 text-mb-ink" />
-              <span>Panduan Instalasi &amp; Verifikasi Integritas File</span>
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-mb-muted">
+        <div className="max-w-[1080px] mx-auto px-5 space-y-16">
+          {/* SECTION 1: 3 Platform Download Cards */}
+          <div>
+            <div className="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
               <div>
-                <h4 className="font-bold text-mb-ink mb-1.5">macOS (Apple Silicon &amp; Intel)</h4>
-                <p className="leading-relaxed">
-                  Buka file <code className="bg-mb-bg px-1 py-0.5 rounded font-mono text-xs">.dmg</code>, seret ikon MingleBooth Studio ke folder Applications (atau ekstrak file <code className="bg-mb-bg px-1 py-0.5 rounded font-mono text-xs">.zip</code>). Jika muncul peringatan keamanan pengembang pihak ketiga, klik kanan ikon aplikasi lalu pilih <strong>Buka (Open)</strong>.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-mb-ink mb-1.5">Windows 10 &amp; 11 (64-bit)</h4>
-                <p className="leading-relaxed">
-                  Jalankan installer <code className="bg-mb-bg px-1 py-0.5 rounded font-mono text-xs">.exe</code> atau gunakan varian <strong>Portable EXE</strong> langsung tanpa instalasi. Jika Windows SmartScreen muncul, klik <em>More info</em> lalu pilih <em>Run anyway</em> untuk menyelesaikan pemasangan driver kamera.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-mb-ink mb-1.5">Android Tablet &amp; Smartphone</h4>
-                <p className="leading-relaxed">
-                  Unduh dan pasang file <code className="bg-mb-bg px-1 py-0.5 rounded font-mono text-xs">.apk</code>. Pastikan pengaturan <em>Install unknown apps</em> diaktifkan untuk browser Anda. Hubungkan kamera Sony melalui kabel USB OTG Host.
+                <h2 className="text-2xl font-extrabold font-heading tracking-tight text-mb-ink">
+                  Pilihan Installer Resmi
+                </h2>
+                <p className="text-sm text-mb-muted mt-1">
+                  Pilih installer sesuai sistem operasi perangkat booth Anda.
                 </p>
               </div>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+              {DOWNLOAD_ASSETS_LIST.map((asset: DownloadAsset) => {
+                const isCopied = copiedHash === asset.id;
+                return (
+                  <div
+                    key={asset.id}
+                    className="bg-mb-surface border-2 border-mb-ink rounded-2xl p-6 sm:p-7 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <div>
+                      {/* Header with Icon & Badge */}
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="w-12 h-12 rounded-2xl bg-mb-ink text-white flex items-center justify-center flex-shrink-0">
+                          {asset.platform === 'android' && <Smartphone className="w-6 h-6 text-[#FFD21F]" />}
+                          {asset.platform === 'macos' && <Laptop className="w-6 h-6 text-[#FFD21F]" />}
+                          {asset.platform === 'windows' && <Monitor className="w-6 h-6 text-[#FFD21F]" />}
+                        </div>
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#FFD21F] text-[#0B0B0D]">
+                          {asset.badge}
+                        </span>
+                      </div>
+
+                      <h3 className="text-xl font-extrabold font-heading tracking-tight mb-2 text-mb-ink">
+                        {asset.title}
+                      </h3>
+                      <p className="text-mb-muted text-xs sm:text-sm leading-relaxed mb-4">
+                        {asset.description}
+                      </p>
+
+                      {/* Technical Specs Table */}
+                      <div className="space-y-2 py-3 border-y border-mb-line text-xs font-mono text-mb-muted">
+                        <div className="flex justify-between items-center gap-2">
+                          <span>File:</span>
+                          <span className="font-semibold text-mb-ink truncate max-w-[180px]" title={asset.filename}>
+                            {asset.filename}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center gap-2">
+                          <span>Ukuran:</span>
+                          <span className="font-semibold text-mb-ink">{asset.size}</span>
+                        </div>
+                        <div className="flex justify-between items-center gap-2">
+                          <span>Versi:</span>
+                          <span className="font-semibold text-mb-ink">{RELEASE_VERSION}</span>
+                        </div>
+                        <div className="flex justify-between items-center gap-2">
+                          <span>OS:</span>
+                          <span className="font-semibold text-mb-ink truncate max-w-[180px]" title={asset.targetOS}>
+                            {asset.targetOS}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Checksum SHA-256 Box */}
+                      <div className="mt-4 p-3 rounded-xl bg-mb-bg border border-mb-line flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="block text-[10px] text-mb-muted uppercase font-bold tracking-wider">
+                            SHA-256 Checksum
+                          </span>
+                          <span className="font-mono text-[11px] text-mb-ink block truncate max-w-[190px]">
+                            {asset.sha256}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyHash(asset.sha256, asset.id)}
+                          className="p-1.5 rounded-lg border border-mb-line bg-mb-surface hover:bg-neutral-100 text-mb-ink transition-colors flex-shrink-0"
+                          title="Salin SHA-256"
+                          aria-label="Salin Checksum SHA-256"
+                        >
+                          {isCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Download CTA Button */}
+                    <div className="mt-6">
+                      <a
+                        href={asset.downloadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-primary w-full text-sm py-3 flex items-center justify-center gap-2 shadow-sm"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>{asset.buttonText}</span>
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+
+          {/* SECTION 2: Interactive Step-by-Step Installation Tutorial */}
+          <section id="guide" className="scroll-mt-20">
+            <div className="mb-6">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFD21F]/20 border border-[#FFD21F]/40 text-xs font-bold text-[#0B0B0D] mb-2">
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>PANDUAN LANGKAH DEMI LANGKAH</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold font-heading tracking-tight text-mb-ink">
+                Tutorial Instalasi &amp; Konfigurasi
+              </h2>
+              <p className="text-sm sm:text-base text-mb-muted mt-1 max-w-[65ch]">
+                Ikuti langkah resmi di bawah ini untuk menginstal, memverifikasi keamanan file, dan mengoperasikan MingleBooth Studio di perangkat Anda.
+              </p>
+            </div>
+
+            {/* Platform Selector Tabs */}
+            <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-mb-surface border border-mb-line mb-6 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setActiveTab('windows')}
+                className={`flex-1 min-w-[140px] py-2.5 px-4 rounded-xl text-xs sm:text-sm font-heading font-bold flex items-center justify-center gap-2 transition-all ${
+                  activeTab === 'windows'
+                    ? 'bg-[#0B0B0D] text-white shadow-sm'
+                    : 'text-mb-muted hover:text-mb-ink hover:bg-neutral-100'
+                }`}
+              >
+                <Monitor className="w-4 h-4" />
+                <span>Windows 10 / 11</span>
+                <span className={`text-[11px] px-2 py-0.5 rounded-full font-mono ${
+                  activeTab === 'windows' ? 'bg-white/20 text-white' : 'bg-black/5 text-mb-muted'
+                }`}>
+                  10 Langkah
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('macos')}
+                className={`flex-1 min-w-[140px] py-2.5 px-4 rounded-xl text-xs sm:text-sm font-heading font-bold flex items-center justify-center gap-2 transition-all ${
+                  activeTab === 'macos'
+                    ? 'bg-[#0B0B0D] text-white shadow-sm'
+                    : 'text-mb-muted hover:text-mb-ink hover:bg-neutral-100'
+                }`}
+              >
+                <Laptop className="w-4 h-4" />
+                <span>macOS (Apple &amp; Intel)</span>
+                <span className={`text-[11px] px-2 py-0.5 rounded-full font-mono ${
+                  activeTab === 'macos' ? 'bg-white/20 text-white' : 'bg-black/5 text-mb-muted'
+                }`}>
+                  8 Langkah
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('android')}
+                className={`flex-1 min-w-[140px] py-2.5 px-4 rounded-xl text-xs sm:text-sm font-heading font-bold flex items-center justify-center gap-2 transition-all ${
+                  activeTab === 'android'
+                    ? 'bg-[#0B0B0D] text-white shadow-sm'
+                    : 'text-mb-muted hover:text-mb-ink hover:bg-neutral-100'
+                }`}
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Android Tablet</span>
+                <span className={`text-[11px] px-2 py-0.5 rounded-full font-mono ${
+                  activeTab === 'android' ? 'bg-white/20 text-white' : 'bg-black/5 text-mb-muted'
+                }`}>
+                  8 Langkah
+                </span>
+              </button>
+            </div>
+
+            {/* Step List Container */}
+            <div className="bg-mb-surface border border-mb-line rounded-2xl p-6 sm:p-8 space-y-6">
+              <div className="flex items-center justify-between pb-4 border-b border-mb-line">
+                <div className="flex items-center gap-2">
+                  <span className="font-heading font-bold text-base text-mb-ink">
+                    {activeTab === 'windows' && 'Panduan Resmi Windows (10 & 11)'}
+                    {activeTab === 'macos' && 'Panduan Resmi macOS (Apple Silicon & Intel)'}
+                    {activeTab === 'android' && 'Panduan Resmi Android Tablet / Smartphone'}
+                  </span>
+                </div>
+                <a
+                  href={DOWNLOAD_ASSETS[activeTab].downloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-heading font-bold text-mb-ink hover:underline flex items-center gap-1"
+                >
+                  <span>Unduh File {activeTab.toUpperCase()}</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              <div className="space-y-4">
+                {INSTALLATION_STEPS[activeTab].map((stepItem) => (
+                  <div
+                    key={stepItem.step}
+                    className="p-4 sm:p-5 rounded-xl bg-mb-bg border border-mb-line flex flex-col gap-3 transition-colors hover:border-neutral-400"
+                  >
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#0B0B0D] text-[#FFD21F] font-heading font-extrabold text-xs sm:text-sm flex items-center justify-center flex-shrink-0 mt-0.5">
+                        {stepItem.step}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <h4 className="font-heading font-bold text-sm sm:text-base text-mb-ink">
+                            {stepItem.title}
+                          </h4>
+                          <span className="text-[11px] text-mb-muted hidden sm:inline">
+                            &middot; {stepItem.summary}
+                          </span>
+                        </div>
+                        <p className="text-xs sm:text-sm text-mb-muted leading-relaxed">
+                          {stepItem.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Step Callout (Security / Edge / Unblock / Gatekeeper) */}
+                    {stepItem.callout && (
+                      <div
+                        className={`ml-10 sm:ml-11 p-3.5 rounded-xl border text-xs leading-relaxed ${
+                          stepItem.callout.type === 'warning'
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-200'
+                            : stepItem.callout.type === 'tip'
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-950 dark:text-emerald-200'
+                            : 'bg-blue-500/10 border-blue-500/30 text-blue-950 dark:text-blue-200'
+                        }`}
+                      >
+                        <div className="font-bold font-heading mb-1 flex items-center gap-1.5">
+                          {stepItem.callout.type === 'warning' && <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />}
+                          {stepItem.callout.type === 'tip' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
+                          {stepItem.callout.type === 'info' && <Info className="w-3.5 h-3.5 text-blue-600" />}
+                          <span>{stepItem.callout.title}</span>
+                        </div>
+                        <p>{stepItem.callout.text}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* SECTION 3: Licensing Information & Mode Comparison */}
+          <section className="bg-mb-surface border border-mb-line rounded-2xl p-6 sm:p-8">
+            <div className="mb-6">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/5 border border-mb-line text-xs font-bold text-mb-ink mb-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#FFD21F]" />
+                <span>INFORMASI LISENSI &amp; PENGOPERASIAN</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold font-heading tracking-tight text-mb-ink">
+                Ketentuan Lisensi &amp; Kuota Perangkat
+              </h2>
+              <p className="text-sm sm:text-base text-mb-muted mt-1 max-w-[65ch]">
+                Memahami hak akses, kuota aktivasi laptop booth, serta perbedaan antara Mode Demo dan Mode Berbayar.
+              </p>
+            </div>
+
+            {/* 3 Key Principles */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <div className="p-4 rounded-xl bg-mb-bg border border-mb-line">
+                <div className="w-8 h-8 rounded-lg bg-black/5 flex items-center justify-center font-bold text-xs text-mb-ink mb-2">
+                  1
+                </div>
+                <h4 className="font-heading font-bold text-sm text-mb-ink mb-1">
+                  Unduhan Bebas &amp; Terbuka
+                </h4>
+                <p className="text-xs text-mb-muted leading-relaxed">
+                  Mengunduh installer MingleBooth Studio tidak otomatis mengaktifkan lisensi berbayar. Installer dapat diunduh untuk persiapan perangkat teknis.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-mb-bg border border-mb-line">
+                <div className="w-8 h-8 rounded-lg bg-black/5 flex items-center justify-center font-bold text-xs text-mb-ink mb-2">
+                  2
+                </div>
+                <h4 className="font-heading font-bold text-sm text-mb-ink mb-1">
+                  Wajib Login Akun Vendor
+                </h4>
+                <p className="text-xs text-mb-muted leading-relaxed">
+                  Saat aplikasi dibuka, login menggunakan kredensial vendor MingleBooth Anda. Sistem memverifikasi paket langganan aktif dan kuota perangkat secara otomatis.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-mb-bg border border-mb-line">
+                <div className="w-8 h-8 rounded-lg bg-black/5 flex items-center justify-center font-bold text-xs text-mb-ink mb-2">
+                  3
+                </div>
+                <h4 className="font-heading font-bold text-sm text-mb-ink mb-1">
+                  Batas Kuota Simultan
+                </h4>
+                <p className="text-xs text-mb-muted leading-relaxed">
+                  Setiap laptop/tablet yang aktif menggunakan 1 slot kuota perangkat. Anda dapat mengganti atau melepas perangkat lama kapan saja melalui Vendor Dashboard.
+                </p>
+              </div>
+            </div>
+
+            {/* License Tiers List */}
+            <div className="mb-8">
+              <h4 className="font-heading font-bold text-xs uppercase tracking-wider text-mb-muted mb-3">
+                Kapasitas Kuota Berdasarkan Paket Langganan:
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {LICENSE_TIERS.map((tierItem) => (
+                  <div
+                    key={tierItem.tier}
+                    className="p-4 rounded-xl bg-mb-bg border border-mb-line flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="font-heading font-extrabold text-sm text-mb-ink">
+                          Paket {tierItem.tier}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#FFD21F] text-[#0B0B0D]">
+                          {tierItem.quota}
+                        </span>
+                      </div>
+                      <p className="text-xs text-mb-muted leading-relaxed">
+                        {tierItem.description}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Mode Comparison: Demo vs Paid */}
+            <div className="border-t border-mb-line pt-6">
+              <h4 className="font-heading font-bold text-xs uppercase tracking-wider text-mb-muted mb-4">
+                Perbandingan Mode Pengoperasian Sistem:
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Demo Mode */}
+                <div className="p-5 rounded-xl bg-mb-bg border border-mb-line flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-heading font-bold text-sm text-mb-ink">
+                        Mode Demo (Simulasi Offline)
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-200 text-neutral-800">
+                        Tanpa Lisensi
+                      </span>
+                    </div>
+                    <p className="text-xs text-mb-muted mb-4 leading-relaxed">
+                      Dirancang untuk pengujian teknis, pengetesan hardware kamera di kantor atau rumah, dan simulasi alur photobooth sebelum event dimulai.
+                    </p>
+                    <ul className="space-y-2 text-xs text-mb-muted">
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        <span>Pengujian kamera live view Sony, Canon, atau webcam.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        <span>Simulasi pemotretan multi-pose dan cetak lokal ke printer.</span>
+                      </li>
+                      <li className="flex items-start gap-2 text-neutral-400">
+                        <span className="w-4 h-4 rounded-full border border-neutral-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">&times;</span>
+                        <span>Foto hanya disimpan secara lokal (folder demo lokal) dan <strong>tidak disinkronkan ke Cloud</strong>.</span>
+                      </li>
+                      <li className="flex items-start gap-2 text-neutral-400">
+                        <span className="w-4 h-4 rounded-full border border-neutral-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">&times;</span>
+                        <span>QR code unduh tamu dan Galeri Online dinonaktifkan (tanda demo lokal).</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Paid Mode */}
+                <div className="p-5 rounded-xl bg-mb-bg border-2 border-mb-ink flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-heading font-bold text-sm text-mb-ink flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-[#FFD21F]" />
+                        <span>Mode Berbayar (Lisensi Aktif)</span>
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#FFD21F] text-[#0B0B0D]">
+                        Operasional Penuh
+                      </span>
+                    </div>
+                    <p className="text-xs text-mb-muted mb-4 leading-relaxed">
+                      Fitur operasional photobooth lengkap untuk melayani tamu acara secara profesional, cepat, dan terhubung online secara instan.
+                    </p>
+                    <ul className="space-y-2 text-xs text-mb-ink font-medium">
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        <span>Sinkronisasi cloud otomatis ke penyimpanan Cloudflare R2 berkecepatan tinggi.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        <span>QR Code instan per sesi foto &amp; Galeri Online Acara real-time untuk tamu.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        <span>Dukungan file foto resolusi penuh, thumbnail cepat, animasi GIF, dan file RAW.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                        <span>Pengelolaan kuota perangkat, template custom, dan analitik di Dashboard Vendor.</span>
+                      </li>
+                    </ul>
+                  </div>
+                  <div className="mt-5 pt-3 border-t border-mb-line">
+                    <Link
+                      href="/pricing"
+                      className="text-xs font-heading font-bold text-mb-ink hover:underline inline-flex items-center gap-1"
+                    >
+                      <span>Lihat Rincian Paket Langganan</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </main>
 

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Laptop,
   Monitor,
+  Smartphone,
   Download,
   ArrowLeft,
   ArrowRight,
@@ -15,8 +16,10 @@ import {
   ShieldCheck,
   UserPlus,
   LogIn,
+  BookOpen,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { DOWNLOAD_ASSETS } from '@/lib/constants/downloads';
 
 export default function TabletStudioPage() {
   const router = useRouter();
@@ -68,17 +71,9 @@ export default function TabletStudioPage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const winUrl =
-    process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
-    !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
-      ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-Setup-1.0.0-rc.4.exe';
-
-  const macUrl =
-    process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
-    !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
-      ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
-      : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.dmg';
+  const winUrl = DOWNLOAD_ASSETS.windows.downloadUrl;
+  const macUrl = DOWNLOAD_ASSETS.macos.downloadUrl;
+  const apkUrl = DOWNLOAD_ASSETS.android.downloadUrl;
 
   return (
     <div className="min-h-screen w-full bg-mb-bg text-mb-ink flex flex-col font-sans selection:bg-mb-accent selection:text-mb-accent-ink transition-colors">
@@ -172,7 +167,7 @@ export default function TabletStudioPage() {
               </div>
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                <span className="text-mb-ink font-medium">Langsung dapatkan akses unduhan installer Windows &amp; macOS di Dashboard</span>
+                <span className="text-mb-ink font-medium">Langsung dapatkan akses unduhan installer Windows, macOS, &amp; Android di Dashboard</span>
               </div>
             </div>
 
@@ -196,8 +191,8 @@ export default function TabletStudioPage() {
         ) : (
           /* State: Sudah Login - Tampilkan Tombol Download & Instruksi */
           <>
-            {/* Download Cards Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 w-full max-w-2xl mb-8 text-left">
+            {/* Download Cards Grid (Windows, macOS, Android) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 w-full max-w-4xl mb-8 text-left">
               {/* Card 1: Windows (.exe) */}
               <div className="p-6 rounded-2xl bg-mb-surface border border-mb-line hover:border-neutral-400 dark:hover:border-neutral-600 transition-all flex flex-col justify-between shadow-sm group">
                 <div>
@@ -205,13 +200,13 @@ export default function TabletStudioPage() {
                     <div className="w-11 h-11 rounded-xl bg-black/5 dark:bg-white/10 border border-mb-line flex items-center justify-center text-mb-ink">
                       <Laptop className="w-6 h-6" />
                     </div>
-                    <span className="text-[10px] font-bold text-mb-muted uppercase tracking-wider bg-black/5 dark:bg-white/10 px-2.5 py-1 rounded-md border border-mb-line">
-                      Windows 64-bit
+                    <span className="text-[10px] font-bold text-mb-muted uppercase tracking-wider bg-black/5 dark:bg-white/10 px-2.5 py-1 rounded-md border border-mb-line font-mono">
+                      131.72 MB · 64-bit
                     </span>
                   </div>
-                  <h2 className="text-base font-heading font-extrabold text-mb-ink mb-1.5">MingleBooth untuk Windows</h2>
+                  <h2 className="text-base font-heading font-extrabold text-mb-ink mb-1.5">Windows (.exe)</h2>
                   <p className="text-xs text-mb-muted mb-6 leading-relaxed">
-                    Installer <strong>.exe</strong> resmi untuk Windows 10 &amp; 11. Dilengkapi dukungan driver printer DNP, Citizen, HiTi, dan Sony Alpha Camera.
+                    Installer resmi untuk Windows 10 &amp; 11. Driver printer DNP, Citizen, HiTi, dan Sony Alpha Camera.
                   </p>
                 </div>
 
@@ -222,7 +217,7 @@ export default function TabletStudioPage() {
                   className="w-full h-11 rounded-xl bg-white hover:bg-neutral-200 text-[#0B0B0D] font-heading font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-sm active:scale-98"
                 >
                   <Download className="w-4 h-4 text-[#0B0B0D]" />
-                  <span>Unduh Installer .exe (Windows)</span>
+                  <span>Unduh Windows (.exe)</span>
                 </a>
               </div>
 
@@ -233,13 +228,13 @@ export default function TabletStudioPage() {
                     <div className="w-11 h-11 rounded-xl bg-black/5 dark:bg-white/10 border border-mb-line flex items-center justify-center text-mb-ink">
                       <Monitor className="w-6 h-6" />
                     </div>
-                    <span className="text-[10px] font-bold text-mb-muted uppercase tracking-wider bg-black/5 dark:bg-white/10 px-2.5 py-1 rounded-md border border-mb-line">
-                      macOS 12+
+                    <span className="text-[10px] font-bold text-mb-muted uppercase tracking-wider bg-black/5 dark:bg-white/10 px-2.5 py-1 rounded-md border border-mb-line font-mono">
+                      143.23 MB · Universal
                     </span>
                   </div>
-                  <h2 className="text-base font-heading font-extrabold text-mb-ink mb-1.5">MingleBooth untuk Mac</h2>
+                  <h2 className="text-base font-heading font-extrabold text-mb-ink mb-1.5">macOS (.dmg)</h2>
                   <p className="text-xs text-mb-muted mb-6 leading-relaxed">
-                    Installer <strong>.dmg</strong> untuk MacBook &amp; Mac Studio. Kompatibel penuh dengan Apple Silicon (M1, M2, M3, M4) dan prosesor Intel.
+                    Installer disk image untuk Mac. Kompatibel Apple Silicon (M1/M2/M3/M4) dan prosesor Intel.
                   </p>
                 </div>
 
@@ -250,7 +245,35 @@ export default function TabletStudioPage() {
                   className="w-full h-11 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/10 font-heading font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-sm active:scale-98"
                 >
                   <Download className="w-4 h-4 text-neutral-300" />
-                  <span>Unduh Installer .dmg (macOS)</span>
+                  <span>Unduh Mac (.dmg)</span>
+                </a>
+              </div>
+
+              {/* Card 3: Android (.apk) */}
+              <div className="p-6 rounded-2xl bg-mb-surface border border-mb-line hover:border-neutral-400 dark:hover:border-neutral-600 transition-all flex flex-col justify-between shadow-sm group">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-11 h-11 rounded-xl bg-black/5 dark:bg-white/10 border border-mb-line flex items-center justify-center text-mb-ink">
+                      <Smartphone className="w-6 h-6" />
+                    </div>
+                    <span className="text-[10px] font-bold text-mb-muted uppercase tracking-wider bg-black/5 dark:bg-white/10 px-2.5 py-1 rounded-md border border-mb-line font-mono">
+                      6.61 MB · Tablet
+                    </span>
+                  </div>
+                  <h2 className="text-base font-heading font-extrabold text-mb-ink mb-1.5">Android (.apk)</h2>
+                  <p className="text-xs text-mb-muted mb-6 leading-relaxed">
+                    Paket instalasi Android 8.0+. Siap untuk tablet layar sentuh kiosk dan Sony PC Remote PTP via OTG.
+                  </p>
+                </div>
+
+                <a
+                  href={apkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full h-11 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/10 font-heading font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-sm active:scale-98"
+                >
+                  <Download className="w-4 h-4 text-neutral-300" />
+                  <span>Unduh Android (.apk)</span>
                 </a>
               </div>
             </div>
@@ -294,11 +317,18 @@ export default function TabletStudioPage() {
 
             <div className="mb-6 flex items-center justify-center gap-3 flex-wrap">
               <Link
-                href="/download"
+                href="/download#guide"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-neutral-200 text-[#0B0B0D] text-xs font-heading font-bold transition-opacity shadow-sm"
               >
-                <Download className="w-4 h-4 text-[#0B0B0D]" />
-                <span>Pusat Unduhan Installer</span>
+                <BookOpen className="w-4 h-4 text-[#0B0B0D]" />
+                <span>Lihat Panduan Instalasi</span>
+              </Link>
+              <Link
+                href="/download"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-mb-line bg-mb-surface hover:bg-neutral-100 dark:hover:bg-neutral-800 text-mb-ink text-xs font-heading font-bold transition-colors"
+              >
+                <Download className="w-4 h-4 text-mb-muted" />
+                <span>Semua Unduhan &amp; Checksum</span>
               </Link>
               <Link
                 href="/dashboard"
