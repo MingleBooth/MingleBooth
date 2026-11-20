@@ -211,7 +211,7 @@ export async function sendWelcomeEmail(
     return { success: false, error: 'Invalid recipient email' };
   }
 
-  const baseUrl = (appBaseUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://www.minglebooth.id').replace(/\/$/, '');
+  const baseUrl = (appBaseUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://minglebooth.id').replace(/\/$/, '');
   const dashboardUrl = `${baseUrl}/dashboard?welcome=1`;
 
   const htmlContent = renderWelcomeEmailHtml({

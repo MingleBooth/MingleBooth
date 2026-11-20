@@ -1,7 +1,7 @@
 import { MetadataRoute } from 'next';
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://www.minglebooth.id';
+  const baseUrl = 'https://minglebooth.id';
   const now = new Date();
 
   return [

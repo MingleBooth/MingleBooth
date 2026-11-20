@@ -8,7 +8,7 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 };
 
-const siteUrl = 'https://www.minglebooth.id';
+const siteUrl = 'https://minglebooth.id';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

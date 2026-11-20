@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
 
     // 7. Transactional Welcome Email via Brevo (Non-blocking & Idempotent)
     try {
-      const origin = req.nextUrl.origin || process.env.NEXT_PUBLIC_APP_URL || 'https://www.minglebooth.id';
+      const origin = req.nextUrl.origin || process.env.NEXT_PUBLIC_APP_URL || 'https://minglebooth.id';
       
       // Idempotency check: verify user hasn't already received the welcome email
       const isAlreadySent = authUser.user.user_metadata?.welcome_email_sent === true;

@@ -286,7 +286,7 @@ export function getDokuBaseUrl(environment?: 'sandbox' | 'production'): string {
     : 'https://api-sandbox.doku.com';
 }
 
-export const OFFICIAL_PRODUCTION_URL = 'https://www.minglebooth.id';
+export const OFFICIAL_PRODUCTION_URL = 'https://minglebooth.id';
 
 /**
  * Returns the explicit canonical application URL with HTTPS protocol.
@@ -296,7 +296,7 @@ export const OFFICIAL_PRODUCTION_URL = 'https://www.minglebooth.id';
  * stale deployments or production.
  *
  * In Production, strictly enforces the official production domain
- * https://www.minglebooth.id to prevent origin leakage or session loss.
+ * https://minglebooth.id to prevent origin leakage or session loss.
  */
 export function getCanonicalAppUrl(env: NodeJS.ProcessEnv = process.env): string {
   const isPreview =
@@ -306,10 +306,10 @@ export function getCanonicalAppUrl(env: NodeJS.ProcessEnv = process.env): string
     env.IS_PREVIEW === 'true';
 
   if (isPreview) {
-    // 1. If explicit NEXT_PUBLIC_APP_URL is configured for preview (and not production www.minglebooth.id)
+    // 1. If explicit NEXT_PUBLIC_APP_URL is configured for preview (and not production minglebooth.id)
     if (
       env.NEXT_PUBLIC_APP_URL &&
-      !env.NEXT_PUBLIC_APP_URL.includes('www.minglebooth.id') &&
+      !env.NEXT_PUBLIC_APP_URL.includes('minglebooth.id') &&
       !env.NEXT_PUBLIC_APP_URL.includes('localhost')
     ) {
       return env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
@@ -326,7 +326,7 @@ export function getCanonicalAppUrl(env: NodeJS.ProcessEnv = process.env): string
   // 3. Vercel Production Environment: Always strictly enforce official production domain
   const isVercelProduction = env.VERCEL_ENV === 'production' || env.NEXT_PUBLIC_VERCEL_ENV === 'production';
   if (isVercelProduction) {
-    if (env.NEXT_PUBLIC_APP_URL && env.NEXT_PUBLIC_APP_URL.includes('www.minglebooth.id')) {
+    if (env.NEXT_PUBLIC_APP_URL && env.NEXT_PUBLIC_APP_URL.includes('minglebooth.id')) {
       return env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
     }
     return OFFICIAL_PRODUCTION_URL;
