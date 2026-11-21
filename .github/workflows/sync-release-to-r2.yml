@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Shell-safe Tag Extraction (No direct ${{ ... }} interpolation in script)
+          # 1. Shell-safe Tag Extraction (No direct expression interpolation in script)
           TAG="${RAW_INPUT_TAG:-${RAW_RELEASE_TAG:-}}"
           echo "Target Release Tag: '${TAG}'"
           
