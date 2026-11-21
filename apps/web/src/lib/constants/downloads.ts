@@ -43,10 +43,7 @@ export const DOWNLOAD_ASSETS: Record<'windows' | 'macos' | 'android', DownloadAs
     size: '131.72 MB',
     sha256: '17c32d95e1dd26e322ae26828e33f0f04fffb2d66dc0507a0e338b389af557c6',
     downloadUrl:
-      process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL &&
-      !process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL.includes('drive.google.com')
-        ? process.env.NEXT_PUBLIC_DOWNLOAD_WIN_URL
-        : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-Setup-1.0.0-rc.4.exe',
+      'https://download.minglebooth.id/releases/v1.0.0-rc.4/MingleBooth-Studio-Setup-1.0.0-rc.4.exe',
     targetOS: 'Windows 10 & Windows 11 (64-bit)',
     compatibility: 'Sony Alpha USB SDK, DirectShow Webcam, Printer Thermal & Dye-Sub (DNP, HiTi, Citizen)',
     buttonText: 'Unduh untuk Windows (.exe)',
@@ -62,10 +59,7 @@ export const DOWNLOAD_ASSETS: Record<'windows' | 'macos' | 'android', DownloadAs
     size: '143.23 MB',
     sha256: '7d33e1e52bc92bfd33643225f3d48620dd46f0e3116a84e2bd71e1659736e921',
     downloadUrl:
-      process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL &&
-      !process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL.includes('drive.google.com')
-        ? process.env.NEXT_PUBLIC_DOWNLOAD_MAC_URL
-        : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.dmg',
+      'https://download.minglebooth.id/releases/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.dmg',
     targetOS: 'macOS 12.0+ (Monterey, Ventura, Sonoma, Sequoia)',
     compatibility: 'Universal Binary: Apple Silicon (M1/M2/M3/M4) & Intel 64-bit',
     buttonText: 'Unduh untuk macOS (.dmg)',
@@ -81,10 +75,7 @@ export const DOWNLOAD_ASSETS: Record<'windows' | 'macos' | 'android', DownloadAs
     size: '6.61 MB',
     sha256: '81579cda6970e54a4d26e6745c13e0480ec29a70eb389b260d66948d5a7d76e1',
     downloadUrl:
-      process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL &&
-      !process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL.includes('drive.google.com')
-        ? process.env.NEXT_PUBLIC_DOWNLOAD_APK_URL
-        : 'https://github.com/MingleBooth/MingleBooth/releases/download/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.apk',
+      'https://download.minglebooth.id/releases/v1.0.0-rc.4/MingleBooth-Studio-1.0.0-rc.4.apk',
     targetOS: 'Android 8.0 Oreo ke atas (ARM64 & ARMv7)',
     compatibility: 'Sony PC Remote PTP via USB OTG, Thermal Printing ESC/POS, Tablet Kiosk',
     buttonText: 'Unduh untuk Android (APK)',
