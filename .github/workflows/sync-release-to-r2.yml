@@ -1,0 +1,457 @@
+name: Sync Release Installers to Cloudflare R2
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag to sync (e.g. v1.0.0-rc.4)'
+        required: true
+        type: string
+
+concurrency:
+  group: sync-r2-${{ inputs.tag_name || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TARGET_BUCKET: minglebooth-releases
+  CDN_DOMAIN: download.minglebooth.id
+  R2_REGION: auto
+
+jobs:
+  sync:
+    name: Sync Installers to Cloudflare R2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate Release Tag & Fetch Git Ref
+        id: validate_inputs
+        env:
+          RAW_INPUT_TAG: ${{ inputs.tag_name }}
+          RAW_RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          
+          # 1. Shell-safe Tag Extraction (No direct ${{ ... }} interpolation in script)
+          TAG="${RAW_INPUT_TAG:-${RAW_RELEASE_TAG:-}}"
+          echo "Target Release Tag: '${TAG}'"
+          
+          if [ -z "${TAG}" ]; then
+            echo "::error::Release tag cannot be empty!"
+            exit 1
+          fi
+          
+          # 2. Strict SemVer Regex Validation
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '${TAG}' does not match valid SemVer pattern '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'"
+            exit 1
+          fi
+          
+          # 3. Explicit Remote Git Tag Fetch & Verification (Reliable under shallow/dispatch checkouts)
+          echo "Fetching target tag '${TAG}' explicitly from origin..."
+          if ! git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::Failed to fetch tag '${TAG}' from origin! Tag does not exist on remote repository."
+            exit 1
+          fi
+          
+          if ! git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag '${TAG}' could not be verified in local git refs after fetch!"
+            exit 1
+          fi
+          echo "✓ Git tag '${TAG}' verified successfully in repository refs."
+          
+          # 4. Target Bucket Safety Isolation
+          if [ "${TARGET_BUCKET}" != "minglebooth-releases" ]; then
+            echo "::error::TARGET_BUCKET must strictly be 'minglebooth-releases'. Got '${TARGET_BUCKET}'"
+            exit 1
+          fi
+          
+          case "${TARGET_BUCKET}" in
+            *gallery*|*production*|*photo*|*staging*)
+              if [ "${TARGET_BUCKET}" != "minglebooth-releases" ]; then
+                echo "::error::Security violation: TARGET_BUCKET contains protected keyword!"
+                exit 1
+              fi
+              ;;
+          esac
+          
+          # Derive exact SemVer version string (without 'v' prefix)
+          VERSION="${TAG#v}"
+          echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "✓ Release tag validated securely, ref fetched, and bucket isolation verified."
+
+      - name: Download & Validate Exact Release Artifacts
+        id: download_assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          
+          ASSETS_DIR="/tmp/release_assets"
+          mkdir -p "${ASSETS_DIR}"
+          cd "${ASSETS_DIR}"
+          
+          echo "Downloading release assets for tag ${RELEASE_TAG} from private repository..."
+          gh release download "${RELEASE_TAG}" \
+            --repo "${{ github.repository }}" \
+            --dir "${ASSETS_DIR}"
+          
+          echo "Validating official installer artifacts with exact naming schema..."
+          
+          # Expected exact filenames strictly derived from validated SemVer
+          EXPECTED_WIN_EXE="MingleBooth-Studio-Setup-${RELEASE_VERSION}.exe"
+          EXPECTED_MAC_DMG="MingleBooth-Studio-${RELEASE_VERSION}.dmg"
+          EXPECTED_APK_FILE="MingleBooth-Studio-${RELEASE_VERSION}.apk"
+          
+          # 1. Exact file presence assertions
+          if [ ! -f "${EXPECTED_WIN_EXE}" ]; then
+            echo "::error::Required Windows installer '${EXPECTED_WIN_EXE}' not found in release assets!"
+            exit 1
+          fi
+          
+          if [ ! -f "${EXPECTED_MAC_DMG}" ]; then
+            echo "::error::Required macOS installer '${EXPECTED_MAC_DMG}' not found in release assets!"
+            exit 1
+          fi
+          
+          if [ ! -f "${EXPECTED_APK_FILE}" ]; then
+            echo "::error::Required Android installer '${EXPECTED_APK_FILE}' not found in release assets!"
+            exit 1
+          fi
+          
+          # 2. Strict Negative Assertions (Exclude secondary artifacts from upload consideration)
+          if [ -f "MingleBooth-Studio-${RELEASE_VERSION}-portable.exe" ]; then
+            echo "  (Found portable EXE in release; strictly excluded from R2 public upload list)."
+          fi
+          
+          if [ -f "MingleBooth-Studio-${RELEASE_VERSION}-arm64.dmg" ]; then
+            echo "  (Found ARM64 DMG in release; strictly excluded from R2 public upload list)."
+          fi
+          
+          # 3. Minimum non-zero byte size assertions
+          WIN_SIZE=$(wc -c < "${EXPECTED_WIN_EXE}" | tr -d ' ')
+          MAC_SIZE=$(wc -c < "${EXPECTED_MAC_DMG}" | tr -d ' ')
+          APK_SIZE=$(wc -c < "${EXPECTED_APK_FILE}" | tr -d ' ')
+          
+          if [ "${WIN_SIZE}" -lt 1000000 ]; then
+            echo "::error::Windows installer size suspicious (${WIN_SIZE} bytes < 1MB)!"
+            exit 1
+          fi
+          
+          if [ "${MAC_SIZE}" -lt 1000000 ]; then
+            echo "::error::macOS installer size suspicious (${MAC_SIZE} bytes < 1MB)!"
+            exit 1
+          fi
+          
+          if [ "${APK_SIZE}" -lt 100000 ]; then
+            echo "::error::Android installer size suspicious (${APK_SIZE} bytes < 100KB)!"
+            exit 1
+          fi
+          
+          # 4. Generate Cryptographic Manifest using strictly validated exact files
+          sha256sum "${EXPECTED_WIN_EXE}" "${EXPECTED_MAC_DMG}" "${EXPECTED_APK_FILE}" > SHA256SUMS.txt
+          
+          echo "Official Distribution Artifacts Validated:"
+          echo "  Windows: ${EXPECTED_WIN_EXE} (${WIN_SIZE} bytes)"
+          echo "  macOS:   ${EXPECTED_MAC_DMG} (${MAC_SIZE} bytes)"
+          echo "  Android: ${EXPECTED_APK_FILE} (${APK_SIZE} bytes)"
+          echo "--- Generated SHA256SUMS.txt ---"
+          cat SHA256SUMS.txt
+          
+          echo "WIN_EXE=${EXPECTED_WIN_EXE}" >> "$GITHUB_ENV"
+          echo "MAC_DMG=${EXPECTED_MAC_DMG}" >> "$GITHUB_ENV"
+          echo "APK_FILE=${EXPECTED_APK_FILE}" >> "$GITHUB_ENV"
+          echo "ASSETS_DIR=${ASSETS_DIR}" >> "$GITHUB_ENV"
+
+      - name: Synchronize to Cloudflare R2 (Atomic Conditional Writes)
+        id: sync_r2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ env.R2_REGION }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          
+          upload_artifact() {
+            local FILE_NAME="$1"
+            local CONTENT_TYPE="$2"
+            local LOCAL_PATH="${ASSETS_DIR}/${FILE_NAME}"
+            local OBJECT_KEY="releases/${RELEASE_TAG}/${FILE_NAME}"
+            local LOCAL_SIZE
+            LOCAL_SIZE=$(wc -c < "${LOCAL_PATH}" | tr -d ' ')
+            local LOCAL_SHA
+            LOCAL_SHA=$(sha256sum "${LOCAL_PATH}" | awk '{print $1}')
+            
+            echo "=================================================="
+            echo "Processing: ${OBJECT_KEY}"
+            echo "  Expected Size:   ${LOCAL_SIZE} bytes"
+            echo "  Expected SHA256: ${LOCAL_SHA}"
+            
+            # Step 1: Preflight Existence Check
+            local HEAD_JSON=""
+            HEAD_JSON=$(aws s3api head-object \
+              --endpoint-url "${ENDPOINT}" \
+              --bucket "${TARGET_BUCKET}" \
+              --key "${OBJECT_KEY}" 2>/dev/null || true)
+            
+            if [ -n "${HEAD_JSON}" ]; then
+              local REMOTE_SIZE
+              REMOTE_SIZE=$(echo "${HEAD_JSON}" | jq -r '.ContentLength // 0')
+              local REMOTE_SHA
+              REMOTE_SHA=$(echo "${HEAD_JSON}" | jq -r '.Metadata.sha256 // empty')
+              
+              if [ -n "${REMOTE_SHA}" ] && [ "${REMOTE_SHA}" = "${LOCAL_SHA}" ] && [ "${REMOTE_SIZE}" -eq "${LOCAL_SIZE}" ]; then
+                echo "  -> Object already exists in R2 with matching SHA-256 and size. Skipping upload (idempotent)."
+                return 0
+              fi
+              
+              # Fallback verification if remote metadata was stripped
+              if [ -z "${REMOTE_SHA}" ] && [ "${REMOTE_SIZE}" -eq "${LOCAL_SIZE}" ]; then
+                echo "  -> Remote metadata sha256 missing. Verifying payload stream directly..."
+                local TMP_CHECK="/tmp/check_${FILE_NAME}"
+                aws s3api get-object \
+                  --endpoint-url "${ENDPOINT}" \
+                  --bucket "${TARGET_BUCKET}" \
+                  --key "${OBJECT_KEY}" "${TMP_CHECK}" >/dev/null
+                local STREAM_SHA
+                STREAM_SHA=$(sha256sum "${TMP_CHECK}" | awk '{print $1}')
+                rm -f "${TMP_CHECK}"
+                
+                if [ "${STREAM_SHA}" = "${LOCAL_SHA}" ]; then
+                  echo "  -> Stream verification confirmed identical SHA-256. Skipping upload."
+                  return 0
+                fi
+              fi
+              
+              echo "::error::CONFLICT: Object '${OBJECT_KEY}' exists with mismatched checksum or size!"
+              echo "  Local:  SHA=${LOCAL_SHA}, Size=${LOCAL_SIZE}"
+              echo "  Remote: SHA=${REMOTE_SHA}, Size=${REMOTE_SIZE}"
+              echo "Refusing to overwrite existing release object."
+              exit 1
+            fi
+            
+            # Step 2: Atomic Creation with If-None-Match: * (Zero Overwrite Fallback)
+            echo "  -> Committing object via atomic conditional write (If-None-Match: *)..."
+            local PUT_OUTPUT=""
+            if ! PUT_OUTPUT=$(aws s3api put-object \
+              --endpoint-url "${ENDPOINT}" \
+              --bucket "${TARGET_BUCKET}" \
+              --key "${OBJECT_KEY}" \
+              --body "${LOCAL_PATH}" \
+              --content-disposition "attachment; filename=\"${FILE_NAME}\"" \
+              --content-type "${CONTENT_TYPE}" \
+              --cache-control "public, max-age=31536000, immutable" \
+              --metadata "sha256=${LOCAL_SHA}" \
+              --if-none-match "*" 2>&1); then
+              
+              echo "PutObject operation returned error:"
+              echo "${PUT_OUTPUT}"
+              
+              # Differentiate conditional write rejections (HTTP 412 / ConditionalRequestConflict)
+              # from policy locks (ObjectLockedByBucketPolicy), 403, or network errors
+              if echo "${PUT_OUTPUT}" | grep -qE "PreconditionFailed|412|ConditionalRequestConflict"; then
+                echo "  -> Conditional write conflict detected. Inspecting existing object in storage..."
+                local COLLISION_HEAD=""
+                COLLISION_HEAD=$(aws s3api head-object \
+                  --endpoint-url "${ENDPOINT}" \
+                  --bucket "${TARGET_BUCKET}" \
+                  --key "${OBJECT_KEY}" 2>/dev/null || true)
+                
+                if [ -z "${COLLISION_HEAD}" ]; then
+                  echo "::error::Object '${OBJECT_KEY}' not found after conditional conflict! Error was not a concurrent write. Aborting."
+                  exit 1
+                fi
+                
+                local COL_SIZE
+                COL_SIZE=$(echo "${COLLISION_HEAD}" | jq -r '.ContentLength // 0')
+                local COL_SHA
+                COL_SHA=$(echo "${COLLISION_HEAD}" | jq -r '.Metadata.sha256 // empty')
+                
+                if [ -z "${COL_SHA}" ] && [ "${COL_SIZE}" -eq "${LOCAL_SIZE}" ]; then
+                  local TMP_STREAM="/tmp/stream_conflict_${FILE_NAME}"
+                  aws s3api get-object \
+                    --endpoint-url "${ENDPOINT}" \
+                    --bucket "${TARGET_BUCKET}" \
+                    --key "${OBJECT_KEY}" "${TMP_STREAM}" >/dev/null
+                  COL_SHA=$(sha256sum "${TMP_STREAM}" | awk '{print $1}')
+                  rm -f "${TMP_STREAM}"
+                fi
+                
+                if [ "${COL_SHA}" = "${LOCAL_SHA}" ] && [ "${COL_SIZE}" -eq "${LOCAL_SIZE}" ]; then
+                  echo "  ✓ Concurrently written object matches exact SHA-256 and size. Safe concurrent completion (No overwrite needed)."
+                  return 0
+                else
+                  echo "::error::CRITICAL CONFLICT: Existing object has differing SHA-256 or size! Refusing overwrite."
+                  echo "  Local:  SHA=${LOCAL_SHA}, Size=${LOCAL_SIZE}"
+                  echo "  Remote: SHA=${COL_SHA}, Size=${COL_SIZE}"
+                  exit 1
+                fi
+              else
+                echo "::error::PutObject failed with non-conditional error (e.g. ObjectLockedByBucketPolicy, permission, or network failure). Aborting immediately."
+                exit 1
+              fi
+            fi
+            echo "  -> Successfully committed: ${OBJECT_KEY}"
+          }
+          
+          # Strictly synchronize only the 3 official installers and manifest
+          upload_artifact "${WIN_EXE}" "application/vnd.microsoft.portable-executable"
+          upload_artifact "${MAC_DMG}" "application/x-apple-diskimage"
+          upload_artifact "${APK_FILE}" "application/vnd.android.package-archive"
+          upload_artifact "SHA256SUMS.txt" "text/plain; charset=utf-8"
+          
+          echo "✓ All release artifacts synchronized under atomic storage guarantees."
+
+      - name: Verify Public CDN Edge Distribution & Checksums
+        id: verify_cdn
+        run: |
+          set -euo pipefail
+          
+          echo "Preflight: Verifying DNS resolution for ${CDN_DOMAIN}..."
+          if ! getent hosts "${CDN_DOMAIN}" >/dev/null 2>&1 && ! host "${CDN_DOMAIN}" >/dev/null 2>&1; then
+            echo "::error::DNS resolution failed for '${CDN_DOMAIN}'. Verify that Cloudflare Custom Domain is active."
+            exit 1
+          fi
+          
+          VERIFY_DIR="/tmp/cdn_verified"
+          mkdir -p "${VERIFY_DIR}"
+          
+          verify_cdn_asset() {
+            local FILE_NAME="$1"
+            local EXPECTED_TYPE="$2"
+            local EXPECTED_PATH="${ASSETS_DIR}/${FILE_NAME}"
+            local EXPECTED_SIZE
+            EXPECTED_SIZE=$(wc -c < "${EXPECTED_PATH}" | tr -d ' ')
+            local EXPECTED_SHA
+            EXPECTED_SHA=$(sha256sum "${EXPECTED_PATH}" | awk '{print $1}')
+            local CDN_URL="https://${CDN_DOMAIN}/releases/${RELEASE_TAG}/${FILE_NAME}"
+            
+            echo "=================================================="
+            echo "Verifying CDN Endpoint: ${CDN_URL}"
+            
+            # 1. Range GET Probe (bytes=0-0)
+            local RAW_HEADERS="/tmp/raw_headers_${FILE_NAME}.txt"
+            local FINAL_HEADERS="/tmp/final_headers_${FILE_NAME}.txt"
+            local PROBE_BODY="/tmp/probe_body_${FILE_NAME}.bin"
+            
+            local HTTP_CODE
+            HTTP_CODE=$(curl -s -L -r 0-0 \
+              --max-time 30 \
+              --dump-header "${RAW_HEADERS}" \
+              -o "${PROBE_BODY}" \
+              -w "%{http_code}" \
+              "${CDN_URL}")
+            
+            echo "  Range probe HTTP Status: ${HTTP_CODE}"
+            if [ "${HTTP_CODE}" != "206" ] && [ "${HTTP_CODE}" != "200" ]; then
+              echo "::error::Range probe failed with HTTP status ${HTTP_CODE} on ${CDN_URL}"
+              exit 1
+            fi
+            
+            # Isolate Final HTTP Response Headers (strip redirect headers cleanly)
+            tr -d '\r' < "${RAW_HEADERS}" | awk '/^HTTP/{buf=""} {buf = buf $0 "\n"} END{printf "%s", buf}' > "${FINAL_HEADERS}"
+            
+            # 1a. Validate Content-Type Header
+            local CT_HEADER
+            CT_HEADER=$(grep -i '^content-type:' "${FINAL_HEADERS}" | tr -d '\r' || true)
+            echo "  Final Content-Type: ${CT_HEADER}"
+            local CT_LOWER
+            CT_LOWER=$(echo "${CT_HEADER}" | tr '[:upper:]' '[:lower:]')
+            local EXP_LOWER
+            EXP_LOWER=$(echo "${EXPECTED_TYPE}" | tr '[:upper:]' '[:lower:]')
+            if [[ "${CT_LOWER}" != *"${EXP_LOWER}"* ]]; then
+              echo "::error::Invalid Content-Type header on ${FILE_NAME}: '${CT_HEADER}' (expected '${EXPECTED_TYPE}')"
+              exit 1
+            fi
+            
+            # 1b. Validate Content-Disposition Header
+            local CD_HEADER
+            CD_HEADER=$(grep -i '^content-disposition:' "${FINAL_HEADERS}" | tr -d '\r' || true)
+            echo "  Final Content-Disposition: ${CD_HEADER}"
+            if [[ "${CD_HEADER}" != *"attachment"* ]] || [[ "${CD_HEADER}" != *"${FILE_NAME}"* ]]; then
+              echo "::error::Invalid Content-Disposition header on ${FILE_NAME}: '${CD_HEADER}'"
+              exit 1
+            fi
+            
+            # 1c. Validate Content-Range Header (strict 206 vs 200 handling)
+            if [ "${HTTP_CODE}" = "206" ]; then
+              local CR_HEADER
+              CR_HEADER=$(grep -i '^content-range:' "${FINAL_HEADERS}" | tr -d '\r' || true)
+              echo "  Final Content-Range: ${CR_HEADER}"
+              if [[ "${CR_HEADER}" != *"bytes 0-0/${EXPECTED_SIZE}"* ]]; then
+                echo "::error::Invalid Content-Range header: '${CR_HEADER}' (expected total size: ${EXPECTED_SIZE})"
+                exit 1
+              fi
+              local PROBE_SIZE
+              PROBE_SIZE=$(wc -c < "${PROBE_BODY}" | tr -d ' ')
+              if [ "${PROBE_SIZE}" -ne 1 ]; then
+                echo "::error::HTTP 206 response body size mismatch: expected 1 byte, got ${PROBE_SIZE} bytes"
+                exit 1
+              fi
+              echo "  ✓ Byte range requests validated with single-byte transfer."
+            elif [ "${HTTP_CODE}" = "200" ]; then
+              echo "  ! Note: Edge returned HTTP 200 OK (Range ignored, full payload delivered). Do not assume 1 byte transfer."
+            fi
+            rm -f "${PROBE_BODY}"
+            
+            # 2. Full GET & Byte-for-Byte SHA-256 Check
+            local DOWNLOAD_TARGET="${VERIFY_DIR}/${FILE_NAME}"
+            echo "  Downloading full artifact from CDN for cryptographic verification..."
+            
+            local DL_CODE
+            DL_CODE=$(curl -s -L \
+              --max-time 600 \
+              -o "${DOWNLOAD_TARGET}" \
+              -w "%{http_code}" \
+              "${CDN_URL}")
+            
+            if [ "${DL_CODE}" != "200" ]; then
+              echo "::error::Full CDN download failed with HTTP ${DL_CODE} on ${CDN_URL}"
+              exit 1
+            fi
+            
+            local ACTUAL_SIZE
+            ACTUAL_SIZE=$(wc -c < "${DOWNLOAD_TARGET}" | tr -d ' ')
+            if [ "${ACTUAL_SIZE}" -ne "${EXPECTED_SIZE}" ]; then
+              echo "::error::Size mismatch on ${FILE_NAME}: expected ${EXPECTED_SIZE}, got ${ACTUAL_SIZE}"
+              exit 1
+            fi
+            
+            local ACTUAL_SHA
+            ACTUAL_SHA=$(sha256sum "${DOWNLOAD_TARGET}" | awk '{print $1}')
+            if [ "${ACTUAL_SHA}" != "${EXPECTED_SHA}" ]; then
+              echo "::error::SHA-256 mismatch on ${FILE_NAME}!"
+              echo "  Expected: ${EXPECTED_SHA}"
+              echo "  Received: ${ACTUAL_SHA}"
+              exit 1
+            fi
+            
+            echo "  ✓ Cryptographic checksum verified: ${ACTUAL_SHA}"
+          }
+          
+          # Strictly verify each artifact against CDN
+          verify_cdn_asset "${WIN_EXE}" "application/vnd.microsoft.portable-executable"
+          verify_cdn_asset "${MAC_DMG}" "application/x-apple-diskimage"
+          verify_cdn_asset "${APK_FILE}" "application/vnd.android.package-archive"
+          verify_cdn_asset "SHA256SUMS.txt" "text/plain; charset=utf-8"
+          
+          # 3. Cryptographic Manifest Verification
+          echo "=================================================="
+          echo "Executing sha256sum --check on CDN-downloaded files..."
+          cd "${VERIFY_DIR}"
+          sha256sum --check SHA256SUMS.txt
+          
+          echo "Comparing CDN SHA256SUMS.txt with local release manifest..."
+          cmp -s "${ASSETS_DIR}/SHA256SUMS.txt" "${VERIFY_DIR}/SHA256SUMS.txt"
+          echo "✓ All public CDN installers and cryptographic manifest verified with 100% integrity."
+
